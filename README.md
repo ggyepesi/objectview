@@ -67,6 +67,7 @@ Runnable demos in `objectview.demo`:
 | demo | shows |
 |------|-------|
 | `Quickstart` | the 30-second example above |
+| `SearchDemo` | live search, sort, field highlight + bulk expand/collapse toolbar |
 | `MultiViewDemo` | two views sharing a context; click a chip to navigate between them |
 | `RenderBenchmark [count]` | scale — 100,000 rich cards |
 

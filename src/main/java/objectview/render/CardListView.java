@@ -207,6 +207,21 @@ public class CardListView {
         return virtualList;
     }
 
+    /** Re-render every currently-built card in place, so a change to shared
+     *  render state (e.g. {@link RenderContext} bulk expand/collapse) shows
+     *  immediately. Cards not yet built pick the state up when built on scroll. */
+    public void refreshBuiltCards() {
+        if (virtualList == null) {
+            return;
+        }
+        for (Viewable v : viewables) {
+            javax.swing.JComponent c = virtualList.builtCard(v);
+            if (c instanceof Card card) {
+                card.refresh();
+            }
+        }
+    }
+
     private Card buildCard(Viewable q) {
         ViewConfig cfg =
                 ViewConfig.all(q.getClass())
