@@ -1,6 +1,6 @@
 package objectview.render;
 
-import objectview.search.SearchPanel;
+import objectview.field.FieldProperties;
 import objectview.text.TextSelectable;
 import objectview.text.TextSelection;
 import objectview.text.TextSelectionManager;
@@ -75,8 +75,8 @@ public class TextBlock extends JComponent implements TextSelectable {
         setOpaque(false);
         setFocusable(true);
 
-        putClientProperty(SearchPanel.FIELD_NAME_PROPERTY, "textBlock");
-        putClientProperty(SearchPanel.FIELD_VALUE_PROPERTY, this);
+        putClientProperty(FieldProperties.FIELD_NAME_PROPERTY, "textBlock");
+        putClientProperty(FieldProperties.FIELD_VALUE_PROPERTY, this);
 
         addMouseListener(TextCopyMouseHandler.INSTANCE);
         addMouseMotionListener(TextCopyMouseHandler.INSTANCE);

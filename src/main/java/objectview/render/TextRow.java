@@ -1,6 +1,6 @@
 package objectview.render;
 
-import objectview.search.SearchPanel;
+import objectview.field.FieldProperties;
 import objectview.text.TextSelectable;
 import objectview.text.TextSelection;
 import objectview.text.TextSelectionManager;
@@ -76,9 +76,9 @@ public class TextRow extends JComponent implements TextSelectable {
         setOpaque(false);
         setFocusable(true);
 
-        putClientProperty(SearchPanel.FIELD_NAME_PROPERTY, this.fieldName);
-        putClientProperty(SearchPanel.FIELD_PATH_PROPERTY, this.fieldPath);
-        putClientProperty(SearchPanel.FIELD_VALUE_PROPERTY,
+        putClientProperty(FieldProperties.FIELD_NAME_PROPERTY, this.fieldName);
+        putClientProperty(FieldProperties.FIELD_PATH_PROPERTY, this.fieldPath);
+        putClientProperty(FieldProperties.FIELD_VALUE_PROPERTY,
                           String.join(" ", this.lines));
 
         addMouseListener(TextCopyMouseHandler.INSTANCE);

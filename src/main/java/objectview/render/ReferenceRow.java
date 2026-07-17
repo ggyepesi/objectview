@@ -1,7 +1,7 @@
 package objectview.render;
 
 import objectview.demo.CardFrame;
-import objectview.search.SearchPanel;
+import objectview.field.FieldProperties;
 import objectview.Viewable;
 import objectview.viewconfig.ViewConfig;
 import org.slf4j.Logger;
@@ -88,7 +88,7 @@ public class ReferenceRow extends TextRow {
         List<String> searchPath = new ArrayList<>(
                 fieldPath == null ? List.of() : fieldPath);
         searchPath.add("name");
-        putClientProperty(SearchPanel.FIELD_PATH_PROPERTY, searchPath);
+        putClientProperty(FieldProperties.FIELD_PATH_PROPERTY, searchPath);
     }
 
     @Override

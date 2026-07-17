@@ -7,7 +7,7 @@ import objectview.demo.CardFrame;
 import objectview.media.ImageBlurrer;
 import objectview.media.ImagePane;
 import objectview.media.MediaValue;
-import objectview.search.SearchPanel;
+import objectview.field.FieldProperties;
 import objectview.viewconfig.ViewConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -477,9 +477,9 @@ public class Card extends JPanel {
         JLabel titleLabel = new JLabel(title);
         titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD));
         titleLabel.setForeground(new Color(0, 80, 180));
-        titleLabel.putClientProperty(SearchPanel.FIELD_NAME_PROPERTY, "name");
-        titleLabel.putClientProperty(SearchPanel.FIELD_VALUE_PROPERTY, title);
-        titleLabel.putClientProperty(SearchPanel.FIELD_PATH_PROPERTY, List.of("name"));
+        titleLabel.putClientProperty(FieldProperties.FIELD_NAME_PROPERTY, "name");
+        titleLabel.putClientProperty(FieldProperties.FIELD_VALUE_PROPERTY, title);
+        titleLabel.putClientProperty(FieldProperties.FIELD_PATH_PROPERTY, List.of("name"));
 
         if (renderContext.selectionEnabled()) {
             titleLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -524,9 +524,9 @@ public class Card extends JPanel {
                         ? "Click to focus existing panel"
                         : "Double-click to open full view");
 
-        titleLabel.putClientProperty(SearchPanel.FIELD_NAME_PROPERTY, "name");
-        titleLabel.putClientProperty(SearchPanel.FIELD_VALUE_PROPERTY, title);
-        titleLabel.putClientProperty(SearchPanel.FIELD_PATH_PROPERTY, List.of("name"));
+        titleLabel.putClientProperty(FieldProperties.FIELD_NAME_PROPERTY, "name");
+        titleLabel.putClientProperty(FieldProperties.FIELD_VALUE_PROPERTY, title);
+        titleLabel.putClientProperty(FieldProperties.FIELD_PATH_PROPERTY, List.of("name"));
 
         // A view can enable single-selection (e.g. curation, to pick the instance
         // to fill): a single click on the card's name selects it — the render

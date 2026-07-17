@@ -1,6 +1,6 @@
 package objectview.render;
 
-import objectview.search.SearchPanel;
+import objectview.field.FieldProperties;
 
 import javax.swing.*;
 import java.awt.*;
@@ -53,8 +53,8 @@ public class CollectionHeader extends JComponent {
 
         // Keep the field searchable even when collapsed.
         List<String> path = new ArrayList<>(fieldPath == null ? List.of() : fieldPath);
-        putClientProperty(SearchPanel.FIELD_NAME_PROPERTY, this.fieldName);
-        putClientProperty(SearchPanel.FIELD_PATH_PROPERTY, path);
+        putClientProperty(FieldProperties.FIELD_NAME_PROPERTY, this.fieldName);
+        putClientProperty(FieldProperties.FIELD_PATH_PROPERTY, path);
 
         addMouseListener(new MouseAdapter() {
             @Override

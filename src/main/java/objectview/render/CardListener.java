@@ -1,14 +1,12 @@
 package objectview.render;
 
-import objectview.search.SearchPanel;
-
 import java.util.List;
 
 /**
  * Notified when the set of {@link Card} cards controlled by a
  * {@link CardListView} changes after the view is already showing.
  *
- * {@link SearchPanel} implements this to re-snapshot the target
+ * {@link objectview.search.SearchPanel} implements this to re-snapshot the target
  * panel (column count, original order, search index) so that live-added
  * cards are searchable and sortable like the rest.
  *

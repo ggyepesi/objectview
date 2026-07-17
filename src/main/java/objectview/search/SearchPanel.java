@@ -1,4 +1,8 @@
 package objectview.search;
+
+import static objectview.field.FieldProperties.FIELD_NAME_PROPERTY;
+import static objectview.field.FieldProperties.FIELD_PATH_PROPERTY;
+import static objectview.field.FieldProperties.FIELD_VALUE_PROPERTY;
 import objectview.*;
 import objectview.field.ViewableFieldPaths;
 
@@ -22,9 +26,6 @@ import java.util.List;
 
 public class SearchPanel extends JPanel
         implements CardListener {
-    public static final String FIELD_PATH_PROPERTY = "quiz.fieldPath";
-    public static final String FIELD_NAME_PROPERTY = "quiz.fieldName";
-    public static final String FIELD_VALUE_PROPERTY = "quiz.fieldValue";
 
     private static final String OLD_BORDER_PROPERTY =
             "quiz.search.oldBorder";

@@ -2,7 +2,6 @@ package objectview.render;
 
 import objectview.utils.swing.GridBagUtils;
 import objectview.media.ImagePane;
-import objectview.search.SearchPanel;
 import objectview.Viewable;
 import objectview.virtual.VirtualizedCardList;
 import objectview.viewconfig.ViewConfig;
@@ -450,16 +449,13 @@ public class CardListView {
         frame.setLayout(new BorderLayout(6, 6));
 
         if (!viewables.isEmpty()) {
-            Viewable first = viewables.getFirst();
-
-            SearchPanel searchPanel =
-                    new SearchPanel(first.getClass());
-
-            searchPanel.setTarget(getCardsPanel(), cardsScrollPane);
-            searchPanel.setRenderContext(context);
-            addTargetListener(searchPanel);
-
-            frame.add(searchPanel, BorderLayout.NORTH);
+            CardSearchBarFactory factory = CardSearchBarFactory.active();
+            JComponent searchBar = factory == null
+                    ? null
+                    : factory.createSearchBar(this, viewables.getFirst().getClass());
+            if (searchBar != null) {
+                frame.add(searchBar, BorderLayout.NORTH);
+            }
         }
 
         frame.add(cardsScrollPane, BorderLayout.CENTER);

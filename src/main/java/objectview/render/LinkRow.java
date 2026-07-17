@@ -1,7 +1,7 @@
 package objectview.render;
 
 import objectview.utils.BrowserLauncher;
-import objectview.search.SearchPanel;
+import objectview.field.FieldProperties;
 
 import javax.swing.*;
 import java.awt.*;
@@ -49,7 +49,7 @@ public class LinkRow extends TextRow {
         setToolTipText(this.url + " · click to open · right-click to copy");
 
         putClientProperty(
-                SearchPanel.FIELD_VALUE_PROPERTY,
+                FieldProperties.FIELD_VALUE_PROPERTY,
                 this.url);
     }
 

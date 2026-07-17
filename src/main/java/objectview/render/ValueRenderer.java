@@ -3,7 +3,7 @@ package objectview.render;
 import objectview.utils.swing.GridBagUtils;
 import objectview.media.ImagePane;
 import objectview.media.MediaValue;
-import objectview.search.SearchPanel;
+import objectview.field.FieldProperties;
 import objectview.Viewable;
 import objectview.viewconfig.ViewConfig;
 
@@ -337,11 +337,11 @@ public final class ValueRenderer {
             panel.setBorder(BorderFactory.createTitledBorder(fieldName));
         }
 
-        panel.putClientProperty(SearchPanel.FIELD_NAME_PROPERTY, fieldName);
+        panel.putClientProperty(FieldProperties.FIELD_NAME_PROPERTY, fieldName);
 
-        panel.putClientProperty(SearchPanel.FIELD_PATH_PROPERTY, new ArrayList<>(fieldPath));
+        panel.putClientProperty(FieldProperties.FIELD_PATH_PROPERTY, new ArrayList<>(fieldPath));
 
-        panel.putClientProperty(SearchPanel.FIELD_VALUE_PROPERTY, value);
+        panel.putClientProperty(FieldProperties.FIELD_VALUE_PROPERTY, value);
 
         return panel;
     }
