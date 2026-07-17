@@ -120,7 +120,7 @@ public final class VirtualizedGroupTreeView extends JPanel
 
         return lastNavigated != null
                 ? lastNavigated
-                : members.isEmpty() ? null : members.getFirst();
+                : members.isEmpty() ? null : members.get(0);
     }
 
     @Override
@@ -141,7 +141,7 @@ public final class VirtualizedGroupTreeView extends JPanel
             return null;
         }
 
-        MemberRow row = occurrences.getFirst();
+        MemberRow row = occurrences.get(0);
         JComponent wrapper = rows.navigateToTop(row);
         lastNavigated = member;
 

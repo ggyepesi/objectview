@@ -959,7 +959,7 @@ public final class VirtualizedCardList
              * class fallback substantially.
              */
             if (height <= cached * 2) {
-                samples.removeFirst();
+                samples.remove(0);
                 samples.add(height);
                 recompute();
             }

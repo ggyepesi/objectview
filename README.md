@@ -80,7 +80,7 @@ generate 285 ms · register 54 ms · build 923 ms · jump-to-last 82 ms · searc
 
 ## Build & use
 
-Requires JDK 21.
+Requires JDK 17 or later.
 
 ```bash
 mvn install          # build, test, install to your local Maven repo

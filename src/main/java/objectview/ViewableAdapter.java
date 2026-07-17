@@ -63,13 +63,19 @@ public abstract class ViewableAdapter implements Viewable {
     }
 
     public static boolean isValidQuizValue(Object value) {
-        return switch (value) {
-            case null -> false;
-            case String s -> !s.isBlank();
-            case Collection<?> c -> !c.isEmpty();
-            case Map<?, ?> m -> !m.isEmpty();
-            default -> true;
-        };
+        if (value == null) {
+            return false;
+        }
+        if (value instanceof String s) {
+            return !s.isBlank();
+        }
+        if (value instanceof Collection<?> c) {
+            return !c.isEmpty();
+        }
+        if (value instanceof Map<?, ?> m) {
+            return !m.isEmpty();
+        }
+        return true;
     }
 
     public static List<Field> getAllFields(Class<?> cls) {

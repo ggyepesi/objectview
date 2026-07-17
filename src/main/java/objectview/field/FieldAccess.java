@@ -38,7 +38,8 @@ public final class FieldAccess {
     }
 
     public static void setPath(Object root, String path, Object value) {
-        writeField(owner(root, path), split(path).getLast(), value);
+        var parts = split(path);
+        writeField(owner(root, path), parts.get(parts.size() - 1), value);
     }
 
     public static void addToCollection(Object root, String fieldName, Object value) {

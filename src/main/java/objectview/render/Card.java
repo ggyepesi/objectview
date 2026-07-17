@@ -1215,7 +1215,7 @@ public class Card extends JPanel {
                 new ArrayList<>(base == null ? List.of() : base);
 
         if (out.isEmpty()
-                || !"name".equals(out.getLast())) {
+                || !"name".equals(out.get(out.size() - 1))) {
             out.add("name");
         }
 
@@ -1341,18 +1341,14 @@ public class Card extends JPanel {
     }
 
     private static String shortValue(Object v) {
-        switch (v) {
-            case null -> {
-                return "null";
-            }
-            case Collection<?> c -> {
-                return "Collection size=" + c.size();
-            }
-            case Map<?, ?> m -> {
-                return "Map size=" + m.size();
-            }
-            default -> {
-            }
+        if (v == null) {
+            return "null";
+        }
+        if (v instanceof Collection<?> c) {
+            return "Collection size=" + c.size();
+        }
+        if (v instanceof Map<?, ?> m) {
+            return "Map size=" + m.size();
         }
 
         String s = String.valueOf(v);

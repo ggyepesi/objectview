@@ -935,7 +935,7 @@ public class SearchPanel extends JPanel
             addHitGroupRow(g);
 
             if (first == null) {
-                first = g.hits.getFirst();
+                first = g.hits.get(0);
                 g.index = 0;
                 g.updateLabel();
             }

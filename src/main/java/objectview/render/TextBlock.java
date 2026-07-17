@@ -421,7 +421,7 @@ public class TextBlock extends JComponent implements TextSelectable {
             }
         }
 
-        int naturalWidth = Math.clamp(PAD_X + longest + PAD_X, 120, MAX_PREF_WIDTH);
+        int naturalWidth = Math.max(120, Math.min(MAX_PREF_WIDTH, PAD_X + longest + PAD_X));
 
         // Reserve height for wrapping at the width we are actually given (the
         // card stretches us past naturalWidth). Computing height at

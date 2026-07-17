@@ -467,7 +467,7 @@ public class CardListView {
             CardSearchBarFactory factory = CardSearchBarFactory.active();
             JComponent searchBar = factory == null
                     ? null
-                    : factory.createSearchBar(this, viewables.getFirst().getClass());
+                    : factory.createSearchBar(this, viewables.get(0).getClass());
             if (searchBar != null) {
                 frame.add(searchBar, BorderLayout.NORTH);
             }

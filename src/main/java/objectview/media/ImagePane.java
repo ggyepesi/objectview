@@ -437,8 +437,8 @@ public class ImagePane extends JPanel
 
     private Point translatePoint(Point point) {
         return new Point(
-                Math.clamp(point.x, insets.left, insets.left + (int) pw),
-                Math.clamp(point.y, insets.top, insets.top + (int) ph));
+                Math.max(insets.left, Math.min(insets.left + (int) pw, point.x)),
+                Math.max(insets.top, Math.min(insets.top + (int) ph, point.y)));
     }
 
     private void showImageView(String title, Image image, boolean addListeners) {

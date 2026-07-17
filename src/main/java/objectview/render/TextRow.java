@@ -410,7 +410,7 @@ public class TextRow extends JComponent implements TextSelectable {
                 + longest
                 + PAD_X;
 
-        int prefWidth = Math.clamp(naturalWidth, 160, MAX_PREF_WIDTH);
+        int prefWidth = Math.max(160, Math.min(MAX_PREF_WIDTH, naturalWidth));
 
         int layoutWidth = getWidth() > 0 ? getWidth() : prefWidth;
         int valueWidth = Math.max(
