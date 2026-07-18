@@ -18,9 +18,9 @@ import java.util.Random;
  * responsive because {@link objectview.virtual.VirtualizedCardList} only
  * materializes the cards actually on screen.
  *
- * <p>Run with an optional count (default 50,000):
+ * <p>Run with an optional count (default 100,000):
  * <pre>
- *   java objectview.demo.RenderBenchmark 50000
+ *   java objectview.demo.RenderBenchmark 100000
  * </pre>
  *
  * <p>It times and reports, for that many rich cards (each with several text
@@ -72,7 +72,7 @@ public class RenderBenchmark {
     private static final String NEEDLE = "resonant";
 
     public static void main(String[] args) {
-        int n = args.length > 0 ? Integer.parseInt(args[0]) : 50_000;
+        int n = args.length > 0 ? Integer.parseInt(args[0]) : 100_000;
 
         long g0 = System.nanoTime();
         List<Item> items = generate(n);
