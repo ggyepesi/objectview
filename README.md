@@ -1,5 +1,7 @@
 # objectview
 
+[![build](https://github.com/ggyepesi/objectview/actions/workflows/build.yml/badge.svg)](https://github.com/ggyepesi/objectview/actions/workflows/build.yml)
+
 A Swing library for **rendering, searching, and virtualizing large collections of
 structured objects** — through one small SPI. Implement `Viewable` on your own
 type and objectview gives you painted cards, live search/sort, reference-chip
