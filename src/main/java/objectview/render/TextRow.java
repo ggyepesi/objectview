@@ -679,4 +679,9 @@ public class TextRow extends JComponent implements TextSelectable {
         selection.clear();
         repaint();
     }
+
+    @Override
+    public boolean hasActiveSelection() {
+        return !selection.isEmpty();
+    }
 }

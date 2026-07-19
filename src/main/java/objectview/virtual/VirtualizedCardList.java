@@ -878,8 +878,19 @@ public final class VirtualizedCardList
         }
         heights.remove(q);
 
-        rebuildTops();
-        revalidate();
+        // Rebuild q at its NEW (toggled) size and rebuild the height table from the
+        // EXACT measured height in one step. The old code called rebuildTops() here
+        // first, which — with q's height just dropped — fell back to the class
+        // ESTIMATE and published an intermediate layout with a smaller content
+        // height. While pinned at the bottom, that shrink clamped the viewport up
+        // and left a just-expanded LAST card's body past an unreachable scroll
+        // bottom until an unrelated relayout. Measuring first avoids the shrink.
+        if (indexOf(q) >= 0) {
+            buildIfNeeded(q);   // build + measure exact + rebuildTops + revalidate
+        } else {
+            rebuildTops();
+            revalidate();
+        }
         repaint();
         updateVisible();
     }

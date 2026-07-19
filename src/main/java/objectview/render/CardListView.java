@@ -3,6 +3,8 @@ package objectview.render;
 import objectview.utils.swing.GridBagUtils;
 import objectview.media.ImagePane;
 import objectview.Viewable;
+import objectview.text.TextSelectable;
+import objectview.text.TextSelectionManager;
 import objectview.virtual.VirtualizedCardList;
 import objectview.viewconfig.ViewConfig;
 
@@ -293,6 +295,15 @@ public class CardListView {
             return;   // not on screen — it rebuilds fresh when scrolled into view
         }
 
+        if (ownsActiveSelection(card)) {
+            // The user is mid-drag selecting text INSIDE this card (e.g. copying a
+            // line from a running query-log entry). refresh() rebuilds the card's
+            // components and would wipe that selection. Skip the redraw — the data
+            // is unchanged visually anyway, and the card re-renders on its next
+            // update once the selection is released.
+            return;
+        }
+
         card.refresh();
 
         virtualList.revalidate();
@@ -347,6 +358,17 @@ public class CardListView {
     private Card findCard(Viewable q) {
         return virtualList != null && virtualList.builtCard(q) instanceof Card qp
                 ? qp : null;
+    }
+
+    // True when the live (non-empty) text selection lives inside this card, so a
+    // refresh would destroy the user's in-progress copy selection.
+    private static boolean ownsActiveSelection(Component card) {
+        if (card == null || !TextSelectionManager.hasActiveSelection()) {
+            return false;
+        }
+        TextSelectable selectable = TextSelectionManager.current();
+        return selectable instanceof Component c
+                && SwingUtilities.isDescendingFrom(c, card);
     }
 
     public javax.swing.JComponent getCardsPanel() {

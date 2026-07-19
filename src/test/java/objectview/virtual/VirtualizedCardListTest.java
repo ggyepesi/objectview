@@ -261,6 +261,41 @@ class VirtualizedCardListTest {
     }
 
     @Test
+    void expandingTheLastCardFromTheBottomExtendsTheScrollRange() {
+        onEdt(() -> {
+            List<Item> items = makeItems(200);
+            VirtualizedCardList list = install(items);
+            int last = items.size() - 1;
+
+            // Scroll to the very bottom so the LAST card is built and pinned — the
+            // exact situation where an expand used to leave the body unreachable.
+            list.navigateToTop(items.get(last));
+            int collapsedTotal = list.totalHeight();
+
+            // Expand the last card in place and invalidate it (the real toggle path
+            // used by CardListView's card-toggle handler).
+            realHeight.put(items.get(last), EXPANDED);
+            list.invalidateCard(items.get(last));
+
+            // The content height must grow by EXACTLY the expansion — never left at
+            // the collapsed estimate by an intermediate rebuild, which would clamp
+            // the viewport up and hide the expanded body past an unreachable bottom.
+            assertEquals(collapsedTotal + (EXPANDED - COLLAPSED), list.totalHeight(),
+                    "content height must reflect the last card's exact expanded height");
+
+            // The preferred (scrollable) height must cover the full content, so the
+            // scrollbar range reaches the expanded bottom.
+            assertTrue(list.getPreferredSize().height >= list.totalHeight(),
+                    "preferred height must cover the expanded content");
+
+            JComponent card = list.builtCard(items.get(last));
+            assertNotNull(card, "last card must stay built after invalidate");
+            assertEquals(EXPANDED, card.getHeight(),
+                    "last card must be laid out at its expanded height");
+        });
+    }
+
+    @Test
     void multipleExpansionsStayExact() {
         onEdt(() -> {
             List<Item> items = makeItems(600);

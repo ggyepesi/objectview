@@ -34,4 +34,15 @@ public final class TextSelectionManager {
             old.clearSelectionFromManager();
         }
     }
+
+    /** The component that last activated a selection, or null. */
+    public static TextSelectable current() {
+        return current;
+    }
+
+    /** True when some component currently holds a non-empty text selection — a
+     *  drag the user would lose if that component's card were rebuilt. */
+    public static boolean hasActiveSelection() {
+        return current != null && current.hasActiveSelection();
+    }
 }

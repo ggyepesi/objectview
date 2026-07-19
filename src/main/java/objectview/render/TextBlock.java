@@ -40,6 +40,11 @@ public class TextBlock extends JComponent implements TextSelectable {
         repaint();
     }
 
+    @Override
+    public boolean hasActiveSelection() {
+        return !selection.isEmpty();
+    }
+
     public record Row(String fieldName,
                       List<String> fieldPath,
                       Object value,
