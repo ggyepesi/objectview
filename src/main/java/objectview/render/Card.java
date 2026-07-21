@@ -1187,24 +1187,13 @@ public class Card extends JPanel {
             return false;
         }
 
-        if (value instanceof Map<?, ?> map) {
-            for (Object v : map.values()) {
-                if (v instanceof Viewable || v instanceof ImagePane || v instanceof MediaValue
-                        || v instanceof Collection<?> || v instanceof Map<?, ?>) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        if (value instanceof Collection<?> collection) {
-            for (Object item : collection) {
-                if (item instanceof Viewable || item instanceof ImagePane || item instanceof MediaValue
-                        || item instanceof Collection<?> || item instanceof Map<?, ?>) {
-                    return false;
-                }
-            }
-            return true;
+        // A collection or map renders as its own bordered, collapsible group
+        // ("{field} (N)" header) — never folded into the shared, drag-to-select
+        // text block. This matches the dynamic-field path (which already treats
+        // every collection/map as complex) and keeps a long list (e.g. a log
+        // node's `messages`) collapsible instead of an unbounded bullet run.
+        if (value instanceof Collection<?> || value instanceof Map<?, ?>) {
+            return false;
         }
 
         return true;
