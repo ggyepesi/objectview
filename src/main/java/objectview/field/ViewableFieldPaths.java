@@ -84,6 +84,178 @@ public final class ViewableFieldPaths {
     }
 
     /**
+     * Field paths enumerated from a sample instance, restricted recursively by
+     * {@code config}. Unlike filtering only the first path segment, this method
+     * applies each child {@link ViewConfig} at the level it configures.
+     * <p>
+     * The sample is still used to discover map-backed dynamic fields. Declared
+     * fields retain their reflection {@link Field}, annotations and field filter.
+     */
+    public static List<FieldPath> collectFromSample(Viewable sample,
+                                                    ViewConfig config,
+                                                    FieldFilter filter) {
+        List<FieldPath> out = new ArrayList<>();
+
+        if (sample == null || config == null) {
+            return out;
+        }
+
+        collectConfiguredSample(
+                sample,
+                config,
+                new ArrayList<>(),
+                "",
+                filter == null ? ALL_FIELDS : filter,
+                java.util.Collections.newSetFromMap(
+                        new java.util.IdentityHashMap<>()),
+                out);
+
+        if (config.isAllFields()) {
+            ensureIdentityFields(sample.getClass(), out);
+        }
+
+        return dedupByPath(out);
+    }
+
+    private static void collectConfiguredSample(Viewable obj,
+                                                ViewConfig config,
+                                                List<String> prefix,
+                                                String titlePrefix,
+                                                FieldFilter filter,
+                                                Set<Object> branch,
+                                                List<FieldPath> out) {
+        if (obj == null || config == null || !branch.add(obj)) {
+            return;
+        }
+
+        try {
+            FieldSet set = FieldSet.of(obj);
+            Set<String> handled = new LinkedHashSet<>();
+
+            // Explicit fields first, preserving configuration order.
+            for (Map.Entry<String, ViewConfig> entry
+                    : config.getFields().entrySet()) {
+
+                String name = entry.getKey();
+
+                if ("name".equals(name)) {
+                    addNamePath(prefix, titlePrefix, out);
+                    handled.add(name);
+                    continue;
+                }
+
+                addConfiguredSampleField(
+                        obj,
+                        set,
+                        name,
+                        entry.getValue(),
+                        prefix,
+                        titlePrefix,
+                        filter,
+                        branch,
+                        out);
+
+                handled.add(name);
+            }
+
+            // Then fields implied by allFields/allMinorFields. These are read from
+            // the actual sample so map-backed dynamic fields are included too.
+            for (FieldRef ref : set.fields()) {
+                String name = ref.name();
+
+                if (handled.contains(name) || "name".equals(name)) {
+                    continue;
+                }
+
+                Field field =
+                        ViewableAdapter.getField(obj.getClass(), name);
+
+                boolean shown = field != null
+                        ? config.showsField(field)
+                        : config.showsFieldByName(name);
+
+                if (!shown) {
+                    continue;
+                }
+
+                addConfiguredSampleField(
+                        obj,
+                        set,
+                        name,
+                        config.getFieldConfig(name),
+                        prefix,
+                        titlePrefix,
+                        filter,
+                        branch,
+                        out);
+            }
+        } finally {
+            branch.remove(obj);
+        }
+    }
+
+    private static void addConfiguredSampleField(Viewable owner,
+                                                 FieldSet set,
+                                                 String name,
+                                                 ViewConfig childConfig,
+                                                 List<String> prefix,
+                                                 String titlePrefix,
+                                                 FieldFilter filter,
+                                                 Set<Object> branch,
+                                                 List<FieldPath> out) {
+        Field leaf =
+                ViewableAdapter.getField(owner.getClass(), name);
+
+        if (leaf != null
+                && (!filter.accept(leaf)
+                || ViewableAdapter.isProvenanceField(leaf))) {
+            return;
+        }
+
+        Object value = set.has(name)
+                ? set.read(name)
+                : null;
+
+        List<String> path = new ArrayList<>(prefix);
+        path.add(name);
+
+        String title = titlePrefix.isEmpty()
+                ? name
+                : titlePrefix + "." + name;
+
+        Viewable child = firstViewable(value);
+
+        if (child == null) {
+            out.add(new FieldPath(title, path, leaf));
+            return;
+        }
+
+        boolean childHasSelection = childConfig != null
+                && (childConfig.isAllFields()
+                || childConfig.isAllMinorFields()
+                || !childConfig.getFields().isEmpty());
+
+        if (childHasSelection && prefix.size() < SAMPLE_MAX_DEPTH) {
+            collectConfiguredSample(
+                    child,
+                    childConfig,
+                    path,
+                    title,
+                    filter,
+                    branch,
+                    out);
+        } else {
+            List<String> namePath = new ArrayList<>(path);
+            namePath.add("name");
+
+            out.add(new FieldPath(
+                    title + ".name",
+                    namePath,
+                    leaf));
+        }
+    }
+
+    /**
      * Keeps the first {@link FieldPath} for each distinct access path, dropping
      * later duplicates. Two entries with the same path address the same value, so
      * surfacing both only lets a stray/duplicated field (classically a second

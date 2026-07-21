@@ -110,59 +110,38 @@ public class SearchAndSort {
             List<String> queryTokens,
             ViewConfig searchConfig) {
 
-        Map<String, List<objectview.Viewable>> out = new LinkedHashMap<>();
+        Map<String, List<objectview.Viewable>> out =
+                new LinkedHashMap<>();
 
-        if (viewables == null || viewables.isEmpty() || searchConfig == null
-                || queryTokens == null || queryTokens.isEmpty()) {
+        if (viewables == null
+                || viewables.isEmpty()
+                || searchConfig == null
+                || queryTokens == null
+                || queryTokens.isEmpty()) {
             return out;
         }
 
-        // Enumerate fields through the ONE unified bridge (FieldSet, via
-        // collectFromSample) — it reads declared Java fields AND a WDO's map-held
-        // fields with no instanceof branch, so a reference like forWork/category is
-        // searchable regardless of representation. Filter to the search config's
-        // selection (by the path's top-level field), so "search these fields" applies.
-        List<ViewableFieldPaths.FieldPath> candidates = new ArrayList<>();
-        for (ViewableFieldPaths.FieldPath fp
-                : ViewableFieldPaths.collectFromSample(
-                viewables.get(0), ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS)) {
-            String top = fp.path().isEmpty() ? "" : fp.path().get(0);
-            if (searchConfig.showsFieldByName(top)) {
-                candidates.add(fp);
-            }
-        }
-
-        // A reference field is enumerated as BOTH the bare path (e.g. `hemisphere`,
-        // which flattens to the referent's display name when searched) and an explicit
-        // `hemisphere.name`. For SEARCH they match identical text, so keeping both
-        // double-reports one hit under two titles. Drop the redundant `.name` child
-        // when its bare reference path is also searched (the split still serves
-        // invert / projection config, which is why it isn't removed at the source).
-        Set<List<String>> present = new HashSet<>();
-        for (ViewableFieldPaths.FieldPath fp : candidates) {
-            present.add(fp.path());
-        }
-        List<ViewableFieldPaths.FieldPath> paths = new ArrayList<>();
-        for (ViewableFieldPaths.FieldPath fp : candidates) {
-            List<String> p = fp.path();
-            if (p.size() >= 2
-                    && "name".equals(p.get(p.size() - 1))
-                    && present.contains(p.subList(0, p.size() - 1))) {
-                continue;
-            }
-            paths.add(fp);
-        }
+        List<ViewableFieldPaths.FieldPath> paths =
+                ViewableFieldPaths.collectFromSample(
+                        viewables.get(0),
+                        searchConfig,
+                        ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS);
 
         for (ViewableFieldPaths.FieldPath fp : paths) {
             List<objectview.Viewable> hits = null;
 
             for (objectview.Viewable q : viewables) {
-                Object value = extractValue(q, fp.path());
+                Object value =
+                        extractValue(q, fp.path());
 
-                if (containsAllTokens(normalize(flattenForSearch(value)), queryTokens)) {
+                if (containsAllTokens(
+                        normalize(flattenForSearch(value)),
+                        queryTokens)) {
+
                     if (hits == null) {
                         hits = new ArrayList<>();
                     }
+
                     hits.add(q);
                 }
             }

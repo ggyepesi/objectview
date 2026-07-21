@@ -43,6 +43,51 @@ class ViewableFieldPathsTest {
     }
 
     @Test
+    void collectFromSampleEmitsNameForAnUnconfiguredReferenceChild() {
+        TestChild child = new TestChild();
+        child.name = "Meryl";
+        child.code = "42";
+        TestCard card = new TestCard();
+        card.name = "nom";
+        card.children = List.of(child);
+
+        // `children` is selected but with NO child selection -> only its display name
+        // is a searchable path, not the child's other (unconfigured) fields.
+        ViewConfig config = ViewConfig.of(TestCard.class);
+        config.setAllFields(false);
+        config.addField("children", ViewConfig.leaf());
+
+        Set<String> paths = pathStrings(ViewableFieldPaths.collectFromSample(
+                card, config, ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS));
+
+        assertEquals(Set.of("children.name"), paths);
+    }
+
+    @Test
+    void collectFromSampleRecursesIntoConfiguredChildFieldsOnly() {
+        TestChild child = new TestChild();
+        child.name = "Meryl";
+        child.code = "42";
+        TestCard card = new TestCard();
+        card.name = "nom";
+        card.children = List.of(child);
+
+        // The child config selects `code` only -> children.code is enumerated, and the
+        // unconfigured children.name is NOT. This is the recursive-config restriction.
+        ViewConfig childConfig = ViewConfig.of(TestChild.class);
+        childConfig.setAllFields(false);
+        childConfig.addField("code", ViewConfig.leaf());
+        ViewConfig config = ViewConfig.of(TestCard.class);
+        config.setAllFields(false);
+        config.addField("children", childConfig);
+
+        Set<String> paths = pathStrings(ViewableFieldPaths.collectFromSample(
+                card, config, ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS));
+
+        assertEquals(Set.of("children.code"), paths);
+    }
+
+    @Test
     void imagePaneFieldsAreExcluded() {
         ViewConfig config = ViewConfig.of(TestCard.class);
         config.setAllFields(false);

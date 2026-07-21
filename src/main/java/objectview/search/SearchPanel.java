@@ -1659,10 +1659,16 @@ public class SearchPanel extends JPanel
         Map<String, ViewableFieldPaths.FieldPath> pathByTitle =
                 new LinkedHashMap<>();
 
+        Viewable sample = virtualList.items().isEmpty()
+                ? null
+                : virtualList.items().get(0);
+
         for (ViewableFieldPaths.FieldPath fp
-                : ViewableFieldPaths.collect(
+                : ViewableFieldPaths.collectFromSample(
+                sample,
                 getSearchConfig(),
                 ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS)) {
+
             pathByTitle.put(fp.title(), fp);
         }
 
