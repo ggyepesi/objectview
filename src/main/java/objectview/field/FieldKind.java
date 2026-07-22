@@ -1,6 +1,8 @@
 package objectview.field;
 
 import objectview.Viewable;
+import objectview.media.ImageRef;
+import objectview.media.MediaValue;
 
 import java.util.Collection;
 import java.util.Date;
@@ -19,6 +21,7 @@ public enum FieldKind {
     TEXT,         // string — contains / starts with / ends with
     REFERENCE,    // an entity — equals / contains (by label)
     COLLECTION,   // multi-valued — contains / is empty
+    MEDIA,        // a renderable image (MediaValue) — presence only, never searched/sorted
     UNKNOWN;
 
     /** Classify a runtime value (a representative field value). */
@@ -34,6 +37,12 @@ public enum FieldKind {
         }
         if (isDate(v.getClass())) {
             return ORDERED;
+        }
+        // Media is recognized by CONTRACT, not class: MediaValue (serializable data,
+        // e.g. a State flag or a dynamic image) or ImageRef (produces an image, e.g.
+        // the legacy Swing ImagePane) — so both flavors classify the same.
+        if (v instanceof MediaValue || v instanceof ImageRef) {
+            return MEDIA;
         }
         if (v instanceof Collection) {
             return COLLECTION;
@@ -66,6 +75,9 @@ public enum FieldKind {
         }
         if (isDate(c)) {
             return ORDERED;
+        }
+        if (MediaValue.class.isAssignableFrom(c) || ImageRef.class.isAssignableFrom(c)) {
+            return MEDIA;
         }
         if (Collection.class.isAssignableFrom(c)) {
             return COLLECTION;

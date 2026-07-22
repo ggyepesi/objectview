@@ -1,6 +1,7 @@
 package objectview.viewconfig;
 
 import objectview.field.DynamicFields;
+import objectview.field.FieldKind;
 import objectview.Viewable;
 import objectview.ViewableAdapter;
 import objectview.field.ViewableFieldPaths;
@@ -14,8 +15,12 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 public class ViewConfigEditor extends JPanel {
 
@@ -43,23 +48,47 @@ public class ViewConfigEditor extends JPanel {
     // the sample as before. See FieldTypeSource.
     private FieldTypeSource typeSource;
 
+    // The plugin that shapes the columns / actions / selection (see
+    // FieldRowContributor). DEFAULT reproduces the classic card-config table.
+    private final FieldRowContributor contributor;
+    // The concrete, ordered columns for this contributor, computed once.
+    private final List<Col> cols;
+
+    // Flat PATH-ROW mode: rows come from a precomputed list of dotted paths (the
+    // fold-in of the old single-select FieldTreePanel), not sample reflection.
+    private final boolean pathMode;
+
+    // Drop MEDIA-kind fields (a renderable image) from the row list — set on the
+    // search / sort config editors, where searching or ordering an image is
+    // meaningless; the VIEW editor leaves it off, so a portrait can be shown/hidden.
+    private boolean hideMedia;
+
     public ViewConfigEditor(ViewConfig config) {
-        this(config, false, false, null);
+        this(config, false, false, null, FieldRowContributor.DEFAULT);
     }
 
     public ViewConfigEditor(ViewConfig config,
                             boolean nestedDefaultNameOnly) {
-        this(config, nestedDefaultNameOnly, false, null);
+        this(config, nestedDefaultNameOnly, false, null, FieldRowContributor.DEFAULT);
     }
 
     /** Dynamic: enumerate {@code sample}'s map-held fields (a a map-backed Viewable). */
     public ViewConfigEditor(ViewConfig config, Viewable sample) {
-        this(config, false, false, sample);
+        this(config, false, false, sample, FieldRowContributor.DEFAULT);
     }
 
     public ViewConfigEditor(ViewConfig config,
                             boolean nestedDefaultNameOnly, Viewable sample) {
-        this(config, nestedDefaultNameOnly, false, sample);
+        this(config, nestedDefaultNameOnly, false, sample, FieldRowContributor.DEFAULT);
+    }
+
+    /**
+     * A contributor-driven editor with NO reflective source — rows are supplied later
+     * via {@link #setPathRows}. This is the single-select field picker / coverage-table
+     * face of the component (the old {@code FieldTreePanel} / bespoke Validation table).
+     */
+    public ViewConfigEditor(FieldRowContributor contributor) {
+        this(new ViewConfig(), false, false, null, contributor);
     }
 
     public void setChangeListener(Runnable changeListener) {
@@ -81,6 +110,13 @@ public class ViewConfigEditor extends JPanel {
         tableModel.fireTableDataChanged();
     }
 
+    /** Hide MEDIA-kind fields (images) — for the search / sort editors. Rebuilds. */
+    public void setHideMedia(boolean hideMedia) {
+        this.hideMedia = hideMedia;
+        buildRows();
+        tableModel.fireTableDataChanged();
+    }
+
     private void fireConfigChanged() {
         if (changeListener != null) {
             changeListener.run();
@@ -90,13 +126,14 @@ public class ViewConfigEditor extends JPanel {
     private ViewConfigEditor(ViewConfig config,
                              boolean nestedDefaultNameOnly,
                              boolean minorOnly) {
-        this(config, nestedDefaultNameOnly, minorOnly, null);
+        this(config, nestedDefaultNameOnly, minorOnly, null, FieldRowContributor.DEFAULT);
     }
 
     private ViewConfigEditor(ViewConfig config,
                              boolean nestedDefaultNameOnly,
                              boolean minorOnly,
-                             Viewable sample) {
+                             Viewable sample,
+                             FieldRowContributor contributor) {
         this.sourceConfig = config == null
                 ? new ViewConfig()
                 : config.copy();
@@ -104,12 +141,20 @@ public class ViewConfigEditor extends JPanel {
         this.nestedDefaultNameOnly = nestedDefaultNameOnly;
         this.minorOnly = minorOnly;
         this.sample = sample;
+        this.contributor = contributor == null ? FieldRowContributor.DEFAULT : contributor;
+        this.pathMode = this.contributor.selectionMode() == FieldRowContributor.SelectionMode.SINGLE;
+        this.cols = buildColumns();
+        // The JTable field initializer already asked the model for its columns while
+        // `cols` was still null (guarded to 0); now that it's built, let the table
+        // create its TableColumns before we style them.
+        tableModel.fireTableStructureChanged();
 
         setLayout(new BorderLayout(8, 8));
 
         // A dynamic (map-held) type has no minor-field concept — that's a card
-        // rendering distinction; here every field is shown, so no checkbox.
-        if (!minorOnly && !(sample instanceof DynamicFields)) {
+        // rendering distinction; here every field is shown, so no checkbox. The flat
+        // path-row / single-select face has no minor concept either.
+        if (!minorOnly && !pathMode && !(sample instanceof DynamicFields)) {
             allMinorFieldsBox.setSelected(sourceConfig.isAllMinorFields());
             allMinorFieldsBox.addActionListener(e -> {
                 tableModel.fireTableDataChanged();
@@ -125,18 +170,17 @@ public class ViewConfigEditor extends JPanel {
         table.setRowHeight(28);
         table.setFillsViewportHeight(true);
 
-        table.getColumnModel().getColumn(0).setPreferredWidth(260);
-        table.getColumnModel().getColumn(1).setPreferredWidth(160);
-        table.getColumnModel().getColumn(2).setPreferredWidth(48);
-        // Compact up/down (thin arrows) + a small expand chip.
-        setFixedWidth(table.getColumnModel().getColumn(3), 30);
-        setFixedWidth(table.getColumnModel().getColumn(4), 30);
-        table.getColumnModel().getColumn(5).setPreferredWidth(72);
-
-        for (int col : new int[]{3, 4, 5}) {
-            table.getColumnModel().getColumn(col).setCellRenderer(new ButtonRenderer());
-            table.getColumnModel().getColumn(col).setCellEditor(new ButtonEditor());
+        // Single-select picker: the chosen field is the table's selected row.
+        if (pathMode) {
+            table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+            table.getSelectionModel().addListSelectionListener(e -> {
+                if (!e.getValueIsAdjusting()) {
+                    fireConfigChanged();
+                }
+            });
         }
+
+        installColumns();
 
         table.setDefaultRenderer(Object.class,
                 new RowRenderer(table.getDefaultRenderer(Object.class)));
@@ -146,8 +190,177 @@ public class ViewConfigEditor extends JPanel {
         add(new JScrollPane(table), BorderLayout.CENTER);
     }
 
+    // ---- columns -----------------------------------------------------------
+
+    private enum ColKind { FIELD, TYPE, EXTRA, USE, UP, DOWN, ACTION, EXPAND }
+
+    private static final class Col {
+        final ColKind kind;
+        final String header;
+        final int width;
+        final FieldRowContributor.ExtraColumn extra;   // EXTRA only
+        final FieldRowContributor.RowAction action;    // ACTION only
+
+        Col(ColKind kind, String header, int width) {
+            this(kind, header, width, null, null);
+        }
+
+        Col(ColKind kind, String header, int width,
+            FieldRowContributor.ExtraColumn extra,
+            FieldRowContributor.RowAction action) {
+            this.kind = kind;
+            this.header = header;
+            this.width = width;
+            this.extra = extra;
+            this.action = action;
+        }
+
+        boolean button() {
+            return kind == ColKind.UP || kind == ColKind.DOWN
+                    || kind == ColKind.ACTION || kind == ColKind.EXPAND;
+        }
+
+        boolean fixedWidth() {
+            return kind == ColKind.UP || kind == ColKind.DOWN;
+        }
+    }
+
+    private List<Col> buildColumns() {
+        List<Col> c = new ArrayList<>();
+        c.add(new Col(ColKind.FIELD, "Field", 260));
+        c.add(new Col(ColKind.TYPE, "Type", 160));
+        for (FieldRowContributor.ExtraColumn ec : contributor.columns()) {
+            c.add(new Col(ColKind.EXTRA, ec.header(), ec.width(), ec, null));
+        }
+        if (contributor.showUse()) {
+            c.add(new Col(ColKind.USE, "Use", 48));
+        }
+        if (contributor.showReorder()) {
+            c.add(new Col(ColKind.UP, "", 30));
+            c.add(new Col(ColKind.DOWN, "", 30));
+        }
+        for (FieldRowContributor.RowAction a : contributor.actions()) {
+            c.add(new Col(ColKind.ACTION, "", 120, null, a));
+        }
+        if (contributor.showExpand()) {
+            c.add(new Col(ColKind.EXPAND, "Expand", 72));
+        }
+        return c;
+    }
+
+    private void installColumns() {
+        for (int i = 0; i < cols.size(); i++) {
+            Col col = cols.get(i);
+            javax.swing.table.TableColumn tc = table.getColumnModel().getColumn(i);
+            if (col.fixedWidth()) {
+                setFixedWidth(tc, col.width);
+            } else {
+                tc.setPreferredWidth(col.width);
+            }
+            if (col.button()) {
+                tc.setCellRenderer(new ButtonRenderer());
+                tc.setCellEditor(new ButtonEditor());
+            }
+        }
+    }
+
+    private int columnOf(ColKind kind) {
+        for (int i = 0; i < cols.size(); i++) {
+            if (cols.get(i).kind == kind) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    // ---- flat path-row source (folds in FieldTreePanel) --------------------
+
+    /**
+     * Populates the editor from a flat list of dotted field paths (the single-select
+     * picker face). Nested paths render indented, a parent immediately above its
+     * children; a synthesized ancestor that isn't itself a selectable path shows as a
+     * dim container. {@code hiddenTop} drops paths by their top segment;
+     * {@code typeLabelForPath} (nullable) supplies the Type-column label per path — the
+     * caller owns it, since a reflection domain's shape/kind lives outside this lib.
+     * Clears the selection.
+     */
+    public void setPathRows(List<String> paths, Set<String> hiddenTop,
+                            java.util.function.Function<String, String> typeLabelForPath) {
+        rows.clear();
+
+        Set<String> real = new LinkedHashSet<>();
+        for (String p : paths) {
+            if (p != null && !p.isBlank()
+                    && (hiddenTop == null || !hiddenTop.contains(p.split("\\.")[0]))) {
+                real.add(p);
+            }
+        }
+        // Every prefix of every real path, sorted as a string so a parent sorts
+        // directly above its descendants and siblings group together (a flat DFS).
+        Set<String> prefixes = new TreeSet<>();
+        for (String p : real) {
+            String[] seg = p.split("\\.");
+            StringBuilder prefix = new StringBuilder();
+            for (int i = 0; i < seg.length; i++) {
+                if (i > 0) {
+                    prefix.append('.');
+                }
+                prefix.append(seg[i]);
+                prefixes.add(prefix.toString());
+            }
+        }
+        for (String p : prefixes) {
+            String[] seg = p.split("\\.");
+            Row r = Row.path(seg[seg.length - 1], p, seg.length - 1, !real.contains(p),
+                    typeLabelForPath == null ? null : typeLabelForPath.apply(p));
+            rows.add(r);
+        }
+
+        tableModel.fireTableDataChanged();
+        if (table != null) {
+            table.clearSelection();
+        }
+    }
+
+    /** The selected field path in single-select mode (null if nothing, or a container
+     *  row, is selected). */
+    public String selectedPath() {
+        int view = table.getSelectedRow();
+        if (view < 0) {
+            return null;
+        }
+        Row r = rows.get(table.convertRowIndexToModel(view));
+        return r.container ? null : r.path;
+    }
+
+    /** Selects the row at {@code dottedPath} (reflecting an external choice). */
+    public void setSelectedPath(String dottedPath) {
+        if (dottedPath == null) {
+            table.clearSelection();
+            return;
+        }
+        for (int i = 0; i < rows.size(); i++) {
+            if (dottedPath.equals(rows.get(i).path)) {
+                int view = table.convertRowIndexToView(i);
+                if (view >= 0) {
+                    table.setRowSelectionInterval(view, view);
+                    table.scrollRectToVisible(table.getCellRect(view, 0, true));
+                }
+                return;
+            }
+        }
+        table.clearSelection();
+    }
+
+    // ---- reflective row source (classic) -----------------------------------
+
     private void buildRows() {
         rows.clear();
+
+        // The flat path-row source builds its own rows via setPathRows.
+        if (pathMode) {
+            return;
+        }
 
         // A dynamic sample: enumerate its map-held fields (no declared Java fields,
         // no minor-field concept). Reflection types keep the original path exactly.
@@ -194,6 +407,9 @@ public class ViewConfigEditor extends JPanel {
                 continue;
             }
             Object value = e.getValue();
+            if (hideMedia && FieldKind.ofValue(value) == FieldKind.MEDIA) {
+                continue;
+            }
             Viewable child = firstViewable(value);
             // Only offer expand (nested) when the referenced value actually has
             // fields — a bare reference (e.g. a WDO with no dynamic fields) would
@@ -276,6 +492,10 @@ public class ViewConfigEditor extends JPanel {
             }
 
             if (hiddenFields.contains(field.getName())) {
+                continue;
+            }
+
+            if (hideMedia && FieldKind.ofClass(field.getType()) == FieldKind.MEDIA) {
                 continue;
             }
 
@@ -493,7 +713,8 @@ public class ViewConfigEditor extends JPanel {
             // A dynamic reference carries a nested SAMPLE so the child editor can
             // enumerate the referenced object's map-held fields.
             row.childEditor = new ViewConfigEditor(
-                    childConfig, nestedDefaultNameOnly, false, row.nestedSample);
+                    childConfig, nestedDefaultNameOnly, false, row.nestedSample,
+                    FieldRowContributor.DEFAULT);
             // Carry the authoritative types down so the nested level hides its own
             // structural fields (e.g. a Category's `wikidata`) and labels correctly.
             if (row.nestedTypeSource != null) {
@@ -629,83 +850,89 @@ public class ViewConfigEditor extends JPanel {
     }
 
     private class RowTableModel extends AbstractTableModel {
-        private final String[] columns = {
-                "Field", "Type", "Use", "Up", "Down", "Expand"
-        };
 
         @Override public int getRowCount() { return rows.size(); }
-        @Override public int getColumnCount() { return columns.length; }
-        @Override public String getColumnName(int column) { return columns[column]; }
+        @Override public int getColumnCount() { return cols == null ? 0 : cols.size(); }
+        @Override public String getColumnName(int column) {
+            return cols == null ? "" : cols.get(column).header;
+        }
 
         @Override
         public Object getValueAt(int rowIndex, int columnIndex) {
             Row row = rows.get(rowIndex);
+            Col col = cols.get(columnIndex);
 
             if (row.minorBlock) {
-                int n = countSelectedMinorFields();
-                return switch (columnIndex) {
-                    case 0 -> "Minor fields";
-                    case 1 -> allMinorFieldsBox.isSelected()
-                            ? "all"
-                            : n + " selected";
-                    case 2 -> allMinorFieldsBox.isSelected();
-                    case 5 -> "Open...";
+                return switch (col.kind) {
+                    case FIELD -> "Minor fields";
+                    case TYPE -> allMinorFieldsBox.isSelected() ? "all"
+                            : countSelectedMinorFields() + " selected";
+                    case USE -> allMinorFieldsBox.isSelected();
+                    case EXPAND -> "Open...";
                     default -> "";
                 };
             }
 
-            return switch (columnIndex) {
-                case 0 -> row.fieldName;
-                case 1 -> row.typeLabel;
-                case 2 -> row.use;
-                case 3 -> "▴";
-                case 4 -> "▾";
-                case 5 -> row.nestedClass == null
-                        ? ""
+            return switch (col.kind) {
+                case FIELD -> row.depth > 0 ? "    ".repeat(row.depth) + row.fieldName
+                        : row.fieldName;
+                case TYPE -> row.typeLabel;
+                case EXTRA -> row.container ? "" : col.extra.value(row.path);
+                case USE -> row.use;
+                case UP -> "▴";
+                case DOWN -> "▾";
+                case ACTION -> row.container ? "" : col.action.label(row.path);
+                case EXPAND -> row.nestedClass == null ? ""
                         : row.childEditor == null ? "＋ fields" : "✎ edit";
-                default -> null;
             };
         }
 
         @Override
         public boolean isCellEditable(int rowIndex, int columnIndex) {
             Row row = rows.get(rowIndex);
+            Col col = cols.get(columnIndex);
 
             if (row.minorBlock) {
-                return columnIndex == 2 || columnIndex == 5;
+                return col.kind == ColKind.USE || col.kind == ColKind.EXPAND;
             }
 
-            return columnIndex == 2
-                    || columnIndex == 3
-                    || columnIndex == 4
-                    || (columnIndex == 5 && row.nestedClass != null);
+            return switch (col.kind) {
+                case USE, UP, DOWN -> true;
+                case ACTION -> !row.container && col.action.enabled(row.path);
+                case EXPAND -> row.nestedClass != null;
+                default -> false;
+            };
         }
 
         @Override
         public void setValueAt(Object value, int rowIndex, int columnIndex) {
             Row row = rows.get(rowIndex);
+            Col col = cols.get(columnIndex);
 
-            if (row.minorBlock && columnIndex == 2) {
+            if (col.kind != ColKind.USE) {
+                return;
+            }
+
+            if (row.minorBlock) {
                 allMinorFieldsBox.setSelected(Boolean.TRUE.equals(value));
                 fireTableRowsUpdated(rowIndex, rowIndex);
                 fireConfigChanged();
                 return;
             }
 
-            if (columnIndex == 2) {
-                row.use = Boolean.TRUE.equals(value);
-                if (!row.use) {
-                    row.childEditor = null;
-                }
-
-                fireTableRowsUpdated(rowIndex, rowIndex);
-                fireConfigChanged();
+            row.use = Boolean.TRUE.equals(value);
+            if (!row.use) {
+                row.childEditor = null;
             }
+
+            fireTableRowsUpdated(rowIndex, rowIndex);
+            fireConfigChanged();
         }
 
         @Override
         public Class<?> getColumnClass(int columnIndex) {
-            return columnIndex == 2 ? Boolean.class : String.class;
+            return cols != null && cols.get(columnIndex).kind == ColKind.USE
+                    ? Boolean.class : String.class;
         }
     }
 
@@ -726,7 +953,8 @@ public class ViewConfigEditor extends JPanel {
             int modelRow = table.convertRowIndexToModel(row);
             Row r = rows.get(modelRow);
 
-            if (r.special && column != 2) {
+            boolean useCol = cols.get(table.convertColumnIndexToModel(column)).kind == ColKind.USE;
+            if (r.special && !useCol) {
                 JLabel label = new JLabel(value == null ? "" : value.toString());
                 label.setOpaque(true);
                 label.setFont(label.getFont().deriveFont(Font.BOLD));
@@ -735,8 +963,14 @@ public class ViewConfigEditor extends JPanel {
                 return label;
             }
 
-            return delegate.getTableCellRendererComponent(
+            Component c = delegate.getTableCellRendererComponent(
                     table, value, isSelected, hasFocus, row, column);
+            // A synthesized container (an ancestor that isn't itself a pickable field)
+            // reads dim, so it's visibly not a choice.
+            if (r.container && !isSelected) {
+                c.setForeground(Color.GRAY);
+            }
+            return c;
         }
     }
 
@@ -768,7 +1002,7 @@ public class ViewConfigEditor extends JPanel {
     private class ButtonEditor extends AbstractCellEditor implements TableCellEditor {
         private final JButton button = new JButton();
         private Row currentRow;
-        private int currentColumn;
+        private Col currentCol;
         private boolean opening = false;
 
         ButtonEditor() {
@@ -777,13 +1011,13 @@ public class ViewConfigEditor extends JPanel {
                 if (opening) return;
 
                 Row row = currentRow;
-                int col = currentColumn;
+                Col col = currentCol;
 
                 fireEditingStopped();
 
-                if (row == null) return;
+                if (row == null || col == null) return;
 
-                if (row.minorBlock && col == 5) {
+                if (row.minorBlock && col.kind == ColKind.EXPAND) {
                     opening = true;
                     SwingUtilities.invokeLater(() -> {
                         try {
@@ -797,19 +1031,25 @@ public class ViewConfigEditor extends JPanel {
 
                 if (row.special) return;
 
-                if (col == 3) {
-                    moveRow(row, -1);
-                } else if (col == 4) {
-                    moveRow(row, 1);
-                } else if (col == 5) {
-                    opening = true;
-                    SwingUtilities.invokeLater(() -> {
-                        try {
-                            openChildEditor(row);
-                        } finally {
-                            opening = false;
+                switch (col.kind) {
+                    case UP -> moveRow(row, -1);
+                    case DOWN -> moveRow(row, 1);
+                    case ACTION -> {
+                        if (!row.container) {
+                            col.action.run(row.path);
                         }
-                    });
+                    }
+                    case EXPAND -> {
+                        opening = true;
+                        SwingUtilities.invokeLater(() -> {
+                            try {
+                                openChildEditor(row);
+                            } finally {
+                                opening = false;
+                            }
+                        });
+                    }
+                    default -> { }
                 }
             });
         }
@@ -823,7 +1063,7 @@ public class ViewConfigEditor extends JPanel {
             int modelRow = table.convertRowIndexToModel(viewRow);
 
             currentRow = rows.get(modelRow);
-            currentColumn = table.convertColumnIndexToModel(viewColumn);
+            currentCol = cols.get(table.convertColumnIndexToModel(viewColumn));
 
             button.setText(value == null ? "" : value.toString());
             button.setEnabled(value != null && !value.toString().isEmpty());
@@ -846,6 +1086,12 @@ public class ViewConfigEditor extends JPanel {
         final Class<? extends Viewable> nestedClass;
         final Viewable nestedSample;        // a sample of the referenced value (dynamic)
 
+        // Flat path-row (single-select picker) attributes; for reflective rows the
+        // path IS the field name, depth 0, never a container.
+        final String path;
+        final int depth;
+        final boolean container;            // a synthesized ancestor, not pickable
+
         boolean use;
         ViewConfigEditor childEditor;
         FieldTypeSource nestedTypeSource;   // authoritative types for the child (dynamic)
@@ -853,7 +1099,7 @@ public class ViewConfigEditor extends JPanel {
 
         private Row(boolean special, boolean minorBlock, Field field, String fieldName,
                     String typeLabel, Class<? extends Viewable> nestedClass,
-                    Viewable nestedSample) {
+                    Viewable nestedSample, String path, int depth, boolean container) {
             this.special = special;
             this.minorBlock = minorBlock;
             this.field = field;
@@ -861,6 +1107,9 @@ public class ViewConfigEditor extends JPanel {
             this.typeLabel = typeLabel;
             this.nestedClass = nestedClass;
             this.nestedSample = nestedSample;
+            this.path = path;
+            this.depth = depth;
+            this.container = container;
         }
 
         boolean isMinor() {
@@ -868,16 +1117,25 @@ public class ViewConfigEditor extends JPanel {
         }
 
         static Row minorBlock() {
-            return new Row(true, true, null, "Minor fields", "", null, null);
+            return new Row(true, true, null, "Minor fields", "", null, null,
+                    "Minor fields", 0, false);
         }
 
         static Row field(Field field, String typeLabel, Class<? extends Viewable> nestedClass) {
-            return new Row(false, false, field, field.getName(), typeLabel, nestedClass, null);
+            return new Row(false, false, field, field.getName(), typeLabel, nestedClass, null,
+                    field.getName(), 0, false);
         }
 
         static Row dynamic(String name, String typeLabel,
                            Class<? extends Viewable> nestedClass, Viewable nestedSample) {
-            return new Row(false, false, null, name, typeLabel, nestedClass, nestedSample);
+            return new Row(false, false, null, name, typeLabel, nestedClass, nestedSample,
+                    name, 0, false);
+        }
+
+        static Row path(String label, String path, int depth, boolean container,
+                        String typeLabel) {
+            return new Row(false, false, null, label, typeLabel, null, null,
+                    path, depth, container);
         }
     }
 }

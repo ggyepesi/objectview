@@ -21,7 +21,7 @@ class ViewableFieldPathsTest {
         config.addField("tags", ViewConfig.leaf());
 
         List<ViewableFieldPaths.FieldPath> paths =
-                ViewableFieldPaths.collect(config, ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS);
+                ViewableFieldPaths.collect(config, ViewableFieldPaths.NOT_MEDIA_FIELDS);
 
         assertEquals(Set.of("tags"), pathStrings(paths));
     }
@@ -37,7 +37,7 @@ class ViewableFieldPathsTest {
         config.addField("children", childConfig);
 
         List<ViewableFieldPaths.FieldPath> paths =
-                ViewableFieldPaths.collect(config, ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS);
+                ViewableFieldPaths.collect(config, ViewableFieldPaths.NOT_MEDIA_FIELDS);
 
         assertEquals(Set.of("children.name"), pathStrings(paths));
     }
@@ -58,7 +58,7 @@ class ViewableFieldPathsTest {
         config.addField("children", ViewConfig.leaf());
 
         Set<String> paths = pathStrings(ViewableFieldPaths.collectFromSample(
-                card, config, ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS));
+                card, config, ViewableFieldPaths.NOT_MEDIA_FIELDS));
 
         assertEquals(Set.of("children.name"), paths);
     }
@@ -82,7 +82,7 @@ class ViewableFieldPathsTest {
         config.addField("children", childConfig);
 
         Set<String> paths = pathStrings(ViewableFieldPaths.collectFromSample(
-                card, config, ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS));
+                card, config, ViewableFieldPaths.NOT_MEDIA_FIELDS));
 
         assertEquals(Set.of("children.code"), paths);
     }
@@ -95,7 +95,7 @@ class ViewableFieldPathsTest {
         config.addField("image", ViewConfig.leaf());
 
         List<ViewableFieldPaths.FieldPath> paths =
-                ViewableFieldPaths.collect(config, ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS);
+                ViewableFieldPaths.collect(config, ViewableFieldPaths.NOT_MEDIA_FIELDS);
 
         assertEquals(Set.of("name"), pathStrings(paths));
     }
@@ -107,7 +107,7 @@ class ViewableFieldPathsTest {
         config.addField("name", ViewConfig.leaf());
 
         List<ViewableFieldPaths.FieldPath> paths =
-                ViewableFieldPaths.collect(config, ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS);
+                ViewableFieldPaths.collect(config, ViewableFieldPaths.NOT_MEDIA_FIELDS);
 
         assertEquals(Set.of("name"), pathStrings(paths));
     }
@@ -168,14 +168,14 @@ class ViewableFieldPathsTest {
         ViewConfig all = ViewConfig.of(EntityCard.class);
         all.setAllFields(true);
         Set<String> allPaths = pathStrings(ViewableFieldPaths.collect(
-                all, ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS));
+                all, ViewableFieldPaths.NOT_MEDIA_FIELDS));
         assertTrue(allPaths.contains("name"), allPaths.toString());
         assertTrue(allPaths.contains("qid"), allPaths.toString());
 
         ViewConfig explicit = ViewConfig.of(EntityCard.class);
         explicit.setAllFields(false);
         Set<String> explicitPaths = pathStrings(ViewableFieldPaths.collect(
-                explicit, ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS));
+                explicit, ViewableFieldPaths.NOT_MEDIA_FIELDS));
         assertFalse(explicitPaths.contains("name"), explicitPaths.toString());
         assertFalse(explicitPaths.contains("qid"), explicitPaths.toString());
     }
@@ -204,7 +204,7 @@ class ViewableFieldPathsTest {
         ViewConfig config = ViewConfig.of(EntityCard.class);
 
         List<ViewableFieldPaths.FieldPath> paths = ViewableFieldPaths.collect(
-                config, ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS);
+                config, ViewableFieldPaths.NOT_MEDIA_FIELDS);
 
         List<List<String>> allPaths = paths.stream()
                 .map(ViewableFieldPaths.FieldPath::path)
@@ -223,7 +223,7 @@ class ViewableFieldPathsTest {
         config.setAllFields(false);
 
         Set<String> paths = pathStrings(ViewableFieldPaths.collect(
-                config, ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS));
+                config, ViewableFieldPaths.NOT_MEDIA_FIELDS));
 
         assertFalse(paths.contains("qid"), paths.toString());
     }

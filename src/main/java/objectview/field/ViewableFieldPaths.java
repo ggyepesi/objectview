@@ -46,11 +46,16 @@ public final class ViewableFieldPaths {
 
     public static final FieldFilter ALL_FIELDS = field -> true;
 
-    public static final FieldFilter NOT_IMAGE_PANE_FIELDS =
-            field -> field != null && !ImagePane.class.isAssignableFrom(field.getType());
+    /** Excludes MEDIA-kind fields (a renderable image — {@code ImagePane} or any
+     *  {@code MediaValue}). Media can't be text-searched or ordered, so search / sort /
+     *  filter enumeration drops it by KIND (not by a single concrete class). Contexts
+     *  that DO want media — the view config, coverage/validation — pass {@link #ALL_FIELDS}. */
+    public static final FieldFilter NOT_MEDIA_FIELDS =
+            field -> field != null
+                    && objectview.field.FieldKind.ofClass(field.getType()) != FieldKind.MEDIA;
 
     public static List<FieldPath> collect(ViewConfig config) {
-        return collect(config, NOT_IMAGE_PANE_FIELDS);
+        return collect(config, NOT_MEDIA_FIELDS);
     }
 
     public static List<FieldPath> collect(ViewConfig config,

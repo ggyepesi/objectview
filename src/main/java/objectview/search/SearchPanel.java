@@ -254,7 +254,7 @@ public class SearchPanel extends JPanel
         List<ViewableFieldPaths.FieldPath> sortPaths =
                 ViewableFieldPaths.collect(
                         sortEditor.getConfig(),
-                        ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS);
+                        ViewableFieldPaths.NOT_MEDIA_FIELDS);
 
         if (sortPaths.isEmpty()) {
             return;
@@ -362,6 +362,11 @@ public class SearchPanel extends JPanel
 
         viewEditor =
                 new ViewConfigEditor(viewBase.copy(), false, sample);
+
+        // Search / sort over an image is meaningless — hide MEDIA fields there. The
+        // VIEW editor keeps them, so a portrait / flag can be shown or hidden on cards.
+        searchEditor.setHideMedia(true);
+        sortEditor.setHideMedia(true);
 
         debounceTimer =
                 new javax.swing.Timer(
@@ -711,7 +716,7 @@ public class SearchPanel extends JPanel
         List<ViewableFieldPaths.FieldPath> paths =
                 ViewableFieldPaths.collect(
                         getSearchConfig(),
-                        ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS);
+                        ViewableFieldPaths.NOT_MEDIA_FIELDS);
 
         Map<String, ViewableFieldPaths.FieldPath> pathByTitle =
                 new LinkedHashMap<>();
@@ -1667,7 +1672,7 @@ public class SearchPanel extends JPanel
                 : ViewableFieldPaths.collectFromSample(
                 sample,
                 getSearchConfig(),
-                ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS)) {
+                ViewableFieldPaths.NOT_MEDIA_FIELDS)) {
 
             pathByTitle.put(fp.title(), fp);
         }

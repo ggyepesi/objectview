@@ -50,7 +50,7 @@ public class SearchAndSort {
         List<ViewableFieldPaths.FieldPath> paths =
                 ViewableFieldPaths.collect(
                         searchConfig,
-                        ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS);
+                        ViewableFieldPaths.NOT_MEDIA_FIELDS);
 
         for (Component c : targetPanel.getComponents()) {
             if (!(c instanceof Card qp)) {
@@ -125,7 +125,7 @@ public class SearchAndSort {
                 ViewableFieldPaths.collectFromSample(
                         viewables.get(0),
                         searchConfig,
-                        ViewableFieldPaths.NOT_IMAGE_PANE_FIELDS);
+                        ViewableFieldPaths.NOT_MEDIA_FIELDS);
 
         for (ViewableFieldPaths.FieldPath fp : paths) {
             List<objectview.Viewable> hits = null;
