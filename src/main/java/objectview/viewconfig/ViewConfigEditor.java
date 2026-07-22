@@ -1,10 +1,8 @@
 package objectview.viewconfig;
 
-import objectview.field.DynamicFields;
-import objectview.field.FieldKind;
 import objectview.Viewable;
 import objectview.ViewableAdapter;
-import objectview.field.ViewableFieldPaths;
+import objectview.field.DynamicFields;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -12,109 +10,416 @@ import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableCellRenderer;
 import java.awt.*;
 import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.LinkedHashSet;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
+import java.util.function.Function;
 
+/**
+ * Swing orchestration layer for editing a {@link ViewConfig} or selecting fields.
+ *
+ * <p>Field discovery is delegated to {@link FieldRowSource}; presentation and
+ * interaction are delegated to {@link FieldTableContributor}. This class owns only
+ * editor state, JTable behavior, nested editor dialogs and conversion back to
+ * {@link ViewConfig}.
+ */
 public class ViewConfigEditor extends JPanel {
 
-    private final ViewConfig sourceConfig;
-    private final List<Row> rows = new ArrayList<>();
-
-    private final RowTableModel tableModel = new RowTableModel();
-    private final JTable table = new JTable(tableModel);
+    private ViewConfig sourceConfig;
     private final boolean nestedDefaultNameOnly;
     private final boolean minorOnly;
-    // A sample instance for a DYNAMIC (map-held) type — enumerate its fields from
-    // the property map rather than declared Java fields. Null = reflection type.
-    private final Viewable sample;
+    private Viewable sample;
+    private final FieldTableContributor contributor;
 
-    private final JCheckBox allMinorFieldsBox = new JCheckBox("All minor fields");
-    private Runnable changeListener;
-
-    // Top-level field names the caller doesn't want offered (e.g. structural /
-    // provenance plumbing a domain marks). Purely mechanical — the editor has no
-    // idea WHY a field is hidden.
-    private java.util.Set<String> hiddenFields = java.util.Set.of();
-
-    // Optional authoritative field types for a DYNAMIC sample — overrides the
-    // sample-reflected type label / structural-ness / nested source. Null = reflect
-    // the sample as before. See FieldTypeSource.
+    private FieldRowSource rowSource;
+    private Set<String> hiddenFields = Set.of();
     private FieldTypeSource typeSource;
-
-    // The plugin that shapes the columns / actions / selection (see
-    // FieldRowContributor). DEFAULT reproduces the classic card-config table.
-    private final FieldRowContributor contributor;
-    // The concrete, ordered columns for this contributor, computed once.
-    private final List<Col> cols;
-
-    // Flat PATH-ROW mode: rows come from a precomputed list of dotted paths (the
-    // fold-in of the old single-select FieldTreePanel), not sample reflection.
-    private final boolean pathMode;
-
-    // Drop MEDIA-kind fields (a renderable image) from the row list — set on the
-    // search / sort config editors, where searching or ordering an image is
-    // meaningless; the VIEW editor leaves it off, so a portrait can be shown/hidden.
     private boolean hideMedia;
 
+    // Inline collapsible nesting: references expand in place instead of a dialog.
+    // On for a single-select ConfigFieldRowSource table (pick-one / coverage); the
+    // multi-check config editors keep the Expand dialog until stage 2.
+    private boolean treeMode;
+    private final Set<String> expandedPaths = new java.util.HashSet<>();
+    // The whole discovered tree; `rows` is the currently VISIBLE subset of it.
+    private final List<RowState> allRows = new ArrayList<>();
+    private static final int MAX_TREE_DEPTH = 6;
+
+    private final List<RowState> rows = new ArrayList<>();
+    private final RowTableModel tableModel = new RowTableModel();
+    private final JTable table = new JTable(tableModel);
+    private final JCheckBox allMinorFieldsBox =
+            new JCheckBox("All minor fields");
+
+    private final List<Col> cols;
+    private Runnable changeListener;
+
+    // ---- construction ------------------------------------------------------
+
     public ViewConfigEditor(ViewConfig config) {
-        this(config, false, false, null, FieldRowContributor.DEFAULT);
+        this(config, false, false, null,
+                FieldTableContributor.DEFAULT,
+                ConfigFieldRowSource.INSTANCE);
     }
 
     public ViewConfigEditor(ViewConfig config,
                             boolean nestedDefaultNameOnly) {
-        this(config, nestedDefaultNameOnly, false, null, FieldRowContributor.DEFAULT);
+        this(config, nestedDefaultNameOnly, false, null,
+                FieldTableContributor.DEFAULT,
+                ConfigFieldRowSource.INSTANCE);
     }
 
-    /** Dynamic: enumerate {@code sample}'s map-held fields (a a map-backed Viewable). */
-    public ViewConfigEditor(ViewConfig config, Viewable sample) {
-        this(config, false, false, sample, FieldRowContributor.DEFAULT);
+    /** Dynamic: enumerate {@code sample}'s map-held fields. */
+    public ViewConfigEditor(ViewConfig config,
+                            Viewable sample) {
+        this(config, false, false, sample,
+                FieldTableContributor.DEFAULT,
+                ConfigFieldRowSource.INSTANCE);
     }
 
     public ViewConfigEditor(ViewConfig config,
-                            boolean nestedDefaultNameOnly, Viewable sample) {
-        this(config, nestedDefaultNameOnly, false, sample, FieldRowContributor.DEFAULT);
+                            boolean nestedDefaultNameOnly,
+                            Viewable sample) {
+        this(config, nestedDefaultNameOnly, false, sample,
+                FieldTableContributor.DEFAULT,
+                ConfigFieldRowSource.INSTANCE);
+    }
+
+    public ViewConfigEditor(ViewConfig config,
+                            FieldTableContributor contributor) {
+        this(config, false, false, null,
+                contributor,
+                ConfigFieldRowSource.INSTANCE);
+    }
+
+    public ViewConfigEditor(ViewConfig config,
+                            Viewable sample,
+                            FieldTableContributor contributor) {
+        this(config, false, false, sample,
+                contributor,
+                ConfigFieldRowSource.INSTANCE);
+    }
+
+    public ViewConfigEditor(ViewConfig config,
+                            boolean nestedDefaultNameOnly,
+                            Viewable sample,
+                            FieldTableContributor contributor) {
+        this(config, nestedDefaultNameOnly, false, sample,
+                contributor,
+                ConfigFieldRowSource.INSTANCE);
     }
 
     /**
-     * A contributor-driven editor with NO reflective source — rows are supplied later
-     * via {@link #setPathRows}. This is the single-select field picker / coverage-table
-     * face of the component (the old {@code FieldTreePanel} / bespoke Validation table).
+     * Creates a path-row table. Call {@link #setPathRows} to supply its rows.
      */
-    public ViewConfigEditor(FieldRowContributor contributor) {
-        this(new ViewConfig(), false, false, null, contributor);
+    public ViewConfigEditor(FieldTableContributor contributor) {
+        this(new ViewConfig(), false, false, null,
+                contributor,
+                new PathFieldRowSource(List.of(), Set.of(), null));
     }
+
+    /**
+     * Advanced constructor allowing a custom row source.
+     */
+    public ViewConfigEditor(ViewConfig config,
+                            boolean nestedDefaultNameOnly,
+                            Viewable sample,
+                            FieldTableContributor contributor,
+                            FieldRowSource rowSource) {
+        this(config, nestedDefaultNameOnly, false, sample,
+                contributor, rowSource);
+    }
+
+    private ViewConfigEditor(ViewConfig config,
+                             boolean nestedDefaultNameOnly,
+                             boolean minorOnly,
+                             Viewable sample,
+                             FieldTableContributor contributor,
+                             FieldRowSource rowSource) {
+        this.sourceConfig =
+                config == null ? new ViewConfig() : config.copy();
+        this.nestedDefaultNameOnly = nestedDefaultNameOnly;
+        this.minorOnly = minorOnly;
+        this.sample = sample;
+        this.contributor = contributor == null
+                ? FieldTableContributor.DEFAULT
+                : contributor;
+        this.rowSource = rowSource == null
+                ? ConfigFieldRowSource.INSTANCE
+                : rowSource;
+        this.treeMode = this.contributor.selectionMode()
+                == FieldTableContributor.SelectionMode.SINGLE
+                && this.rowSource instanceof ConfigFieldRowSource;
+        this.cols = buildColumns();
+
+        // JTable was constructed before `cols` existed.
+        tableModel.fireTableStructureChanged();
+
+        setLayout(new BorderLayout(8, 8));
+
+        if (!minorOnly && usesConfigRows()
+                && !(sample instanceof DynamicFields)) {
+            allMinorFieldsBox.setSelected(
+                    sourceConfig.isAllMinorFields());
+            allMinorFieldsBox.addActionListener(e -> {
+                tableModel.fireTableDataChanged();
+                fireConfigChanged();
+            });
+
+            JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            top.add(allMinorFieldsBox);
+            add(top, BorderLayout.NORTH);
+        }
+
+        rebuildRows(false);
+
+        table.setRowHeight(28);
+        table.setFillsViewportHeight(true);
+
+        if (this.contributor.selectionMode()
+                == FieldTableContributor.SelectionMode.SINGLE) {
+            table.setSelectionMode(
+                    ListSelectionModel.SINGLE_SELECTION);
+            table.getSelectionModel()
+                    .addListSelectionListener(e -> {
+                        if (!e.getValueIsAdjusting()) {
+                            fireConfigChanged();
+                        }
+                    });
+        }
+
+        installColumns();
+
+        table.setDefaultRenderer(
+                Object.class,
+                new RowRenderer(
+                        table.getDefaultRenderer(Object.class)));
+        table.setDefaultRenderer(
+                Boolean.class,
+                new RowRenderer(
+                        table.getDefaultRenderer(Boolean.class)));
+
+        add(new JScrollPane(table), BorderLayout.CENTER);
+    }
+
+    // ---- row-source configuration -----------------------------------------
 
     public void setChangeListener(Runnable changeListener) {
         this.changeListener = changeListener;
     }
 
-    /** Hides the given top-level fields from the row list (and rebuilds). */
-    public void setHiddenFields(java.util.Set<String> fieldNames) {
-        this.hiddenFields = fieldNames == null ? java.util.Set.of() : fieldNames;
-        buildRows();
-        tableModel.fireTableDataChanged();
+    public void setHiddenFields(Set<String> fieldNames) {
+        hiddenFields = fieldNames == null
+                ? Set.of()
+                : Set.copyOf(fieldNames);
+        rebuildRows(true);
     }
 
-    /** Supplies authoritative field types for a dynamic sample (overrides sample
-     *  reflection); null restores reflection. Rebuilds. */
     public void setFieldTypes(FieldTypeSource source) {
-        this.typeSource = source;
-        buildRows();
-        tableModel.fireTableDataChanged();
+        typeSource = source;
+        rebuildRows(true);
     }
 
-    /** Hide MEDIA-kind fields (images) — for the search / sort editors. Rebuilds. */
     public void setHideMedia(boolean hideMedia) {
         this.hideMedia = hideMedia;
-        buildRows();
+        rebuildRows(true);
+    }
+
+    /**
+     * Replaces the row source with an explicit dotted-path source.
+     */
+    public void setPathRows(List<String> paths,
+                            Set<String> hiddenTop,
+                            Function<String, String> typeLabelForPath) {
+        rowSource = new PathFieldRowSource(
+                paths,
+                hiddenTop,
+                typeLabelForPath);
+        rebuildRows(false);
+        table.clearSelection();
+    }
+
+    /**
+     * Switches to config-based enumeration for a new type — the shared reflective /
+     * dynamic discovery ({@link ConfigFieldRowSource}) so the field set, order and
+     * type labels match the search/sort/view editors. For the single-select coverage /
+     * picker table, which then renders references as an inline collapsible tree.
+     */
+    public void setConfigRows(ViewConfig config,
+                              Viewable sample,
+                              FieldTypeSource types,
+                              Set<String> hidden) {
+        this.sourceConfig = config == null ? new ViewConfig() : config.copy();
+        this.sample = sample;
+        this.typeSource = types;
+        this.hiddenFields = hidden == null ? Set.of() : Set.copyOf(hidden);
+        this.rowSource = ConfigFieldRowSource.INSTANCE;
+        this.expandedPaths.clear();
+        rebuildRows(false);
+        table.clearSelection();
+    }
+
+    private boolean usesConfigRows() {
+        return rowSource instanceof ConfigFieldRowSource;
+    }
+
+    private FieldRowContext rowContext() {
+        return new FieldRowContext(
+                sourceConfig,
+                sample,
+                minorOnly,
+                hideMedia,
+                hiddenFields,
+                typeSource);
+    }
+
+    /**
+     * Rebuilds immutable row descriptors while preserving mutable state by path.
+     */
+    private void rebuildRows(boolean preserveState) {
+        Map<String, RowSnapshot> old = preserveState
+                ? snapshotRows()
+                : Map.of();
+
+        if (treeMode) {
+            allRows.clear();
+            buildTree("", 0, rowContext(), new java.util.HashSet<>());
+            for (RowState state : allRows) {
+                RowSnapshot snapshot = old.get(state.row.path());
+                if (snapshot != null) {
+                    state.use = snapshot.use;
+                    state.childEditor = snapshot.childEditor;
+                    state.customConfigured = snapshot.customConfigured;
+                }
+            }
+            rebuildVisible();
+            return;
+        }
+
+        rows.clear();
+        for (FieldRow row : rowSource.rows(rowContext())) {
+            RowState state = createState(row);
+            RowSnapshot snapshot = old.get(row.path());
+
+            if (snapshot != null) {
+                state.use = snapshot.use;
+                state.childEditor = snapshot.childEditor;
+                state.customConfigured =
+                        snapshot.customConfigured;
+            }
+
+            rows.add(state);
+        }
+
         tableModel.fireTableDataChanged();
+    }
+
+    // ---- inline tree (treeMode) -------------------------------------------
+
+    /** Discovers the whole tree into {@link #allRows}: top-level rows from the source,
+     *  then each reference's children (re-pathed under it) recursively, bounded by a
+     *  depth cap and a cycle guard (a nested type already on the chain stops). */
+    private void buildTree(String parentPath, int depth,
+                           FieldRowContext context, Set<Class<?>> chain) {
+        for (FieldRow raw : rowSource.rows(context)) {
+            if (!raw.isField()) {
+                continue;   // no minor-block / synthesized containers in the tree
+            }
+            String full = parentPath.isEmpty()
+                    ? raw.path()
+                    : parentPath + "." + raw.path();
+            FieldRow placed = raw.at(full, depth);
+            allRows.add(new RowState(placed));
+
+            NestedFieldSource nested = placed.nested();
+            if (nested != null
+                    && depth < MAX_TREE_DEPTH
+                    && !chain.contains(nested.type())) {
+                Set<Class<?>> next = new java.util.HashSet<>(chain);
+                next.add(nested.type());
+                buildTree(full, depth + 1, childContext(nested), next);
+            }
+        }
+    }
+
+    private FieldRowContext childContext(NestedFieldSource nested) {
+        return new FieldRowContext(
+                ViewConfig.all(nested.type()),
+                nested.sample(),
+                false,
+                hideMedia,
+                Set.of(),
+                nested.fieldTypes());
+    }
+
+    /** Recomputes the visible rows from {@link #allRows}: a row shows only when every
+     *  ancestor on its path is expanded. */
+    private void rebuildVisible() {
+        rows.clear();
+        for (RowState state : allRows) {
+            if (isVisible(state)) {
+                rows.add(state);
+            }
+        }
+        tableModel.fireTableDataChanged();
+    }
+
+    private boolean isVisible(RowState state) {
+        String path = state.row.path();
+        int dot = path.lastIndexOf('.');
+        while (dot >= 0) {
+            String ancestor = path.substring(0, dot);
+            if (!expandedPaths.contains(ancestor)) {
+                return false;
+            }
+            dot = ancestor.lastIndexOf('.');
+        }
+        return true;
+    }
+
+    private void toggleExpand(String path) {
+        if (!expandedPaths.remove(path)) {
+            expandedPaths.add(path);
+        }
+        rebuildVisible();
+    }
+
+    private Map<String, RowSnapshot> snapshotRows() {
+        Map<String, RowSnapshot> result =
+                new LinkedHashMap<>();
+
+        for (RowState state : (treeMode ? allRows : rows)) {
+            result.put(
+                    state.row.path(),
+                    new RowSnapshot(
+                            state.use,
+                            state.childEditor,
+                            state.customConfigured));
+        }
+
+        return result;
+    }
+
+    private RowState createState(FieldRow row) {
+        RowState state = new RowState(row);
+
+        if (row.isField()) {
+            state.use = row.field() != null
+                    ? sourceConfig.showsField(row.field())
+                    : sourceConfig.showsFieldByName(row.path());
+
+            ViewConfig selected =
+                    sourceConfig.getFieldConfig(row.path());
+            state.customConfigured =
+                    selected != null
+                            && row.nested() != null
+                            && !selected.getFields().isEmpty();
+        }
+
+        return state;
     }
 
     private void fireConfigChanged() {
@@ -123,91 +428,193 @@ public class ViewConfigEditor extends JPanel {
         }
     }
 
-    private ViewConfigEditor(ViewConfig config,
-                             boolean nestedDefaultNameOnly,
-                             boolean minorOnly) {
-        this(config, nestedDefaultNameOnly, minorOnly, null, FieldRowContributor.DEFAULT);
+    // ---- public selection/config API --------------------------------------
+
+    public String selectedPath() {
+        int viewRow = table.getSelectedRow();
+        if (viewRow < 0) {
+            return null;
+        }
+
+        RowState state = rows.get(
+                table.convertRowIndexToModel(viewRow));
+        return state.row.isField()
+                ? state.row.path()
+                : null;
     }
 
-    private ViewConfigEditor(ViewConfig config,
-                             boolean nestedDefaultNameOnly,
-                             boolean minorOnly,
-                             Viewable sample,
-                             FieldRowContributor contributor) {
-        this.sourceConfig = config == null
-                ? new ViewConfig()
-                : config.copy();
-
-        this.nestedDefaultNameOnly = nestedDefaultNameOnly;
-        this.minorOnly = minorOnly;
-        this.sample = sample;
-        this.contributor = contributor == null ? FieldRowContributor.DEFAULT : contributor;
-        this.pathMode = this.contributor.selectionMode() == FieldRowContributor.SelectionMode.SINGLE;
-        this.cols = buildColumns();
-        // The JTable field initializer already asked the model for its columns while
-        // `cols` was still null (guarded to 0); now that it's built, let the table
-        // create its TableColumns before we style them.
-        tableModel.fireTableStructureChanged();
-
-        setLayout(new BorderLayout(8, 8));
-
-        // A dynamic (map-held) type has no minor-field concept — that's a card
-        // rendering distinction; here every field is shown, so no checkbox. The flat
-        // path-row / single-select face has no minor concept either.
-        if (!minorOnly && !pathMode && !(sample instanceof DynamicFields)) {
-            allMinorFieldsBox.setSelected(sourceConfig.isAllMinorFields());
-            allMinorFieldsBox.addActionListener(e -> {
-                tableModel.fireTableDataChanged();
-                fireConfigChanged();
-            });
-            JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            top.add(allMinorFieldsBox);
-            add(top, BorderLayout.NORTH);
+    public void setSelectedPath(String dottedPath) {
+        if (dottedPath == null) {
+            table.clearSelection();
+            return;
         }
 
-        buildRows();
+        for (int modelRow = 0;
+             modelRow < rows.size();
+             modelRow++) {
+            if (!dottedPath.equals(
+                    rows.get(modelRow).row.path())) {
+                continue;
+            }
 
-        table.setRowHeight(28);
-        table.setFillsViewportHeight(true);
+            int viewRow =
+                    table.convertRowIndexToView(modelRow);
+            if (viewRow >= 0) {
+                table.setRowSelectionInterval(
+                        viewRow,
+                        viewRow);
+                table.scrollRectToVisible(
+                        table.getCellRect(
+                                viewRow,
+                                0,
+                                true));
+            }
+            return;
+        }
 
-        // Single-select picker: the chosen field is the table's selected row.
-        if (pathMode) {
-            table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-            table.getSelectionModel().addListSelectionListener(e -> {
-                if (!e.getValueIsAdjusting()) {
-                    fireConfigChanged();
+        table.clearSelection();
+    }
+
+    public List<String> selectedFieldPaths() {
+        List<String> result = new ArrayList<>();
+        collectSelected("", result);
+        return result;
+    }
+
+    private void collectSelected(String prefix,
+                                 List<String> result) {
+        for (RowState state : rows) {
+            if (!state.row.isField() || !state.use) {
+                continue;
+            }
+
+            String path = prefix.isEmpty()
+                    ? state.row.path()
+                    : prefix + "." + state.row.path();
+
+            if (state.childEditor != null) {
+                state.childEditor.collectSelected(
+                        path,
+                        result);
+            } else {
+                result.add(path);
+            }
+        }
+    }
+
+    public ViewConfig getConfig() {
+        ViewConfig result = copyHeader(sourceConfig);
+        result.setAllFields(false);
+        result.setAllMinorFields(
+                !minorOnly
+                        && allMinorFieldsBox.isSelected());
+        result.getFields().clear();
+
+        for (RowState state : rows) {
+            FieldRow row = state.row;
+            if (!row.isField() || !state.use) {
+                continue;
+            }
+
+            if (!minorOnly
+                    && result.isAllMinorFields()
+                    && row.isMinor()
+                    && sourceConfig.getFieldConfig(
+                            row.path()) == null) {
+                continue;
+            }
+
+            result.addField(
+                    row.path(),
+                    childConfigFor(state));
+        }
+
+        if (!minorOnly) {
+            RowState minorBlock = findMinorBlock();
+            if (minorBlock != null
+                    && minorBlock.childEditor != null) {
+                ViewConfig minorConfig =
+                        minorBlock.childEditor.getConfig();
+
+                result.setAllMinorFields(
+                        result.isAllMinorFields()
+                                || minorConfig
+                                .isAllMinorFields());
+
+                for (Map.Entry<String, ViewConfig> entry
+                        : minorConfig.getFields()
+                        .entrySet()) {
+                    result.addField(
+                            entry.getKey(),
+                            entry.getValue());
                 }
-            });
+            }
         }
 
-        installColumns();
+        return result;
+    }
 
-        table.setDefaultRenderer(Object.class,
-                new RowRenderer(table.getDefaultRenderer(Object.class)));
-        table.setDefaultRenderer(Boolean.class,
-                new RowRenderer(table.getDefaultRenderer(Boolean.class)));
+    private ViewConfig childConfigFor(RowState state) {
+        if (state.childEditor != null) {
+            return state.childEditor.getConfig();
+        }
 
-        add(new JScrollPane(table), BorderLayout.CENTER);
+        ViewConfig existing =
+                sourceConfig.getFieldConfig(
+                        state.row.path());
+
+        if (state.customConfigured && existing != null) {
+            return existing.copy();
+        }
+
+        if (state.row.nested() != null) {
+            return ViewConfig.of(
+                    state.row.nested().type());
+        }
+
+        return ViewConfig.leaf();
+    }
+
+    private ViewConfig copyHeader(ViewConfig source) {
+        ViewConfig result = new ViewConfig();
+        if (source == null) {
+            return result;
+        }
+
+        result.setCls(source.getCls());
+        result.setAllFields(source.isAllFields());
+        result.setAllMinorFields(source.isAllMinorFields());
+        result.setAddListener(source.isAddListener());
+        result.setThumb(source.isThumb());
+        result.setAnswerType(source.getAnswerType());
+        result.setBlurImages(source.isBlurImages());
+        return result;
     }
 
     // ---- columns -----------------------------------------------------------
 
-    private enum ColKind { FIELD, TYPE, EXTRA, USE, UP, DOWN, ACTION, EXPAND }
+    private enum ColKind {
+        TREE, FIELD, TYPE, EXTRA, USE, UP, DOWN, ACTION, EXPAND
+    }
 
     private static final class Col {
         final ColKind kind;
         final String header;
         final int width;
-        final FieldRowContributor.ExtraColumn extra;   // EXTRA only
-        final FieldRowContributor.RowAction action;    // ACTION only
+        final FieldTableContributor.ExtraColumn extra;
+        final FieldTableContributor.RowAction action;
 
-        Col(ColKind kind, String header, int width) {
+        Col(ColKind kind,
+            String header,
+            int width) {
             this(kind, header, width, null, null);
         }
 
-        Col(ColKind kind, String header, int width,
-            FieldRowContributor.ExtraColumn extra,
-            FieldRowContributor.RowAction action) {
+        Col(ColKind kind,
+            String header,
+            int width,
+            FieldTableContributor.ExtraColumn extra,
+            FieldTableContributor.RowAction action) {
             this.kind = kind;
             this.header = header;
             this.width = width;
@@ -216,468 +623,187 @@ public class ViewConfigEditor extends JPanel {
         }
 
         boolean button() {
-            return kind == ColKind.UP || kind == ColKind.DOWN
-                    || kind == ColKind.ACTION || kind == ColKind.EXPAND;
+            return kind == ColKind.TREE
+                    || kind == ColKind.UP
+                    || kind == ColKind.DOWN
+                    || kind == ColKind.ACTION
+                    || kind == ColKind.EXPAND;
         }
 
         boolean fixedWidth() {
-            return kind == ColKind.UP || kind == ColKind.DOWN;
+            return kind == ColKind.TREE
+                    || kind == ColKind.UP
+                    || kind == ColKind.DOWN;
         }
     }
 
     private List<Col> buildColumns() {
-        List<Col> c = new ArrayList<>();
-        c.add(new Col(ColKind.FIELD, "Field", 260));
-        c.add(new Col(ColKind.TYPE, "Type", 160));
-        for (FieldRowContributor.ExtraColumn ec : contributor.columns()) {
-            c.add(new Col(ColKind.EXTRA, ec.header(), ec.width(), ec, null));
+        List<Col> result = new ArrayList<>();
+        if (treeMode) {
+            // The leftmost gutter: a ▸/▾ disclosure toggle for reference rows.
+            result.add(new Col(ColKind.TREE, "", 26));
         }
+        result.add(new Col(
+                ColKind.FIELD,
+                "Field",
+                260));
+        result.add(new Col(
+                ColKind.TYPE,
+                "Type",
+                160));
+
+        for (FieldTableContributor.ExtraColumn extra
+                : contributor.columns()) {
+            result.add(new Col(
+                    ColKind.EXTRA,
+                    extra.header(),
+                    extra.width(),
+                    extra,
+                    null));
+        }
+
         if (contributor.showUse()) {
-            c.add(new Col(ColKind.USE, "Use", 48));
+            result.add(new Col(
+                    ColKind.USE,
+                    "Use",
+                    48));
         }
+
         if (contributor.showReorder()) {
-            c.add(new Col(ColKind.UP, "", 30));
-            c.add(new Col(ColKind.DOWN, "", 30));
+            result.add(new Col(
+                    ColKind.UP,
+                    "",
+                    30));
+            result.add(new Col(
+                    ColKind.DOWN,
+                    "",
+                    30));
         }
-        for (FieldRowContributor.RowAction a : contributor.actions()) {
-            c.add(new Col(ColKind.ACTION, "", 120, null, a));
+
+        for (FieldTableContributor.RowAction action
+                : contributor.actions()) {
+            result.add(new Col(
+                    ColKind.ACTION,
+                    "",
+                    120,
+                    null,
+                    action));
         }
-        if (contributor.showExpand()) {
-            c.add(new Col(ColKind.EXPAND, "Expand", 72));
+
+        if (!treeMode && contributor.showExpand()) {
+            result.add(new Col(
+                    ColKind.EXPAND,
+                    "Expand",
+                    72));
         }
-        return c;
+
+        return result;
     }
 
     private void installColumns() {
         for (int i = 0; i < cols.size(); i++) {
             Col col = cols.get(i);
-            javax.swing.table.TableColumn tc = table.getColumnModel().getColumn(i);
+            javax.swing.table.TableColumn tableColumn =
+                    table.getColumnModel().getColumn(i);
+
             if (col.fixedWidth()) {
-                setFixedWidth(tc, col.width);
+                setFixedWidth(
+                        tableColumn,
+                        col.width);
             } else {
-                tc.setPreferredWidth(col.width);
+                tableColumn.setPreferredWidth(
+                        col.width);
             }
+
             if (col.button()) {
-                tc.setCellRenderer(new ButtonRenderer());
-                tc.setCellEditor(new ButtonEditor());
+                tableColumn.setCellRenderer(
+                        new ButtonRenderer());
+                tableColumn.setCellEditor(
+                        new ButtonEditor());
             }
         }
     }
 
-    private int columnOf(ColKind kind) {
-        for (int i = 0; i < cols.size(); i++) {
-            if (cols.get(i).kind == kind) {
-                return i;
-            }
-        }
-        return -1;
-    }
+    // ---- interaction -------------------------------------------------------
 
-    // ---- flat path-row source (folds in FieldTreePanel) --------------------
-
-    /**
-     * Populates the editor from a flat list of dotted field paths (the single-select
-     * picker face). Nested paths render indented, a parent immediately above its
-     * children; a synthesized ancestor that isn't itself a selectable path shows as a
-     * dim container. {@code hiddenTop} drops paths by their top segment;
-     * {@code typeLabelForPath} (nullable) supplies the Type-column label per path — the
-     * caller owns it, since a reflection domain's shape/kind lives outside this lib.
-     * Clears the selection.
-     */
-    public void setPathRows(List<String> paths, Set<String> hiddenTop,
-                            java.util.function.Function<String, String> typeLabelForPath) {
-        rows.clear();
-
-        Set<String> real = new LinkedHashSet<>();
-        for (String p : paths) {
-            if (p != null && !p.isBlank()
-                    && (hiddenTop == null || !hiddenTop.contains(p.split("\\.")[0]))) {
-                real.add(p);
-            }
-        }
-        // Every prefix of every real path, sorted as a string so a parent sorts
-        // directly above its descendants and siblings group together (a flat DFS).
-        Set<String> prefixes = new TreeSet<>();
-        for (String p : real) {
-            String[] seg = p.split("\\.");
-            StringBuilder prefix = new StringBuilder();
-            for (int i = 0; i < seg.length; i++) {
-                if (i > 0) {
-                    prefix.append('.');
-                }
-                prefix.append(seg[i]);
-                prefixes.add(prefix.toString());
-            }
-        }
-        for (String p : prefixes) {
-            String[] seg = p.split("\\.");
-            Row r = Row.path(seg[seg.length - 1], p, seg.length - 1, !real.contains(p),
-                    typeLabelForPath == null ? null : typeLabelForPath.apply(p));
-            rows.add(r);
-        }
-
-        tableModel.fireTableDataChanged();
-        if (table != null) {
-            table.clearSelection();
-        }
-    }
-
-    /** The selected field path in single-select mode (null if nothing, or a container
-     *  row, is selected). */
-    public String selectedPath() {
-        int view = table.getSelectedRow();
-        if (view < 0) {
-            return null;
-        }
-        Row r = rows.get(table.convertRowIndexToModel(view));
-        return r.container ? null : r.path;
-    }
-
-    /** Selects the row at {@code dottedPath} (reflecting an external choice). */
-    public void setSelectedPath(String dottedPath) {
-        if (dottedPath == null) {
-            table.clearSelection();
-            return;
-        }
-        for (int i = 0; i < rows.size(); i++) {
-            if (dottedPath.equals(rows.get(i).path)) {
-                int view = table.convertRowIndexToView(i);
-                if (view >= 0) {
-                    table.setRowSelectionInterval(view, view);
-                    table.scrollRectToVisible(table.getCellRect(view, 0, true));
-                }
-                return;
-            }
-        }
-        table.clearSelection();
-    }
-
-    // ---- reflective row source (classic) -----------------------------------
-
-    private void buildRows() {
-        rows.clear();
-
-        // The flat path-row source builds its own rows via setPathRows.
-        if (pathMode) {
+    private void moveRow(RowState state, int delta) {
+        if (!state.row.isField()) {
             return;
         }
 
-        // A dynamic sample: enumerate its map-held fields (no declared Java fields,
-        // no minor-field concept). Reflection types keep the original path exactly.
-        if (sample instanceof DynamicFields) {
-            addDynamicFieldRows(sample);
-            return;
-        }
-
-        Class<? extends Viewable> cls = sourceConfig.getCls();
-        if (cls == null) {
-            return;
-        }
-
-        if (minorOnly) {
-            addFieldRows(cls, true);
-        } else {
-            addFieldRows(cls, false);
-
-            if (hasMinorFields(cls)) {
-                rows.add(Row.minorBlock());
-            }
-        }
-    }
-
-    private void addDynamicFieldRows(Viewable dynamicSample) {
-        DynamicFields dyn = (DynamicFields) dynamicSample;
-        // Identity row first: `name` isn't in the property map (it's the display
-        // name), but search/sort/view configs must be able to include/exclude it
-        // like any other field — otherwise it's invisible yet always searched.
-        if (!hiddenFields.contains("name")
-                && !dyn.dynamicFieldValues().containsKey("name")) {
-            Row nameRow = Row.dynamic("name", "String", null, null);
-            nameRow.use = sourceConfig.showsFieldByName("name");
-            rows.add(nameRow);
-        }
-        for (Map.Entry<String, Object> e : dyn.dynamicFieldValues().entrySet()) {
-            String name = e.getKey();
-            FieldTypeSource.FieldTypeInfo info =
-                    typeSource == null ? null : typeSource.field(name);
-            // The model (via the type source) can mark a field structural — the
-            // reify `source` back-ref, the auto-seeded `wikidata` link — so it's
-            // hidden here just like the explicit hiddenFields set.
-            if (hiddenFields.contains(name) || (info != null && info.structural())) {
-                continue;
-            }
-            Object value = e.getValue();
-            if (hideMedia && FieldKind.ofValue(value) == FieldKind.MEDIA) {
-                continue;
-            }
-            Viewable child = firstViewable(value);
-            // Only offer expand (nested) when the referenced value actually has
-            // fields — a bare reference (e.g. a WDO with no dynamic fields) would
-            // otherwise open an empty child editor. When the model (type source)
-            // is present it decides: a name-only reference gives no nested source,
-            // so it stays a reference chip with no dead-end "+fields" expansion.
-            boolean modelExpandable = info == null || info.nested() != null;
-            Class<? extends Viewable> nested =
-                    modelExpandable && child != null && hasFields(child)
-                            ? asViewableClass(child.getClass()) : null;
-
-            String typeLabel = info != null ? info.typeLabel() : dynamicTypeLabel(value, child);
-            Row row = Row.dynamic(name, typeLabel, nested, child);
-            row.nestedTypeSource = info != null ? info.nested() : null;
-            row.nestedLabel = info != null ? info.nestedClassName() : null;
-            row.use = sourceConfig.showsFieldByName(name);
-            rows.add(row);
-        }
-    }
-
-    private static boolean hasFields(Viewable q) {
-        if (q instanceof DynamicFields d) {
-            return !d.dynamicFieldValues().isEmpty();
-        }
-        return !ViewableAdapter.getAllFields(q.getClass()).isEmpty();
-    }
-
-    private static Viewable firstViewable(Object v) {
-        if (v instanceof Viewable q) {
-            return q;
-        }
-        if (v instanceof Collection<?> c) {
-            for (Object i : c) {
-                if (i instanceof Viewable q) return q;
-            }
-        }
-        if (v instanceof Map<?, ?> m) {
-            for (Object i : m.values()) {
-                if (i instanceof Viewable q) return q;
-            }
-        }
-        return null;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Class<? extends Viewable> asViewableClass(Class<?> cls) {
-        return (Class<? extends Viewable>) cls;
-    }
-
-    private static String dynamicTypeLabel(Object value, Viewable child) {
-        if (child != null) {
-            return value instanceof Collection<?>
-                    ? "Collection<" + child.typeName() + ">"
-                    : child.typeName();
-        }
-        if (value instanceof Collection<?>) {
-            return "Collection";
-        }
-        return value == null ? "" : value.getClass().getSimpleName();
-    }
-
-    private boolean hasMinorFields(Class<? extends Viewable> cls) {
-        for (Field field : ViewableAdapter.getAllFields(cls)) {
-            if (!Modifier.isStatic(field.getModifiers())
-                    && ViewableAdapter.isMinorField(field)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void addFieldRows(Class<? extends Viewable> cls, boolean minor) {
-        for (Field field : ViewableAdapter.getConfigurableFields(cls)) {
-            if (Modifier.isStatic(field.getModifiers())) {
-                continue;
-            }
-
-            if (ViewableAdapter.isMinorField(field) != minor) {
-                continue;
-            }
-
-            if (hiddenFields.contains(field.getName())) {
-                continue;
-            }
-
-            if (hideMedia && FieldKind.ofClass(field.getType()) == FieldKind.MEDIA) {
-                continue;
-            }
-
-            String fieldName = field.getName();
-            ViewConfig selectedChild = sourceConfig.getFieldConfig(fieldName);
-            Class<? extends Viewable> nestedClass =
-                    ViewableFieldPaths.nestedViewableClass(field);
-
-            Row row = Row.field(field, describeFieldType(field), nestedClass);
-            row.use = sourceConfig.showsField(field);
-
-            if (selectedChild != null
-                    && nestedClass != null
-                    && !selectedChild.getFields().isEmpty()) {
-                row.childEditor = new ViewConfigEditor(
-                        selectedChild,
-                        nestedDefaultNameOnly);
-            }
-
-            rows.add(row);
-        }
-    }
-
-    /**
-     * The dotted paths of the currently CHECKED fields — for reusing this panel as
-     * a field PICKER (e.g. selecting operation arguments). A checked reference not
-     * expanded yields the reference itself; an expanded nested selection yields the
-     * nested path. Works for reflection and dynamic rows alike.
-     */
-    public List<String> selectedFieldPaths() {
-        List<String> out = new ArrayList<>();
-        collectSelected("", out);
-        return out;
-    }
-
-    private void collectSelected(String prefix, List<String> out) {
-        for (Row row : rows) {
-            if (row.special || !row.use) {
-                continue;
-            }
-            String path = prefix.isEmpty() ? row.fieldName : prefix + "." + row.fieldName;
-            if (row.childEditor != null) {
-                row.childEditor.collectSelected(path, out);
-            } else {
-                out.add(path);
-            }
-        }
-    }
-
-    public ViewConfig getConfig() {
-        ViewConfig out = copyHeader(sourceConfig);
-
-        out.setAllFields(false);
-        out.setAllMinorFields(!minorOnly && allMinorFieldsBox.isSelected());
-        out.getFields().clear();
-
-        for (Row row : rows) {
-            if (row.special || !row.use) {
-                continue;
-            }
-
-            // If "all minor fields" is checked, no need to explicitly store every minor field.
-            if (!minorOnly
-                    && out.isAllMinorFields()
-                    && row.isMinor()
-                    && sourceConfig.getFieldConfig(row.fieldName) == null) {
-                continue;
-            }
-
-            out.addField(row.fieldName, childConfigFor(row));
-        }
-
-        if (!minorOnly) {
-            Row minorBlock = findMinorBlock();
-            if (minorBlock != null && minorBlock.childEditor != null) {
-                ViewConfig minorConfig = minorBlock.childEditor.getConfig();
-                out.setAllMinorFields(minorConfig.isAllMinorFields() || out.isAllMinorFields());
-
-                for (var e : minorConfig.getFields().entrySet()) {
-                    out.addField(e.getKey(), e.getValue());
-                }
-            }
-        }
-
-        return out;
-    }
-
-    private Row findMinorBlock() {
-        for (Row row : rows) {
-            if (row.minorBlock) {
-                return row;
-            }
-        }
-        return null;
-    }
-
-    private ViewConfig childConfigFor(Row row) {
-        if (row.childEditor != null) {
-            return row.childEditor.getConfig();
-        }
-
-        if (row.nestedClass != null) {
-            return ViewConfig.of(row.nestedClass);
-        }
-
-        return ViewConfig.leaf();
-    }
-
-    private ViewConfig copyHeader(ViewConfig src) {
-        ViewConfig out = new ViewConfig();
-
-        if (src == null) {
-            return out;
-        }
-
-        out.setCls(src.getCls());
-        out.setAllFields(src.isAllFields());
-        out.setAllMinorFields(src.isAllMinorFields());
-        out.setAddListener(src.isAddListener());
-        out.setThumb(src.isThumb());
-        out.setAnswerType(src.getAnswerType());
-        out.setBlurImages(src.isBlurImages());
-
-        return out;
-    }
-
-    private void moveRow(Row row, int delta) {
-        if (row.special) {
-            return;
-        }
-
-        int from = rows.indexOf(row);
+        int from = rows.indexOf(state);
         if (from < 0) {
             return;
         }
 
         int to = from + delta;
-        if (to < 0 || to >= rows.size() || rows.get(to).special) {
+        if (to < 0
+                || to >= rows.size()
+                || !rows.get(to).row.isField()) {
             return;
         }
 
         rows.remove(from);
-        rows.add(to, row);
-
+        rows.add(to, state);
         tableModel.fireTableDataChanged();
 
-        int viewRow = table.convertRowIndexToView(to);
+        int viewRow =
+                table.convertRowIndexToView(to);
         if (viewRow >= 0) {
-            table.getSelectionModel().setSelectionInterval(viewRow, viewRow);
+            table.getSelectionModel()
+                    .setSelectionInterval(
+                            viewRow,
+                            viewRow);
         }
+
         fireConfigChanged();
     }
 
-    private void openMinorEditor(Row row) {
-        if (!row.minorBlock) {
+    private void openMinorEditor(RowState state) {
+        if (!state.row.isMinorBlock()) {
             return;
         }
 
-        if (row.childEditor == null) {
-            ViewConfig cfg = sourceConfig.copy();
-            cfg.setAllMinorFields(allMinorFieldsBox.isSelected());
-            row.childEditor = new ViewConfigEditor(cfg, nestedDefaultNameOnly, true);
+        if (state.childEditor == null) {
+            ViewConfig config = sourceConfig.copy();
+            config.setAllMinorFields(
+                    allMinorFieldsBox.isSelected());
+
+            state.childEditor = new ViewConfigEditor(
+                    config,
+                    nestedDefaultNameOnly,
+                    true,
+                    null,
+                    nestedContributorFor(state.row),
+                    ConfigFieldRowSource.INSTANCE);
         }
 
         JDialog dialog = new JDialog(
                 SwingUtilities.getWindowAncestor(this),
-                "Minor fields : " + sourceConfig.getCls().getSimpleName(),
+                "Minor fields : "
+                        + sourceConfig.getCls().getSimpleName(),
                 Dialog.ModalityType.APPLICATION_MODAL);
 
         dialog.setLayout(new BorderLayout(8, 8));
-        dialog.add(row.childEditor, BorderLayout.CENTER);
+        dialog.add(
+                state.childEditor,
+                BorderLayout.CENTER);
 
         JButton okButton = new JButton("OK");
         okButton.addActionListener(e -> {
-            ViewConfig cfg = row.childEditor.getConfig();
-            allMinorFieldsBox.setSelected(cfg.isAllMinorFields());
+            ViewConfig config =
+                    state.childEditor.getConfig();
+            allMinorFieldsBox.setSelected(
+                    config.isAllMinorFields());
             dialog.dispose();
             tableModel.fireTableDataChanged();
             fireConfigChanged();
         });
 
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JPanel buttons =
+                new JPanel(
+                        new FlowLayout(
+                                FlowLayout.RIGHT));
         buttons.add(okButton);
 
         dialog.add(buttons, BorderLayout.SOUTH);
@@ -686,71 +812,76 @@ public class ViewConfigEditor extends JPanel {
         dialog.setVisible(true);
     }
 
-    private void openChildEditor(Row row) {
-        if (row.minorBlock) {
-            openMinorEditor(row);
+    private void openChildEditor(RowState state) {
+        FieldRow row = state.row;
+
+        if (row.isMinorBlock()) {
+            openMinorEditor(state);
+            return;
+        }
+        if (!row.isField() || row.nested() == null) {
             return;
         }
 
-        if (row.special || row.nestedClass == null) {
-            return;
-        }
+        state.use = true;
 
-        row.use = true;
-
-        if (row.childEditor == null) {
+        if (state.childEditor == null) {
             ViewConfig childConfig =
-                    sourceConfig.getFieldConfig(row.fieldName);
+                    sourceConfig.getFieldConfig(row.path());
 
-            if (childConfig == null || childConfig.getCls() == null) {
+            if (childConfig == null
+                    || childConfig.getCls() == null) {
                 childConfig = nestedDefaultNameOnly
-                        ? nameOnlyConfig(row.nestedClass)
-                        : ViewConfig.all(row.nestedClass);
+                        ? nameOnlyConfig(
+                                row.nested().type())
+                        : ViewConfig.all(
+                                row.nested().type());
             } else {
                 childConfig = childConfig.copy();
             }
 
-            // A dynamic reference carries a nested SAMPLE so the child editor can
-            // enumerate the referenced object's map-held fields.
-            row.childEditor = new ViewConfigEditor(
-                    childConfig, nestedDefaultNameOnly, false, row.nestedSample,
-                    FieldRowContributor.DEFAULT);
-            // Carry the authoritative types down so the nested level hides its own
-            // structural fields (e.g. a Category's `wikidata`) and labels correctly.
-            if (row.nestedTypeSource != null) {
-                row.childEditor.setFieldTypes(row.nestedTypeSource);
-            }
+            state.childEditor =
+                    createChildEditor(
+                            row,
+                            childConfig);
         }
 
-        // Prefer the model class name (e.g. "Nomination") over the raw sample Java
-        // class ("WikidataDynamicObject") for the caption.
-        String nestedName = row.nestedLabel != null && !row.nestedLabel.isBlank()
-                ? row.nestedLabel : row.nestedClass.getSimpleName();
         JDialog dialog = new JDialog(
                 SwingUtilities.getWindowAncestor(this),
-                row.fieldName + " : " + nestedName,
+                row.label()
+                        + " : "
+                        + row.nested()
+                        .effectiveDisplayName(),
                 Dialog.ModalityType.APPLICATION_MODAL);
 
         dialog.setLayout(new BorderLayout(8, 8));
-        dialog.add(row.childEditor, BorderLayout.CENTER);
+        dialog.add(
+                state.childEditor,
+                BorderLayout.CENTER);
 
-        JButton clearButton = new JButton("Clear custom config");
+        JButton clearButton =
+                new JButton("Clear custom config");
         JButton okButton = new JButton("OK");
 
         clearButton.addActionListener(e -> {
-            row.childEditor = null;
+            state.childEditor = null;
+            state.customConfigured = false;
             dialog.dispose();
             tableModel.fireTableDataChanged();
             fireConfigChanged();
         });
 
         okButton.addActionListener(e -> {
+            state.customConfigured = true;
             dialog.dispose();
             tableModel.fireTableDataChanged();
             fireConfigChanged();
         });
 
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JPanel buttons =
+                new JPanel(
+                        new FlowLayout(
+                                FlowLayout.RIGHT));
         buttons.add(clearButton);
         buttons.add(okButton);
 
@@ -758,46 +889,60 @@ public class ViewConfigEditor extends JPanel {
         dialog.setSize(800, 600);
         dialog.setLocationRelativeTo(this);
         dialog.setVisible(true);
-
-        tableModel.fireTableDataChanged();
     }
 
-    private ViewConfig nameOnlyConfig(Class<? extends Viewable> cls) {
-        ViewConfig cfg = ViewConfig.of(cls);
-        cfg.setAllFields(false);
-        cfg.setAllMinorFields(false);
-        cfg.setAddListener(false);
-        cfg.setThumb(false);
-        cfg.addField("name", ViewConfig.leaf());
-        return cfg;
+    private ViewConfigEditor createChildEditor(
+            FieldRow row,
+            ViewConfig childConfig) {
+        NestedFieldSource nested = row.nested();
+
+        ViewConfigEditor childEditor =
+                new ViewConfigEditor(
+                        childConfig,
+                        nestedDefaultNameOnly,
+                        false,
+                        nested.sample(),
+                        nestedContributorFor(row),
+                        ConfigFieldRowSource.INSTANCE);
+
+        if (nested.fieldTypes() != null) {
+            childEditor.setFieldTypes(
+                    nested.fieldTypes());
+        }
+
+        childEditor.setHideMedia(hideMedia);
+        return childEditor;
     }
 
-    private String describeFieldType(Field field) {
-        Class<?> type = field.getType();
+    private FieldTableContributor nestedContributorFor(
+            FieldRow row) {
+        FieldTableContributor nested =
+                contributor.nestedContributor(row);
+        return nested == null
+                ? FieldTableContributor.DEFAULT
+                : nested;
+    }
 
-        if (Viewable.class.isAssignableFrom(type)) {
-            return type.getSimpleName();
+    private ViewConfig nameOnlyConfig(
+            Class<? extends Viewable> cls) {
+        ViewConfig config = ViewConfig.of(cls);
+        config.setAllFields(false);
+        config.setAllMinorFields(false);
+        config.setAddListener(false);
+        config.setThumb(false);
+        config.addField(
+                "name",
+                ViewConfig.leaf());
+        return config;
+    }
+
+    private RowState findMinorBlock() {
+        for (RowState state : rows) {
+            if (state.row.isMinorBlock()) {
+                return state;
+            }
         }
-
-        if (java.util.Collection.class.isAssignableFrom(type)) {
-            Class<? extends Viewable> nested =
-                    ViewableFieldPaths.nestedViewableClass(field);
-
-            return nested != null
-                    ? "Collection<" + nested.getSimpleName() + ">"
-                    : "Collection";
-        }
-
-        if (java.util.Map.class.isAssignableFrom(type)) {
-            Class<? extends Viewable> nested =
-                    ViewableFieldPaths.nestedViewableClass(field);
-
-            return nested != null
-                    ? "Map<?, " + nested.getSimpleName() + ">"
-                    : "Map";
-        }
-
-        return type.getSimpleName();
+        return null;
     }
 
     private int countSelectedMinorFields() {
@@ -806,26 +951,33 @@ public class ViewConfigEditor extends JPanel {
         }
 
         int count = 0;
-        Class<? extends Viewable> cls = sourceConfig.getCls();
-
+        Class<? extends Viewable> cls =
+                sourceConfig.getCls();
         if (cls == null) {
             return 0;
         }
 
-        for (Field f : ViewableAdapter.getAllFields(cls)) {
-            if (ViewableAdapter.isMinorField(f)
-                    && sourceConfig.getFieldConfig(f.getName()) != null) {
+        for (Field field
+                : ViewableAdapter.getAllFields(cls)) {
+            if (ViewableAdapter.isMinorField(field)
+                    && sourceConfig.getFieldConfig(
+                            field.getName()) != null) {
                 count++;
             }
         }
 
-        Row minorBlock = findMinorBlock();
-        if (minorBlock != null && minorBlock.childEditor != null) {
-            ViewConfig cfg = minorBlock.childEditor.getConfig();
+        RowState minorBlock = findMinorBlock();
+        if (minorBlock != null
+                && minorBlock.childEditor != null) {
+            ViewConfig config =
+                    minorBlock.childEditor.getConfig();
             count = 0;
-            for (Field f : ViewableAdapter.getAllFields(cls)) {
-                if (ViewableAdapter.isMinorField(f)
-                        && cfg.getFieldConfig(f.getName()) != null) {
+
+            for (Field field
+                    : ViewableAdapter.getAllFields(cls)) {
+                if (ViewableAdapter.isMinorField(field)
+                        && config.getFieldConfig(
+                                field.getName()) != null) {
                     count++;
                 }
             }
@@ -834,109 +986,213 @@ public class ViewConfigEditor extends JPanel {
         return count;
     }
 
-    private static void setFixedWidth(javax.swing.table.TableColumn col, int w) {
-        col.setMinWidth(w);
-        col.setMaxWidth(w);
-        col.setPreferredWidth(w);
+    private static void setFixedWidth(
+            javax.swing.table.TableColumn column,
+            int width) {
+        column.setMinWidth(width);
+        column.setMaxWidth(width);
+        column.setPreferredWidth(width);
     }
 
-    /** Style a table button as a compact, flat chip. */
-    private static void chipify(JButton b) {
-        b.setFont(b.getFont().deriveFont(Font.PLAIN, 11f));
-        b.setMargin(new Insets(1, 6, 1, 6));
-        b.setFocusPainted(false);
-        b.setBorderPainted(false);
-        b.setContentAreaFilled(false);
+    private static void chipify(JButton button) {
+        button.setFont(
+                button.getFont().deriveFont(
+                        Font.PLAIN,
+                        11f));
+        button.setMargin(new Insets(1, 6, 1, 6));
+        button.setFocusPainted(false);
+        button.setBorderPainted(false);
+        button.setContentAreaFilled(false);
     }
+
+    private boolean isButtonEnabled(
+            RowState state,
+            Col col,
+            Object value) {
+        if (value == null
+                || value.toString().isEmpty()) {
+            return false;
+        }
+
+        FieldRow row = state.row;
+        if (row.isContainer()) {
+            return false;
+        }
+
+        return switch (col.kind) {
+            case TREE ->
+                    row.nested() != null;
+            case ACTION ->
+                    row.isField()
+                            && col.action.enabled(row);
+            case EXPAND ->
+                    row.isMinorBlock()
+                            || row.nested() != null;
+            case UP, DOWN ->
+                    row.isField();
+            default ->
+                    true;
+        };
+    }
+
+    // ---- table model / rendering ------------------------------------------
 
     private class RowTableModel extends AbstractTableModel {
 
-        @Override public int getRowCount() { return rows.size(); }
-        @Override public int getColumnCount() { return cols == null ? 0 : cols.size(); }
-        @Override public String getColumnName(int column) {
-            return cols == null ? "" : cols.get(column).header;
+        @Override
+        public int getRowCount() {
+            return rows.size();
         }
 
         @Override
-        public Object getValueAt(int rowIndex, int columnIndex) {
-            Row row = rows.get(rowIndex);
+        public int getColumnCount() {
+            return cols == null ? 0 : cols.size();
+        }
+
+        @Override
+        public String getColumnName(int column) {
+            return cols == null
+                    ? ""
+                    : cols.get(column).header;
+        }
+
+        @Override
+        public Object getValueAt(
+                int rowIndex,
+                int columnIndex) {
+            RowState state = rows.get(rowIndex);
+            FieldRow row = state.row;
             Col col = cols.get(columnIndex);
 
-            if (row.minorBlock) {
+            if (row.isMinorBlock()) {
                 return switch (col.kind) {
                     case FIELD -> "Minor fields";
-                    case TYPE -> allMinorFieldsBox.isSelected() ? "all"
-                            : countSelectedMinorFields() + " selected";
-                    case USE -> allMinorFieldsBox.isSelected();
+                    case TYPE ->
+                            allMinorFieldsBox.isSelected()
+                                    ? "all"
+                                    : countSelectedMinorFields()
+                                    + " selected";
+                    case USE ->
+                            allMinorFieldsBox.isSelected();
                     case EXPAND -> "Open...";
                     default -> "";
                 };
             }
 
             return switch (col.kind) {
-                case FIELD -> row.depth > 0 ? "    ".repeat(row.depth) + row.fieldName
-                        : row.fieldName;
-                case TYPE -> row.typeLabel;
-                case EXTRA -> row.container ? "" : col.extra.value(row.path);
-                case USE -> row.use;
+                case TREE -> row.nested() == null
+                        ? ""
+                        : expandedPaths.contains(row.path())
+                                ? "▾"
+                                : "▸";
+                case FIELD -> row.indentedLabel();
+                case TYPE -> row.typeLabel();
+                case EXTRA -> row.isContainer()
+                        ? null
+                        : col.extra.value(row);
+                case USE -> state.use;
                 case UP -> "▴";
                 case DOWN -> "▾";
-                case ACTION -> row.container ? "" : col.action.label(row.path);
-                case EXPAND -> row.nestedClass == null ? ""
-                        : row.childEditor == null ? "＋ fields" : "✎ edit";
+                case ACTION -> row.isContainer()
+                        ? ""
+                        : col.action.label(row);
+                case EXPAND -> row.nested() == null
+                        ? ""
+                        : state.childEditor == null
+                                && !state.customConfigured
+                                ? "＋ fields"
+                                : "✎ edit";
             };
         }
 
         @Override
-        public boolean isCellEditable(int rowIndex, int columnIndex) {
-            Row row = rows.get(rowIndex);
+        public boolean isCellEditable(
+                int rowIndex,
+                int columnIndex) {
+            RowState state = rows.get(rowIndex);
+            FieldRow row = state.row;
             Col col = cols.get(columnIndex);
 
-            if (row.minorBlock) {
-                return col.kind == ColKind.USE || col.kind == ColKind.EXPAND;
+            if (row.isMinorBlock()) {
+                return col.kind == ColKind.USE
+                        || col.kind == ColKind.EXPAND;
             }
 
             return switch (col.kind) {
-                case USE, UP, DOWN -> true;
-                case ACTION -> !row.container && col.action.enabled(row.path);
-                case EXPAND -> row.nestedClass != null;
-                default -> false;
+                case TREE ->
+                        row.nested() != null;
+                case USE, UP, DOWN ->
+                        row.isField();
+                case ACTION ->
+                        row.isField()
+                                && col.action.enabled(row);
+                case EXPAND ->
+                        row.nested() != null;
+                default ->
+                        false;
             };
         }
 
         @Override
-        public void setValueAt(Object value, int rowIndex, int columnIndex) {
-            Row row = rows.get(rowIndex);
+        public void setValueAt(
+                Object value,
+                int rowIndex,
+                int columnIndex) {
+            RowState state = rows.get(rowIndex);
+            FieldRow row = state.row;
             Col col = cols.get(columnIndex);
 
             if (col.kind != ColKind.USE) {
                 return;
             }
 
-            if (row.minorBlock) {
-                allMinorFieldsBox.setSelected(Boolean.TRUE.equals(value));
-                fireTableRowsUpdated(rowIndex, rowIndex);
+            if (row.isMinorBlock()) {
+                allMinorFieldsBox.setSelected(
+                        Boolean.TRUE.equals(value));
+                fireTableRowsUpdated(
+                        rowIndex,
+                        rowIndex);
                 fireConfigChanged();
                 return;
             }
 
-            row.use = Boolean.TRUE.equals(value);
-            if (!row.use) {
-                row.childEditor = null;
+            state.use = Boolean.TRUE.equals(value);
+            if (!state.use) {
+                state.childEditor = null;
+                state.customConfigured = false;
             }
 
-            fireTableRowsUpdated(rowIndex, rowIndex);
+            fireTableRowsUpdated(
+                    rowIndex,
+                    rowIndex);
             fireConfigChanged();
         }
 
         @Override
-        public Class<?> getColumnClass(int columnIndex) {
-            return cols != null && cols.get(columnIndex).kind == ColKind.USE
-                    ? Boolean.class : String.class;
+        public Class<?> getColumnClass(
+                int columnIndex) {
+            if (cols == null) {
+                return Object.class;
+            }
+
+            Col col = cols.get(columnIndex);
+            return switch (col.kind) {
+                case USE -> Boolean.class;
+                case EXTRA -> {
+                    Class<?> valueClass =
+                            col.extra.valueClass();
+                    yield valueClass == null
+                            ? Object.class
+                            : valueClass;
+                }
+                default -> String.class;
+            };
         }
     }
 
-    private class RowRenderer implements TableCellRenderer {
+    private class RowRenderer
+            implements TableCellRenderer {
+
         private final TableCellRenderer delegate;
 
         RowRenderer(TableCellRenderer delegate) {
@@ -944,84 +1200,126 @@ public class ViewConfigEditor extends JPanel {
         }
 
         @Override
-        public Component getTableCellRendererComponent(JTable table,
-                                                       Object value,
-                                                       boolean isSelected,
-                                                       boolean hasFocus,
-                                                       int row,
-                                                       int column) {
-            int modelRow = table.convertRowIndexToModel(row);
-            Row r = rows.get(modelRow);
+        public Component getTableCellRendererComponent(
+                JTable table,
+                Object value,
+                boolean isSelected,
+                boolean hasFocus,
+                int viewRow,
+                int viewColumn) {
+            int modelRow =
+                    table.convertRowIndexToModel(viewRow);
+            RowState state = rows.get(modelRow);
+            FieldRow row = state.row;
 
-            boolean useCol = cols.get(table.convertColumnIndexToModel(column)).kind == ColKind.USE;
-            if (r.special && !useCol) {
-                JLabel label = new JLabel(value == null ? "" : value.toString());
+            ColKind kind = cols.get(
+                    table.convertColumnIndexToModel(
+                            viewColumn)).kind;
+
+            if (row.isMinorBlock()
+                    && kind != ColKind.USE) {
+                JLabel label = new JLabel(
+                        value == null
+                                ? ""
+                                : value.toString());
                 label.setOpaque(true);
-                label.setFont(label.getFont().deriveFont(Font.BOLD));
-                label.setBackground(new Color(235, 235, 235));
+                label.setFont(
+                        label.getFont().deriveFont(
+                                Font.BOLD));
+                label.setBackground(
+                        new Color(235, 235, 235));
                 label.setForeground(Color.DARK_GRAY);
                 return label;
             }
 
-            Component c = delegate.getTableCellRendererComponent(
-                    table, value, isSelected, hasFocus, row, column);
-            // A synthesized container (an ancestor that isn't itself a pickable field)
-            // reads dim, so it's visibly not a choice.
-            if (r.container && !isSelected) {
-                c.setForeground(Color.GRAY);
+            Component component =
+                    delegate.getTableCellRendererComponent(
+                            table,
+                            value,
+                            isSelected,
+                            hasFocus,
+                            viewRow,
+                            viewColumn);
+
+            if (row.isContainer() && !isSelected) {
+                component.setForeground(Color.GRAY);
             }
-            return c;
+
+            return component;
         }
     }
 
-    private class ButtonRenderer extends JButton implements TableCellRenderer {
+    private class ButtonRenderer
+            extends JButton
+            implements TableCellRenderer {
+
         ButtonRenderer() {
             setOpaque(true);
             chipify(this);
         }
 
         @Override
-        public Component getTableCellRendererComponent(JTable table,
-                                                       Object value,
-                                                       boolean isSelected,
-                                                       boolean hasFocus,
-                                                       int row,
-                                                       int column) {
-            int modelRow = table.convertRowIndexToModel(row);
-            Row r = rows.get(modelRow);
+        public Component getTableCellRendererComponent(
+                JTable table,
+                Object value,
+                boolean isSelected,
+                boolean hasFocus,
+                int viewRow,
+                int viewColumn) {
+            int modelRow =
+                    table.convertRowIndexToModel(viewRow);
+            int modelColumn =
+                    table.convertColumnIndexToModel(
+                            viewColumn);
 
-            setText(value == null ? "" : value.toString());
-            setEnabled(value != null
-                    && !value.toString().isEmpty()
-                    && (!r.special || r.minorBlock));
+            RowState state = rows.get(modelRow);
+            Col col = cols.get(modelColumn);
 
+            setText(value == null
+                    ? ""
+                    : value.toString());
+            setEnabled(
+                    isButtonEnabled(
+                            state,
+                            col,
+                            value));
             return this;
         }
     }
 
-    private class ButtonEditor extends AbstractCellEditor implements TableCellEditor {
+    private class ButtonEditor
+            extends AbstractCellEditor
+            implements TableCellEditor {
+
         private final JButton button = new JButton();
-        private Row currentRow;
+        private RowState currentState;
         private Col currentCol;
-        private boolean opening = false;
+        private boolean opening;
 
         ButtonEditor() {
             chipify(button);
+
             button.addActionListener(e -> {
-                if (opening) return;
+                if (opening) {
+                    return;
+                }
 
-                Row row = currentRow;
+                RowState state = currentState;
                 Col col = currentCol;
-
                 fireEditingStopped();
 
-                if (row == null || col == null) return;
+                if (state == null || col == null) {
+                    return;
+                }
 
-                if (row.minorBlock && col.kind == ColKind.EXPAND) {
+                FieldRow row = state.row;
+
+                if (row.isMinorBlock()
+                        && col.kind == ColKind.EXPAND) {
                     opening = true;
                     SwingUtilities.invokeLater(() -> {
                         try {
-                            openMinorEditor(row);
+                            openMinorEditor(state);
                         } finally {
                             opening = false;
                         }
@@ -1029,45 +1327,63 @@ public class ViewConfigEditor extends JPanel {
                     return;
                 }
 
-                if (row.special) return;
+                if (!row.isField()) {
+                    return;
+                }
 
                 switch (col.kind) {
-                    case UP -> moveRow(row, -1);
-                    case DOWN -> moveRow(row, 1);
+                    case TREE ->
+                            SwingUtilities.invokeLater(
+                                    () -> toggleExpand(row.path()));
+                    case UP ->
+                            moveRow(state, -1);
+                    case DOWN ->
+                            moveRow(state, 1);
                     case ACTION -> {
-                        if (!row.container) {
-                            col.action.run(row.path);
+                        if (col.action.enabled(row)) {
+                            col.action.run(row);
                         }
                     }
                     case EXPAND -> {
                         opening = true;
                         SwingUtilities.invokeLater(() -> {
                             try {
-                                openChildEditor(row);
+                                openChildEditor(state);
                             } finally {
                                 opening = false;
                             }
                         });
                     }
-                    default -> { }
+                    default -> {
+                    }
                 }
             });
         }
 
         @Override
-        public Component getTableCellEditorComponent(JTable table,
-                                                     Object value,
-                                                     boolean isSelected,
-                                                     int viewRow,
-                                                     int viewColumn) {
-            int modelRow = table.convertRowIndexToModel(viewRow);
+        public Component getTableCellEditorComponent(
+                JTable table,
+                Object value,
+                boolean isSelected,
+                int viewRow,
+                int viewColumn) {
+            int modelRow =
+                    table.convertRowIndexToModel(viewRow);
+            int modelColumn =
+                    table.convertColumnIndexToModel(
+                            viewColumn);
 
-            currentRow = rows.get(modelRow);
-            currentCol = cols.get(table.convertColumnIndexToModel(viewColumn));
+            currentState = rows.get(modelRow);
+            currentCol = cols.get(modelColumn);
 
-            button.setText(value == null ? "" : value.toString());
-            button.setEnabled(value != null && !value.toString().isEmpty());
-
+            button.setText(value == null
+                    ? ""
+                    : value.toString());
+            button.setEnabled(
+                    isButtonEnabled(
+                            currentState,
+                            currentCol,
+                            value));
             return button;
         }
 
@@ -1077,65 +1393,22 @@ public class ViewConfigEditor extends JPanel {
         }
     }
 
-    private static class Row {
-        final boolean special;
-        final boolean minorBlock;
-        final Field field;                 // null for a dynamic (map-held) field
-        final String fieldName;
-        final String typeLabel;
-        final Class<? extends Viewable> nestedClass;
-        final Viewable nestedSample;        // a sample of the referenced value (dynamic)
+    // ---- mutable editor state ---------------------------------------------
 
-        // Flat path-row (single-select picker) attributes; for reflective rows the
-        // path IS the field name, depth 0, never a container.
-        final String path;
-        final int depth;
-        final boolean container;            // a synthesized ancestor, not pickable
-
+    private static final class RowState {
+        final FieldRow row;
         boolean use;
+        boolean customConfigured;
         ViewConfigEditor childEditor;
-        FieldTypeSource nestedTypeSource;   // authoritative types for the child (dynamic)
-        String nestedLabel;                 // model class name for the expand caption
 
-        private Row(boolean special, boolean minorBlock, Field field, String fieldName,
-                    String typeLabel, Class<? extends Viewable> nestedClass,
-                    Viewable nestedSample, String path, int depth, boolean container) {
-            this.special = special;
-            this.minorBlock = minorBlock;
-            this.field = field;
-            this.fieldName = fieldName;
-            this.typeLabel = typeLabel;
-            this.nestedClass = nestedClass;
-            this.nestedSample = nestedSample;
-            this.path = path;
-            this.depth = depth;
-            this.container = container;
+        RowState(FieldRow row) {
+            this.row = row;
         }
+    }
 
-        boolean isMinor() {
-            return field != null && ViewableAdapter.isMinorField(field);
-        }
-
-        static Row minorBlock() {
-            return new Row(true, true, null, "Minor fields", "", null, null,
-                    "Minor fields", 0, false);
-        }
-
-        static Row field(Field field, String typeLabel, Class<? extends Viewable> nestedClass) {
-            return new Row(false, false, field, field.getName(), typeLabel, nestedClass, null,
-                    field.getName(), 0, false);
-        }
-
-        static Row dynamic(String name, String typeLabel,
-                           Class<? extends Viewable> nestedClass, Viewable nestedSample) {
-            return new Row(false, false, null, name, typeLabel, nestedClass, nestedSample,
-                    name, 0, false);
-        }
-
-        static Row path(String label, String path, int depth, boolean container,
-                        String typeLabel) {
-            return new Row(false, false, null, label, typeLabel, null, null,
-                    path, depth, container);
-        }
+    private record RowSnapshot(
+            boolean use,
+            ViewConfigEditor childEditor,
+            boolean customConfigured) {
     }
 }
