@@ -7,6 +7,7 @@ import objectview.demo.CardFrame;
 import objectview.media.ImageBlurrer;
 import objectview.media.ImagePane;
 import objectview.media.MediaValue;
+import objectview.field.FieldKind;
 import objectview.field.FieldProperties;
 import objectview.viewconfig.ViewConfig;
 import org.slf4j.Logger;
@@ -596,15 +597,46 @@ public class Card extends JPanel {
         return String.join(" → ", names);
     }
 
+    // Renders the entity's MEDIA field(s) — a portrait / flag (ImagePane or MediaValue)
+    // — at the top of the card (the header thumbnail / avatar), recording their names so
+    // the normal field pass skips them. Reflection-declared fields only; dynamic
+    // (map-backed) media stays inline for now.
+    private int appendHoistedMedia(int row, java.util.Set<String> hoisted) {
+        for (Field field : config.visibleFieldsFor(viewable.getClass())) {
+            String name = field.getName();
+            if ("name".equals(name)) {
+                continue;
+            }
+            Object value;
+            try {
+                value = field.get(viewable);
+            } catch (Exception e) {
+                continue;
+            }
+            if (value == null || FieldKind.ofValue(value) != FieldKind.MEDIA) {
+                continue;
+            }
+            row = addRenderedField(field, value, row);
+            hoisted.add(name);
+        }
+        return row;
+    }
+
     private void buildFields() {
         int row = firstFieldRow;
 
         List<TextBlock.Row> textRows = new ArrayList<>();
 
+        // Hoist a MEDIA field (a portrait / flag — ImagePane or MediaValue) to the TOP
+        // of the card so the entity's image reads as its avatar instead of sitting
+        // buried among the text fields; the hoisted field is skipped in the pass below.
+        java.util.Set<String> hoistedMedia = new java.util.HashSet<>();
+        row = appendHoistedMedia(row, hoistedMedia);
+
         for (Field field : config.visibleFieldsFor(viewable.getClass())) {
             String name = field.getName();
 
-            if ("name".equals(name)) {
+            if ("name".equals(name) || hoistedMedia.contains(name)) {
                 continue;
             }
 
