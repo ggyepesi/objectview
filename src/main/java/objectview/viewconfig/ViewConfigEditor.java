@@ -150,9 +150,10 @@ public class ViewConfigEditor extends JPanel {
         this.rowSource = rowSource == null
                 ? ConfigFieldRowSource.INSTANCE
                 : rowSource;
-        this.treeMode = this.contributor.selectionMode()
-                == FieldTableContributor.SelectionMode.SINGLE
-                && this.rowSource instanceof ConfigFieldRowSource;
+        // Inline tree for every config-source table — multi-check (search/sort/view)
+        // and single-select (pick-one/coverage) alike, so a field looks the same in
+        // all of them. A path-row table stays flat.
+        this.treeMode = this.rowSource instanceof ConfigFieldRowSource;
         this.cols = buildColumns();
 
         // JTable was constructed before `cols` existed.
@@ -325,14 +326,25 @@ public class ViewConfigEditor extends JPanel {
     private void buildTree(String parentPath, int depth,
                            FieldRowContext context, Set<Class<?>> chain) {
         for (FieldRow raw : rowSource.rows(context)) {
+            if (raw.isMinorBlock()) {
+                // Multi-check reflection keeps the minor-fields block as a top-level row
+                // (its own small dialog); single-select tables omit it.
+                if (depth == 0 && contributor.selectionMode()
+                        == FieldTableContributor.SelectionMode.MULTI_CHECK) {
+                    allRows.add(new RowState(raw));
+                }
+                continue;
+            }
             if (!raw.isField()) {
-                continue;   // no minor-block / synthesized containers in the tree
+                continue;   // no synthesized containers in a config-source tree
             }
             String full = parentPath.isEmpty()
                     ? raw.path()
                     : parentPath + "." + raw.path();
             FieldRow placed = raw.at(full, depth);
-            allRows.add(new RowState(placed));
+            RowState state = new RowState(placed);
+            state.use = checkedInSource(placed);
+            allRows.add(state);
 
             NestedFieldSource nested = placed.nested();
             if (nested != null
@@ -343,6 +355,22 @@ public class ViewConfigEditor extends JPanel {
                 buildTree(full, depth + 1, childContext(nested), next);
             }
         }
+    }
+
+    /** Whether {@code row}'s field is currently selected in {@link #sourceConfig},
+     *  walking nested configs down its full path (so an existing/saved config restores
+     *  checked state at every level). */
+    private boolean checkedInSource(FieldRow row) {
+        String[] segments = row.path().split("\\.");
+        ViewConfig config = sourceConfig;
+        for (int i = 0; i < segments.length - 1; i++) {
+            ViewConfig child = config.getFieldConfig(segments[i]);
+            if (child == null) {
+                return config.isAllFields();
+            }
+            config = child;
+        }
+        return config.showsFieldByName(segments[segments.length - 1]);
     }
 
     private FieldRowContext childContext(NestedFieldSource nested) {
@@ -512,6 +540,16 @@ public class ViewConfigEditor extends JPanel {
 
     private void collectSelected(String prefix,
                                  List<String> result) {
+        if (treeMode) {
+            for (RowState state : allRows) {
+                if (state.row.isField() && state.use) {
+                    result.add(prefix.isEmpty()
+                            ? state.row.path()
+                            : prefix + "." + state.row.path());
+                }
+            }
+            return;
+        }
         for (RowState state : rows) {
             if (!state.row.isField() || !state.use) {
                 continue;
@@ -532,6 +570,9 @@ public class ViewConfigEditor extends JPanel {
     }
 
     public ViewConfig getConfig() {
+        if (treeMode) {
+            return buildTreeConfig();
+        }
         ViewConfig result = copyHeader(sourceConfig);
         result.setAllFields(false);
         result.setAllMinorFields(
@@ -581,6 +622,83 @@ public class ViewConfigEditor extends JPanel {
         }
 
         return result;
+    }
+
+    /** Folds the checked rows of the inline tree ({@link #allRows}) into a nested
+     *  {@link ViewConfig}: leaves add a leaf field to their parent; a reference is
+     *  included when it is checked OR any descendant is, carrying its checked children
+     *  (or all its fields when checked but not drilled into). References attach
+     *  deepest-first so a parent sees its already-attached descendants. */
+    private ViewConfig buildTreeConfig() {
+        ViewConfig result = copyHeader(sourceConfig);
+        result.setAllFields(false);
+        result.setAllMinorFields(
+                !minorOnly && allMinorFieldsBox.isSelected());
+        result.getFields().clear();
+
+        int maxDepth = 0;
+        for (RowState state : allRows) {
+            maxDepth = Math.max(maxDepth, state.row.depth());
+        }
+        // parents[d] = the config that a depth-d field attaches to (pre-order fills it).
+        ViewConfig[] parents = new ViewConfig[maxDepth + 2];
+        parents[0] = result;
+
+        List<RefEntry> refs = new ArrayList<>();
+        for (RowState state : allRows) {
+            FieldRow row = state.row;
+            if (row.isMinorBlock()) {
+                continue;
+            }
+            int depth = row.depth();
+            String name = row.label();
+            if (row.nested() != null) {
+                ViewConfig cfg = new ViewConfig();
+                cfg.setCls(row.nested().type());
+                cfg.setAllFields(false);
+                parents[depth + 1] = cfg;
+                refs.add(new RefEntry(
+                        parents[depth], name, cfg, state.use, row.nested().type()));
+            } else if (state.use) {
+                parents[depth].addField(name, ViewConfig.leaf());
+            }
+        }
+
+        // Deepest-first: a reference's checked descendants are already in its cfg.
+        for (int i = refs.size() - 1; i >= 0; i--) {
+            RefEntry ref = refs.get(i);
+            boolean hasChild = !ref.cfg.getFields().isEmpty();
+            if (ref.use || hasChild) {
+                ViewConfig attach = !hasChild && ref.use
+                        ? ViewConfig.of(ref.type)   // checked, not drilled -> all fields
+                        : ref.cfg;
+                ref.parent.addField(ref.name, attach);
+            }
+        }
+
+        if (!minorOnly) {
+            RowState minorBlock = findMinorBlock();
+            if (minorBlock != null && minorBlock.childEditor != null) {
+                ViewConfig minorConfig = minorBlock.childEditor.getConfig();
+                result.setAllMinorFields(
+                        result.isAllMinorFields()
+                                || minorConfig.isAllMinorFields());
+                for (Map.Entry<String, ViewConfig> entry
+                        : minorConfig.getFields().entrySet()) {
+                    result.addField(entry.getKey(), entry.getValue());
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private record RefEntry(
+            ViewConfig parent,
+            String name,
+            ViewConfig cfg,
+            boolean use,
+            Class<? extends Viewable> type) {
     }
 
     private ViewConfig childConfigFor(RowState state) {
@@ -698,7 +816,7 @@ public class ViewConfigEditor extends JPanel {
                     48));
         }
 
-        if (contributor.showReorder()) {
+        if (!treeMode && contributor.showReorder()) {
             result.add(new Col(
                     ColKind.UP,
                     "",
@@ -1050,7 +1168,7 @@ public class ViewConfigEditor extends JPanel {
 
         return switch (col.kind) {
             case TREE ->
-                    row.nested() != null;
+                    row.isMinorBlock() || row.nested() != null;
             case ACTION ->
                     row.isField()
                             && col.action.enabled(row);
@@ -1103,7 +1221,7 @@ public class ViewConfigEditor extends JPanel {
                                     + " selected";
                     case USE ->
                             allMinorFieldsBox.isSelected();
-                    case EXPAND -> "Open...";
+                    case TREE, EXPAND -> "Open...";
                     default -> "";
                 };
             }
@@ -1144,7 +1262,8 @@ public class ViewConfigEditor extends JPanel {
 
             if (row.isMinorBlock()) {
                 return col.kind == ColKind.USE
-                        || col.kind == ColKind.EXPAND;
+                        || col.kind == ColKind.EXPAND
+                        || col.kind == ColKind.TREE;
             }
 
             return switch (col.kind) {
@@ -1344,7 +1463,8 @@ public class ViewConfigEditor extends JPanel {
                 FieldRow row = state.row;
 
                 if (row.isMinorBlock()
-                        && col.kind == ColKind.EXPAND) {
+                        && (col.kind == ColKind.EXPAND
+                                || col.kind == ColKind.TREE)) {
                     opening = true;
                     SwingUtilities.invokeLater(() -> {
                         try {
