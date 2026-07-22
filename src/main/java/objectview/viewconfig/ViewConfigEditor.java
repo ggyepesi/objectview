@@ -816,7 +816,7 @@ public class ViewConfigEditor extends JPanel {
                     48));
         }
 
-        if (!treeMode && contributor.showReorder()) {
+        if (contributor.showReorder()) {
             result.add(new Col(
                     ColKind.UP,
                     "",
@@ -878,6 +878,11 @@ public class ViewConfigEditor extends JPanel {
             return;
         }
 
+        if (treeMode) {
+            moveInTree(state, delta);
+            return;
+        }
+
         int from = rows.indexOf(state);
         if (from < 0) {
             return;
@@ -903,6 +908,62 @@ public class ViewConfigEditor extends JPanel {
                             viewRow);
         }
 
+        fireConfigChanged();
+    }
+
+    /** Sibling-aware reorder in the tree: moves {@code state} (with its whole subtree)
+     *  past the adjacent SIBLING at the same depth/parent, keeping the pre-order layout
+     *  of {@link #allRows} — which is the order {@link #buildTreeConfig} emits. */
+    private void moveInTree(RowState state, int delta) {
+        int idx = allRows.indexOf(state);
+        if (idx < 0) {
+            return;
+        }
+        int depth = state.row.depth();
+
+        // The moved node's subtree is contiguous: [idx, end).
+        int end = idx + 1;
+        while (end < allRows.size()
+                && allRows.get(end).row.depth() > depth) {
+            end++;
+        }
+        List<RowState> block =
+                new ArrayList<>(allRows.subList(idx, end));
+
+        if (delta < 0) {
+            // Previous sibling's root: skip back over its subtree to a row at this depth.
+            int prev = idx - 1;
+            while (prev >= 0
+                    && allRows.get(prev).row.depth() > depth) {
+                prev--;
+            }
+            if (prev < 0
+                    || allRows.get(prev).row.depth() != depth) {
+                return;   // no previous sibling (hit the parent / start)
+            }
+            allRows.subList(idx, end).clear();
+            allRows.addAll(prev, block);
+        } else {
+            // Next sibling starts at `end` (same depth) — else no next sibling.
+            if (end >= allRows.size()
+                    || allRows.get(end).row.depth() != depth) {
+                return;
+            }
+            int nextEnd = end + 1;
+            while (nextEnd < allRows.size()
+                    && allRows.get(nextEnd).row.depth() > depth) {
+                nextEnd++;
+            }
+            List<RowState> nextBlock =
+                    new ArrayList<>(allRows.subList(end, nextEnd));
+            allRows.subList(idx, nextEnd).clear();
+            List<RowState> reordered = new ArrayList<>(nextBlock);
+            reordered.addAll(block);
+            allRows.addAll(idx, reordered);
+        }
+
+        rebuildVisible();
+        setSelectedPath(state.row.path());
         fireConfigChanged();
     }
 
