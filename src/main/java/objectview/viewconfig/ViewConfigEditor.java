@@ -443,10 +443,39 @@ public class ViewConfigEditor extends JPanel {
                 : null;
     }
 
+    /** The selected row's {@link FieldRow} (carrying its leaf {@code Field} / nested
+     *  source), so a caller can build its own model object from the chosen field. */
+    public FieldRow selectedRow() {
+        int viewRow = table.getSelectedRow();
+        if (viewRow < 0) {
+            return null;
+        }
+        RowState state = rows.get(
+                table.convertRowIndexToModel(viewRow));
+        return state.row.isField() ? state.row : null;
+    }
+
     public void setSelectedPath(String dottedPath) {
         if (dottedPath == null) {
             table.clearSelection();
             return;
+        }
+
+        // In the tree, the target may be under collapsed ancestors — open them first.
+        if (treeMode) {
+            boolean changed = false;
+            String path = dottedPath;
+            int dot = path.lastIndexOf('.');
+            while (dot >= 0) {
+                String ancestor = path.substring(0, dot);
+                if (expandedPaths.add(ancestor)) {
+                    changed = true;
+                }
+                dot = ancestor.lastIndexOf('.');
+            }
+            if (changed) {
+                rebuildVisible();
+            }
         }
 
         for (int modelRow = 0;
