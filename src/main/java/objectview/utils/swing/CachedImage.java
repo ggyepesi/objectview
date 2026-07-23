@@ -142,8 +142,16 @@ public class CachedImage {
         return url;
     }
 
-    protected boolean isSvg() {
+    public boolean isSvg() {
         return svg;
+    }
+
+    /** The best serializable source for this image — an explicit URL if set, else the
+     *  filename/key it was built from. Lets a persisted media value point back at the
+     *  original source instead of carrying rendered pixels. Subclasses override to
+     *  resolve a key into a loadable URL. */
+    public String sourceUrl() {
+        return url != null && !url.isBlank() ? url : filename;
     }
 
     protected void readToImageBuf(String url) throws Exception {
