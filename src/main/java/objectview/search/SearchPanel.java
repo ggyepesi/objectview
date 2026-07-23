@@ -9,6 +9,7 @@ import objectview.field.ViewableFieldPaths;
 import objectview.utils.swing.GridBagUtils;
 import objectview.media.ImagePane;
 import objectview.render.*;
+import objectview.viewconfig.FieldTableContributor;
 import objectview.viewconfig.FieldTypeSource;
 import objectview.viewconfig.ViewConfig;
 import objectview.viewconfig.ViewConfigEditor;
@@ -355,13 +356,16 @@ public class SearchPanel extends JPanel
                 ViewConfig.all(cls);
 
         searchEditor =
-                new ViewConfigEditor(nameOnly.copy(), true, sample);
+                new ViewConfigEditor(nameOnly.copy(), true, sample,
+                        FieldTableContributor.REORDERABLE);
 
         sortEditor =
-                new ViewConfigEditor(nameOnly.copy(), true, sample);
+                new ViewConfigEditor(nameOnly.copy(), true, sample,
+                        FieldTableContributor.REORDERABLE);
 
         viewEditor =
-                new ViewConfigEditor(viewBase.copy(), false, sample);
+                new ViewConfigEditor(viewBase.copy(), false, sample,
+                        FieldTableContributor.REORDERABLE);
 
         // Search / sort over an image is meaningless — hide MEDIA fields there. The
         // VIEW editor keeps them, so a portrait / flag can be shown or hidden on cards.

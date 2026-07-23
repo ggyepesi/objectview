@@ -33,6 +33,16 @@ public final class ConfigFieldRowSource implements FieldRowSource {
             return List.copyOf(result);
         }
 
+        // Schema-backed enumeration: no live sample, but an authoritative field-type
+        // source that can LIST its fields (e.g. an empty reference in a compiled model).
+        // This is what lets a valueless reference still expand into its children.
+        if (context.sample() == null
+                && context.fieldTypes() != null
+                && !context.fieldTypes().fieldNames().isEmpty()) {
+            addSchemaRows(result, context);
+            return List.copyOf(result);
+        }
+
         Class<? extends Viewable> cls = context.config().getCls();
         if (cls == null) {
             return List.of();
@@ -82,21 +92,7 @@ public final class ConfigFieldRowSource implements FieldRowSource {
             }
 
             Viewable child = firstViewable(value);
-            boolean modelExpandable =
-                    info == null || info.nested() != null;
-
-            Class<? extends Viewable> nestedClass =
-                    modelExpandable && child != null && hasFields(child)
-                            ? asViewableClass(child.getClass())
-                            : null;
-
-            NestedFieldSource nested = nestedClass == null
-                    ? null
-                    : new NestedFieldSource(
-                            nestedClass,
-                            child,
-                            info == null ? null : info.nested(),
-                            info == null ? null : info.nestedClassName());
+            NestedFieldSource nested = nestedFor(info, child);
 
             String typeLabel = info != null
                     ? info.typeLabel()
@@ -104,6 +100,59 @@ public final class ConfigFieldRowSource implements FieldRowSource {
 
             result.add(FieldRow.dynamic(name, typeLabel, nested));
         }
+    }
+
+    /** Enumerates a reference that has NO live sample value from its schema — the
+     *  {@link FieldTypeSource#fieldNames()} of the nested source name the child fields.
+     *  Mirrors {@link #addDynamicRows} but driven by the model, not a map. */
+    private void addSchemaRows(List<FieldRow> result,
+                               FieldRowContext context) {
+        FieldTypeSource types = context.fieldTypes();
+
+        if (!context.hiddenFields().contains("name")
+                && !types.fieldNames().contains("name")) {
+            result.add(FieldRow.dynamic("name", "String", null));
+        }
+
+        for (String name : types.fieldNames()) {
+            if (context.hiddenFields().contains(name)) {
+                continue;
+            }
+            FieldTypeSource.FieldTypeInfo info = types.field(name);
+            if (info != null && info.structural()) {
+                continue;
+            }
+            result.add(FieldRow.dynamic(
+                    name,
+                    info != null ? info.typeLabel() : "",
+                    nestedFor(info, null)));
+        }
+    }
+
+    /** The nested (expandable) source for a field, or null. A live child with fields
+     *  wins; failing that, a schema that DECLARES a nested reference makes the field
+     *  expandable even with no value — its children then come from the schema. */
+    private static NestedFieldSource nestedFor(
+            FieldTypeSource.FieldTypeInfo info, Viewable child) {
+        boolean valueBacked = child != null && hasFields(child)
+                && (info == null || info.nested() != null);
+        if (valueBacked) {
+            return new NestedFieldSource(
+                    asViewableClass(child.getClass()),
+                    child,
+                    info == null ? null : info.nested(),
+                    info == null ? null : info.nestedClassName());
+        }
+        if (info != null && info.nested() != null) {
+            // No Java class for a model type -> a generic holder; it's never reflected
+            // (the nested level takes the schema path above).
+            return new NestedFieldSource(
+                    child != null ? asViewableClass(child.getClass()) : Viewable.class,
+                    child,
+                    info.nested(),
+                    info.nestedClassName());
+        }
+        return null;
     }
 
     private void addReflectedRows(List<FieldRow> result,

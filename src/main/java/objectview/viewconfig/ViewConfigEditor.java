@@ -50,11 +50,30 @@ public class ViewConfigEditor extends JPanel {
 
     private final List<RowState> rows = new ArrayList<>();
     private final RowTableModel tableModel = new RowTableModel();
-    private final JTable table = new JTable(tableModel);
+    private final JTable table = new JTable(tableModel) {
+        @Override
+        public void changeSelection(int rowIndex, int columnIndex,
+                                    boolean toggle, boolean extend) {
+            // Clicking a move-target must NOT move the highlight: the highlighted row
+            // is the move SOURCE, and it has to survive the click that places it.
+            if (columnIndex >= 0 && cols != null) {
+                int m = convertColumnIndexToModel(columnIndex);
+                if (m >= 0 && m < cols.size()) {
+                    ColKind k = cols.get(m).kind;
+                    if (k == ColKind.MOVE_BEFORE || k == ColKind.MOVE_AFTER) {
+                        return;
+                    }
+                }
+            }
+            super.changeSelection(rowIndex, columnIndex, toggle, extend);
+        }
+    };
     private final JCheckBox allMinorFieldsBox =
             new JCheckBox("All minor fields");
+    private final JPanel minorFieldsBar =
+            new JPanel(new FlowLayout(FlowLayout.LEFT));
 
-    private final List<Col> cols;
+    private List<Col> cols;
     private Runnable changeListener;
 
     // ---- construction ------------------------------------------------------
@@ -161,32 +180,38 @@ public class ViewConfigEditor extends JPanel {
 
         setLayout(new BorderLayout(8, 8));
 
-        if (!minorOnly && usesConfigRows()
-                && !(sample instanceof DynamicFields)) {
-            allMinorFieldsBox.setSelected(
-                    sourceConfig.isAllMinorFields());
-            allMinorFieldsBox.addActionListener(e -> {
-                tableModel.fireTableDataChanged();
-                fireConfigChanged();
-            });
-
-            JPanel top = new JPanel(new FlowLayout(FlowLayout.LEFT));
-            top.add(allMinorFieldsBox);
-            add(top, BorderLayout.NORTH);
-        }
+        // Always install the "All minor fields" bar + wire it once; its VISIBILITY and
+        // checked state track the current row source (updated on every switch).
+        allMinorFieldsBox.addActionListener(e -> {
+            tableModel.fireTableDataChanged();
+            fireConfigChanged();
+        });
+        minorFieldsBar.add(allMinorFieldsBox);
+        add(minorFieldsBar, BorderLayout.NORTH);
+        updateMinorFieldsBar();
 
         rebuildRows(false);
 
         table.setRowHeight(28);
         table.setFillsViewportHeight(true);
 
-        if (this.contributor.selectionMode()
-                == FieldTableContributor.SelectionMode.SINGLE) {
+        boolean singleMode = this.contributor.selectionMode()
+                == FieldTableContributor.SelectionMode.SINGLE;
+        // Reorder makes the highlighted row the move source, so its highlight must be
+        // single-row too (checkboxes still drive multi 'use' independently).
+        if (singleMode || this.contributor.showReorder()) {
             table.setSelectionMode(
                     ListSelectionModel.SINGLE_SELECTION);
             table.getSelectionModel()
                     .addListSelectionListener(e -> {
-                        if (!e.getValueIsAdjusting()) {
+                        if (e.getValueIsAdjusting()) {
+                            return;
+                        }
+                        if (this.contributor.showReorder()) {
+                            // The before/after targets follow the selected source.
+                            table.repaint();
+                        }
+                        if (singleMode) {
                             fireConfigChanged();
                         }
                     });
@@ -239,6 +264,7 @@ public class ViewConfigEditor extends JPanel {
                 paths,
                 hiddenTop,
                 typeLabelForPath);
+        refreshForRowSource();
         rebuildRows(false);
         table.clearSelection();
     }
@@ -259,12 +285,50 @@ public class ViewConfigEditor extends JPanel {
         this.hiddenFields = hidden == null ? Set.of() : Set.copyOf(hidden);
         this.rowSource = ConfigFieldRowSource.INSTANCE;
         this.expandedPaths.clear();
+        refreshForRowSource();
         rebuildRows(false);
         table.clearSelection();
     }
 
+    /** Re-derive everything that depends on the row-source TYPE after a switch: tree
+     *  vs flat mode, the column set (a tree adds the disclosure gutter and drops the
+     *  Expand column), and the table's structure — otherwise {@link #rebuildRows}
+     *  branches on a stale {@code treeMode} and the columns stay stale. */
+    private void refreshForRowSource() {
+        this.treeMode = rowSource instanceof ConfigFieldRowSource;
+        this.cols = buildColumns();
+        tableModel.fireTableStructureChanged();
+        installColumns();
+        updateMinorFieldsBar();
+    }
+
+    /** The "All minor fields" bar is meaningful only for a non-minor config table over
+     *  a reflected (not dynamic) sample; show/hide it AND refresh its checked state so
+     *  both follow a row-source switch, not just the value seeded at construction. */
+    private void updateMinorFieldsBar() {
+        boolean applicable = !minorOnly && usesConfigRows()
+                && !(sample instanceof DynamicFields);
+        minorFieldsBar.setVisible(applicable);
+        // When it doesn't apply, force OFF so getConfig() can't read a stale 'selected'.
+        allMinorFieldsBox.setSelected(
+                applicable && sourceConfig.isAllMinorFields());
+        revalidate();
+        repaint();
+    }
+
     private boolean usesConfigRows() {
         return rowSource instanceof ConfigFieldRowSource;
+    }
+
+    /** Visible for tests: whether the current row source renders as an inline tree
+     *  (recomputed on every row-source switch). */
+    boolean inTreeMode() {
+        return treeMode;
+    }
+
+    /** Visible for tests: whether the "All minor fields" bar is currently shown. */
+    boolean minorFieldsBarVisible() {
+        return minorFieldsBar.isVisible();
     }
 
     private FieldRowContext rowContext() {
@@ -653,14 +717,25 @@ public class ViewConfigEditor extends JPanel {
             int depth = row.depth();
             String name = row.label();
             if (row.nested() != null) {
-                ViewConfig cfg = new ViewConfig();
+                // Seed from the reference's saved config HEADER so its own metadata
+                // (thumb / answerType / display flags) survives even when we then list
+                // its checked children explicitly.
+                ViewConfig explicit = explicitConfigFor(state, row.path());
+                ViewConfig cfg = explicit != null
+                        ? copyHeader(explicit)
+                        : new ViewConfig();
                 cfg.setCls(row.nested().type());
                 cfg.setAllFields(false);
                 parents[depth + 1] = cfg;
                 refs.add(new RefEntry(
-                        parents[depth], name, cfg, state.use, row.nested().type()));
+                        parents[depth], name, cfg, state.use, row.nested().type(),
+                        row.path(), state, explicit));
             } else if (state.use) {
-                parents[depth].addField(name, ViewConfig.leaf());
+                // A checked leaf carries its explicit config (nested editor or saved
+                // per-field config) so display flags survive; else a bare leaf.
+                ViewConfig explicit = explicitConfigFor(state, row.path());
+                parents[depth].addField(
+                        name, explicit != null ? explicit : ViewConfig.leaf());
             }
         }
 
@@ -668,12 +743,20 @@ public class ViewConfigEditor extends JPanel {
         for (int i = refs.size() - 1; i >= 0; i--) {
             RefEntry ref = refs.get(i);
             boolean hasChild = !ref.cfg.getFields().isEmpty();
-            if (ref.use || hasChild) {
-                ViewConfig attach = !hasChild && ref.use
-                        ? ViewConfig.of(ref.type)   // checked, not drilled -> all fields
-                        : ref.cfg;
-                ref.parent.addField(ref.name, attach);
+            if (!ref.use && !hasChild) {
+                continue;
             }
+            ViewConfig attach;
+            if (hasChild) {
+                attach = ref.cfg;   // header (from explicit) + inline-checked children
+            } else {
+                // Checked with no checked children: honor an explicit config — a nested
+                // editor, or a saved config at this path even when EXPLICITLY EMPTY —
+                // instead of blowing it up to all-fields. Only a brand-new, never-
+                // configured reference defaults to all-fields for convenience.
+                attach = ref.explicit != null ? ref.explicit : ViewConfig.of(ref.type);
+            }
+            ref.parent.addField(ref.name, attach);
         }
 
         if (!minorOnly) {
@@ -698,7 +781,34 @@ public class ViewConfigEditor extends JPanel {
             String name,
             ViewConfig cfg,
             boolean use,
-            Class<? extends Viewable> type) {
+            Class<? extends Viewable> type,
+            String fullPath,
+            RowState state,
+            ViewConfig explicit) {
+    }
+
+    /** The config a tree row should serialize with when it is checked but not drilled:
+     *  a live nested editor wins (bug: was dropped), else the saved config at this path
+     *  in {@code sourceConfig} — returned even when EMPTY so an explicit empty survives
+     *  the round-trip. {@code null} means "no explicit config" (a brand-new field). */
+    private ViewConfig explicitConfigFor(RowState state, String fullPath) {
+        if (state != null && state.childEditor != null) {
+            return state.childEditor.getConfig();
+        }
+        return sourceConfigAt(fullPath);
+    }
+
+    /** Walk {@code sourceConfig} down a dotted path to the field config at its leaf, or
+     *  {@code null} if no config is declared at any segment. */
+    private ViewConfig sourceConfigAt(String dottedPath) {
+        ViewConfig cfg = sourceConfig;
+        for (String seg : dottedPath.split("\\.")) {
+            if (cfg == null) {
+                return null;
+            }
+            cfg = cfg.getFieldConfig(seg);
+        }
+        return cfg == null ? null : cfg.copy();
     }
 
     private ViewConfig childConfigFor(RowState state) {
@@ -741,7 +851,7 @@ public class ViewConfigEditor extends JPanel {
     // ---- columns -----------------------------------------------------------
 
     private enum ColKind {
-        TREE, FIELD, TYPE, EXTRA, USE, UP, DOWN, ACTION, EXPAND
+        TREE, FIELD, TYPE, EXTRA, USE, MOVE_BEFORE, MOVE_AFTER, ACTION, EXPAND
     }
 
     private static final class Col {
@@ -771,16 +881,16 @@ public class ViewConfigEditor extends JPanel {
 
         boolean button() {
             return kind == ColKind.TREE
-                    || kind == ColKind.UP
-                    || kind == ColKind.DOWN
+                    || kind == ColKind.MOVE_BEFORE
+                    || kind == ColKind.MOVE_AFTER
                     || kind == ColKind.ACTION
                     || kind == ColKind.EXPAND;
         }
 
         boolean fixedWidth() {
             return kind == ColKind.TREE
-                    || kind == ColKind.UP
-                    || kind == ColKind.DOWN;
+                    || kind == ColKind.MOVE_BEFORE
+                    || kind == ColKind.MOVE_AFTER;
         }
     }
 
@@ -818,11 +928,11 @@ public class ViewConfigEditor extends JPanel {
 
         if (contributor.showReorder()) {
             result.add(new Col(
-                    ColKind.UP,
+                    ColKind.MOVE_BEFORE,
                     "",
                     30));
             result.add(new Col(
-                    ColKind.DOWN,
+                    ColKind.MOVE_AFTER,
                     "",
                     30));
         }
@@ -873,98 +983,99 @@ public class ViewConfigEditor extends JPanel {
 
     // ---- interaction -------------------------------------------------------
 
-    private void moveRow(RowState state, int delta) {
-        if (!state.row.isField()) {
+    /** Click-to-target reorder: move the SELECTED row (the source) to just before or
+     *  after {@code target} — a sibling revealed by selecting the source. The whole
+     *  subtree travels in tree mode; selection stays on the moved row so moves chain. */
+    private void moveSelectedTo(RowState target, boolean before) {
+        RowState source = selectedRowState();
+        if (source == null
+                || source == target
+                || !isReorderTarget(target)) {
             return;
         }
 
         if (treeMode) {
-            moveInTree(state, delta);
-            return;
+            moveSubtree(source, target, before);
+            rebuildVisible();
+        } else {
+            moveFlatRow(source, target, before);
+            tableModel.fireTableDataChanged();
         }
 
-        int from = rows.indexOf(state);
-        if (from < 0) {
-            return;
-        }
-
-        int to = from + delta;
-        if (to < 0
-                || to >= rows.size()
-                || !rows.get(to).row.isField()) {
-            return;
-        }
-
-        rows.remove(from);
-        rows.add(to, state);
-        tableModel.fireTableDataChanged();
-
-        int viewRow =
-                table.convertRowIndexToView(to);
-        if (viewRow >= 0) {
-            table.getSelectionModel()
-                    .setSelectionInterval(
-                            viewRow,
-                            viewRow);
-        }
-
+        setSelectedPath(source.row.path());
         fireConfigChanged();
     }
 
-    /** Sibling-aware reorder in the tree: moves {@code state} (with its whole subtree)
-     *  past the adjacent SIBLING at the same depth/parent, keeping the pre-order layout
-     *  of {@link #allRows} — which is the order {@link #buildTreeConfig} emits. */
-    private void moveInTree(RowState state, int delta) {
-        int idx = allRows.indexOf(state);
-        if (idx < 0) {
+    /** Reparent-free move within {@link #allRows}: lift the source's contiguous subtree
+     *  and drop it at the target's leading (before) or trailing (after) edge. */
+    private void moveSubtree(RowState source, RowState target, boolean before) {
+        int si = allRows.indexOf(source);
+        if (si < 0) {
             return;
         }
-        int depth = state.row.depth();
-
-        // The moved node's subtree is contiguous: [idx, end).
-        int end = idx + 1;
-        while (end < allRows.size()
-                && allRows.get(end).row.depth() > depth) {
-            end++;
-        }
         List<RowState> block =
-                new ArrayList<>(allRows.subList(idx, end));
+                new ArrayList<>(allRows.subList(si, subtreeEnd(si)));
+        allRows.subList(si, si + block.size()).clear();
 
-        if (delta < 0) {
-            // Previous sibling's root: skip back over its subtree to a row at this depth.
-            int prev = idx - 1;
-            while (prev >= 0
-                    && allRows.get(prev).row.depth() > depth) {
-                prev--;
-            }
-            if (prev < 0
-                    || allRows.get(prev).row.depth() != depth) {
-                return;   // no previous sibling (hit the parent / start)
-            }
-            allRows.subList(idx, end).clear();
-            allRows.addAll(prev, block);
-        } else {
-            // Next sibling starts at `end` (same depth) — else no next sibling.
-            if (end >= allRows.size()
-                    || allRows.get(end).row.depth() != depth) {
-                return;
-            }
-            int nextEnd = end + 1;
-            while (nextEnd < allRows.size()
-                    && allRows.get(nextEnd).row.depth() > depth) {
-                nextEnd++;
-            }
-            List<RowState> nextBlock =
-                    new ArrayList<>(allRows.subList(end, nextEnd));
-            allRows.subList(idx, nextEnd).clear();
-            List<RowState> reordered = new ArrayList<>(nextBlock);
-            reordered.addAll(block);
-            allRows.addAll(idx, reordered);
+        int ti = allRows.indexOf(target);
+        if (ti < 0) {          // target vanished (shouldn't happen) — put it back
+            allRows.addAll(Math.min(si, allRows.size()), block);
+            return;
         }
+        allRows.addAll(before ? ti : subtreeEnd(ti), block);
+    }
 
-        rebuildVisible();
-        setSelectedPath(state.row.path());
-        fireConfigChanged();
+    private void moveFlatRow(RowState source, RowState target, boolean before) {
+        rows.remove(source);
+        int ti = rows.indexOf(target);
+        rows.add(ti < 0 ? rows.size() : (before ? ti : ti + 1), source);
+    }
+
+    /** End (exclusive) of the contiguous subtree rooted at {@code allRows[i]}: the run
+     *  of following rows deeper than it. */
+    private int subtreeEnd(int i) {
+        int depth = allRows.get(i).row.depth();
+        int e = i + 1;
+        while (e < allRows.size()
+                && allRows.get(e).row.depth() > depth) {
+            e++;
+        }
+        return e;
+    }
+
+    /** The highlighted row — the move source. */
+    private RowState selectedRowState() {
+        int viewRow = table.getSelectedRow();
+        if (viewRow < 0) {
+            return null;
+        }
+        int m = table.convertRowIndexToModel(viewRow);
+        return m >= 0 && m < rows.size() ? rows.get(m) : null;
+    }
+
+    /** {@code candidate} is a drop target iff a source is selected and this is a
+     *  DIFFERENT sibling of it (same parent) — reorder never re-parents. In flat mode
+     *  any other field row is a valid slot. */
+    private boolean isReorderTarget(RowState candidate) {
+        if (!contributor.showReorder()) {
+            return false;
+        }
+        RowState src = selectedRowState();
+        if (src == null) {
+            return false;
+        }
+        FieldRow s = src.row;
+        FieldRow t = candidate.row;
+        if (!s.isField() || !t.isField() || s.path().equals(t.path())) {
+            return false;
+        }
+        return !treeMode
+                || parentPath(s.path()).equals(parentPath(t.path()));
+    }
+
+    private static String parentPath(String path) {
+        int dot = path.lastIndexOf('.');
+        return dot < 0 ? "" : path.substring(0, dot);
     }
 
     private void openMinorEditor(RowState state) {
@@ -1207,7 +1318,11 @@ public class ViewConfigEditor extends JPanel {
                 button.getFont().deriveFont(
                         Font.PLAIN,
                         11f));
-        button.setMargin(new Insets(1, 6, 1, 6));
+        // Strip the LAF border (on Aqua its insets are large enough to clip a single
+        // glyph in a ~30px column to "..."); a tiny empty border + margin leaves room.
+        button.setBorder(BorderFactory.createEmptyBorder());
+        button.setMargin(new Insets(1, 2, 1, 2));
+        button.setHorizontalAlignment(SwingConstants.CENTER);
         button.setFocusPainted(false);
         button.setBorderPainted(false);
         button.setContentAreaFilled(false);
@@ -1236,8 +1351,8 @@ public class ViewConfigEditor extends JPanel {
             case EXPAND ->
                     row.isMinorBlock()
                             || row.nested() != null;
-            case UP, DOWN ->
-                    row.isField();
+            case MOVE_BEFORE, MOVE_AFTER ->
+                    isReorderTarget(state);
             default ->
                     true;
         };
@@ -1299,8 +1414,8 @@ public class ViewConfigEditor extends JPanel {
                         ? null
                         : col.extra.value(row);
                 case USE -> state.use;
-                case UP -> "▴";
-                case DOWN -> "▾";
+                case MOVE_BEFORE -> isReorderTarget(state) ? "▴" : "";
+                case MOVE_AFTER -> isReorderTarget(state) ? "▾" : "";
                 case ACTION -> row.isContainer()
                         ? ""
                         : col.action.label(row);
@@ -1330,8 +1445,10 @@ public class ViewConfigEditor extends JPanel {
             return switch (col.kind) {
                 case TREE ->
                         row.nested() != null;
-                case USE, UP, DOWN ->
+                case USE ->
                         row.isField();
+                case MOVE_BEFORE, MOVE_AFTER ->
+                        isReorderTarget(state);
                 case ACTION ->
                         row.isField()
                                 && col.action.enabled(row);
@@ -1545,10 +1662,10 @@ public class ViewConfigEditor extends JPanel {
                     case TREE ->
                             SwingUtilities.invokeLater(
                                     () -> toggleExpand(row.path()));
-                    case UP ->
-                            moveRow(state, -1);
-                    case DOWN ->
-                            moveRow(state, 1);
+                    case MOVE_BEFORE ->
+                            moveSelectedTo(state, true);
+                    case MOVE_AFTER ->
+                            moveSelectedTo(state, false);
                     case ACTION -> {
                         if (col.action.enabled(row)) {
                             col.action.run(row);

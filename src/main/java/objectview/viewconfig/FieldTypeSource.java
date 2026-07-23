@@ -1,5 +1,7 @@
 package objectview.viewconfig;
 
+import java.util.List;
+
 /**
  * Optional typed-field info for {@link ViewConfigEditor} — a generic
  * seam letting a caller override the editor's sample reflection with authoritative
@@ -13,6 +15,14 @@ public interface FieldTypeSource {
 
     /** Type info for the field {@code name} at THIS level, or null to fall back. */
     FieldTypeInfo field(String name);
+
+    /** The field names this source can describe at THIS level — used to enumerate a
+     *  schema-backed reference that has no live sample value (an empty reference).
+     *  Empty by default: a source that only answers {@link #field} per-name still
+     *  works whenever a sample IS present. */
+    default List<String> fieldNames() {
+        return List.of();
+    }
 
     /**
      * @param typeLabel        what the "Type" column shows (e.g. "List&lt;Category&gt;")

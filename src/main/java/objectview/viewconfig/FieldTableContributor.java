@@ -33,6 +33,15 @@ public interface FieldTableContributor {
         }
     };
 
+    /** The card-config table WITH click-to-target reorder plugged in — used by the
+     *  search / sort / view config editors, where field order is meaningful. */
+    FieldTableContributor REORDERABLE = new FieldTableContributor() {
+        @Override
+        public boolean showReorder() {
+            return true;
+        }
+    };
+
     enum SelectionMode {
         MULTI_CHECK,
         SINGLE
@@ -46,8 +55,10 @@ public interface FieldTableContributor {
         return selectionMode() == SelectionMode.MULTI_CHECK;
     }
 
+    /** Reorder is an opt-in plug-in (see {@link #REORDERABLE}); off by default so only
+     *  editors where field order matters (search / sort / view) show the move targets. */
     default boolean showReorder() {
-        return selectionMode() == SelectionMode.MULTI_CHECK;
+        return false;
     }
 
     default boolean showExpand() {
