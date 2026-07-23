@@ -192,7 +192,7 @@ public final class ConfigFieldRowSource implements FieldRowSource {
 
             result.add(FieldRow.reflected(
                     field,
-                    describeFieldType(field),
+                    describeFieldType(field, cls),
                     nested));
         }
     }
@@ -259,24 +259,29 @@ public final class ConfigFieldRowSource implements FieldRowSource {
                 : value.getClass().getSimpleName();
     }
 
-    private static String describeFieldType(Field field) {
+    private static String describeFieldType(Field field, Class<?> owner) {
         Class<?> type = field.getType();
 
         if (Viewable.class.isAssignableFrom(type)) {
             return type.getSimpleName();
         }
 
+        // Resolve any type VARIABLES (e.g. G/T of a generic superclass) to the owner's
+        // actual arguments, so e.g. DefaultViewableGroup's Map<String, G> shows as
+        // Map<String, QuizableGroup> rather than Map<String, G>.
+        Map<TypeVariable<?>, Type> bindings = typeBindings(owner);
+
         // The generic ARGUMENTS are shown for their own sake (a String element is as
         // informative as a String field) — independent of Viewable-ness, which only
         // governs whether the element is EXPANDABLE (handled by nestedViewableClass).
         if (Collection.class.isAssignableFrom(type)) {
-            String elem = typeArg(field, 0);
+            String elem = typeArg(field, 0, bindings);
             return elem == null ? "Collection" : "Collection<" + elem + ">";
         }
 
         if (Map.class.isAssignableFrom(type)) {
-            String key = typeArg(field, 0);
-            String value = typeArg(field, 1);
+            String key = typeArg(field, 0, bindings);
+            String value = typeArg(field, 1, bindings);
             return key == null && value == null
                     ? "Map"
                     : "Map<" + orWildcard(key) + ", " + orWildcard(value) + ">";
@@ -287,11 +292,12 @@ public final class ConfigFieldRowSource implements FieldRowSource {
 
     /** The display name of {@code field}'s {@code index}-th generic type argument, or
      *  null when the field is raw (no parameters at that position). */
-    private static String typeArg(Field field, int index) {
+    private static String typeArg(Field field, int index,
+                                  Map<TypeVariable<?>, Type> bindings) {
         if (field.getGenericType() instanceof ParameterizedType pt) {
             Type[] args = pt.getActualTypeArguments();
             if (index < args.length) {
-                return typeName(args[index]);
+                return typeName(args[index], bindings);
             }
         }
         return null;
@@ -303,16 +309,22 @@ public final class ConfigFieldRowSource implements FieldRowSource {
 
     /** Renders any reflected {@link Type} for the display label: a class by its simple
      *  name, a parameterized type recursively (e.g. {@code Map<String, Foo>}), a
-     *  wildcard as {@code ?} (with bounds), a type variable by its name, arrays as
-     *  {@code X[]}. */
-    private static String typeName(Type type) {
+     *  wildcard as {@code ?} (with bounds), a type variable resolved via {@code
+     *  bindings} (else its bare name), arrays as {@code X[]}. */
+    private static String typeName(Type type, Map<TypeVariable<?>, Type> bindings) {
+        if (type instanceof TypeVariable<?> tv) {
+            Type bound = bindings.get(tv);
+            return bound != null && bound != tv
+                    ? typeName(bound, bindings)
+                    : tv.getName();
+        }
         if (type instanceof Class<?> c) {
             return c.isArray()
-                    ? typeName(c.getComponentType()) + "[]"
+                    ? typeName(c.getComponentType(), bindings) + "[]"
                     : c.getSimpleName();
         }
         if (type instanceof ParameterizedType pt) {
-            StringBuilder sb = new StringBuilder(typeName(pt.getRawType()));
+            StringBuilder sb = new StringBuilder(typeName(pt.getRawType(), bindings));
             Type[] args = pt.getActualTypeArguments();
             if (args.length > 0) {
                 sb.append('<');
@@ -320,7 +332,7 @@ public final class ConfigFieldRowSource implements FieldRowSource {
                     if (i > 0) {
                         sb.append(", ");
                     }
-                    sb.append(typeName(args[i]));
+                    sb.append(typeName(args[i], bindings));
                 }
                 sb.append('>');
             }
@@ -329,19 +341,39 @@ public final class ConfigFieldRowSource implements FieldRowSource {
         if (type instanceof WildcardType w) {
             if (w.getUpperBounds().length > 0
                     && w.getUpperBounds()[0] != Object.class) {
-                return "? extends " + typeName(w.getUpperBounds()[0]);
+                return "? extends " + typeName(w.getUpperBounds()[0], bindings);
             }
             if (w.getLowerBounds().length > 0) {
-                return "? super " + typeName(w.getLowerBounds()[0]);
+                return "? super " + typeName(w.getLowerBounds()[0], bindings);
             }
             return "?";
         }
-        if (type instanceof TypeVariable<?> tv) {
-            return tv.getName();
-        }
         if (type instanceof GenericArrayType g) {
-            return typeName(g.getGenericComponentType()) + "[]";
+            return typeName(g.getGenericComponentType(), bindings) + "[]";
         }
         return type.getTypeName();
+    }
+
+    /** Maps each type variable declared by {@code owner}'s generic superclass chain to
+     *  the concrete argument {@code owner} binds it to — so a field inherited from a
+     *  generic base (e.g. {@code Map<String, G>}) can be shown with the real type. */
+    private static Map<TypeVariable<?>, Type> typeBindings(Class<?> owner) {
+        Map<TypeVariable<?>, Type> map = new java.util.HashMap<>();
+        Type sup = owner == null ? null : owner.getGenericSuperclass();
+        while (sup instanceof ParameterizedType pt) {
+            Class<?> raw = (Class<?>) pt.getRawType();
+            TypeVariable<?>[] params = raw.getTypeParameters();
+            Type[] args = pt.getActualTypeArguments();
+            for (int i = 0; i < params.length && i < args.length; i++) {
+                // Substitute already-known bindings (chained generics pass a var down).
+                Type arg = args[i];
+                if (arg instanceof TypeVariable<?> tv && map.containsKey(tv)) {
+                    arg = map.get(tv);
+                }
+                map.put(params[i], arg);
+            }
+            sup = raw.getGenericSuperclass();
+        }
+        return map;
     }
 }
