@@ -7,7 +7,12 @@ import objectview.field.FieldKind;
 import objectview.field.ViewableFieldPaths;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.Modifier;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
+import java.lang.reflect.WildcardType;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -261,22 +266,82 @@ public final class ConfigFieldRowSource implements FieldRowSource {
             return type.getSimpleName();
         }
 
+        // The generic ARGUMENTS are shown for their own sake (a String element is as
+        // informative as a String field) — independent of Viewable-ness, which only
+        // governs whether the element is EXPANDABLE (handled by nestedViewableClass).
         if (Collection.class.isAssignableFrom(type)) {
-            Class<? extends Viewable> nested =
-                    ViewableFieldPaths.nestedViewableClass(field);
-            return nested == null
-                    ? "Collection"
-                    : "Collection<" + nested.getSimpleName() + ">";
+            String elem = typeArg(field, 0);
+            return elem == null ? "Collection" : "Collection<" + elem + ">";
         }
 
         if (Map.class.isAssignableFrom(type)) {
-            Class<? extends Viewable> nested =
-                    ViewableFieldPaths.nestedViewableClass(field);
-            return nested == null
+            String key = typeArg(field, 0);
+            String value = typeArg(field, 1);
+            return key == null && value == null
                     ? "Map"
-                    : "Map<?, " + nested.getSimpleName() + ">";
+                    : "Map<" + orWildcard(key) + ", " + orWildcard(value) + ">";
         }
 
         return type.getSimpleName();
+    }
+
+    /** The display name of {@code field}'s {@code index}-th generic type argument, or
+     *  null when the field is raw (no parameters at that position). */
+    private static String typeArg(Field field, int index) {
+        if (field.getGenericType() instanceof ParameterizedType pt) {
+            Type[] args = pt.getActualTypeArguments();
+            if (index < args.length) {
+                return typeName(args[index]);
+            }
+        }
+        return null;
+    }
+
+    private static String orWildcard(String name) {
+        return name == null ? "?" : name;
+    }
+
+    /** Renders any reflected {@link Type} for the display label: a class by its simple
+     *  name, a parameterized type recursively (e.g. {@code Map<String, Foo>}), a
+     *  wildcard as {@code ?} (with bounds), a type variable by its name, arrays as
+     *  {@code X[]}. */
+    private static String typeName(Type type) {
+        if (type instanceof Class<?> c) {
+            return c.isArray()
+                    ? typeName(c.getComponentType()) + "[]"
+                    : c.getSimpleName();
+        }
+        if (type instanceof ParameterizedType pt) {
+            StringBuilder sb = new StringBuilder(typeName(pt.getRawType()));
+            Type[] args = pt.getActualTypeArguments();
+            if (args.length > 0) {
+                sb.append('<');
+                for (int i = 0; i < args.length; i++) {
+                    if (i > 0) {
+                        sb.append(", ");
+                    }
+                    sb.append(typeName(args[i]));
+                }
+                sb.append('>');
+            }
+            return sb.toString();
+        }
+        if (type instanceof WildcardType w) {
+            if (w.getUpperBounds().length > 0
+                    && w.getUpperBounds()[0] != Object.class) {
+                return "? extends " + typeName(w.getUpperBounds()[0]);
+            }
+            if (w.getLowerBounds().length > 0) {
+                return "? super " + typeName(w.getLowerBounds()[0]);
+            }
+            return "?";
+        }
+        if (type instanceof TypeVariable<?> tv) {
+            return tv.getName();
+        }
+        if (type instanceof GenericArrayType g) {
+            return typeName(g.getGenericComponentType()) + "[]";
+        }
+        return type.getTypeName();
     }
 }
