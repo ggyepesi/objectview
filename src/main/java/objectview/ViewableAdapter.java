@@ -62,6 +62,10 @@ public abstract class ViewableAdapter implements Viewable {
                 && field.isAnnotationPresent(Hidden.class);
     }
 
+    /** Whether {@code value} has something worth rendering. A blank string is absent; a
+     *  collection/map counts as present only if SOME element is itself a valid (non-blank)
+     *  value — so an all-blank collection (e.g. {@code [""]}) renders as nothing rather
+     *  than a phantom one-item field. */
     public static boolean isValidQuizValue(Object value) {
         if (value == null) {
             return false;
@@ -70,10 +74,10 @@ public abstract class ViewableAdapter implements Viewable {
             return !s.isBlank();
         }
         if (value instanceof Collection<?> c) {
-            return !c.isEmpty();
+            return c.stream().anyMatch(ViewableAdapter::isValidQuizValue);
         }
         if (value instanceof Map<?, ?> m) {
-            return !m.isEmpty();
+            return m.values().stream().anyMatch(ViewableAdapter::isValidQuizValue);
         }
         return true;
     }
