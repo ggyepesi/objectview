@@ -32,6 +32,10 @@ public class UrlOpener {
     }
 
     private static InputStream openHttp(URL url) throws Exception {
+        return openHttp(url, 8);
+    }
+
+    private static InputStream openHttp(URL url, int redirectsLeft) throws Exception {
         while (true) {
             HttpURLConnection connection;
 
@@ -40,6 +44,12 @@ public class UrlOpener {
 
                 connection = (HttpURLConnection) url.openConnection();
 
+                // Follow redirects OURSELVES so http -> https (cross-protocol) hops are
+                // taken too. HttpURLConnection's built-in follower refuses those by
+                // design, which broke Commons Special:FilePath image URLs (an http
+                // DBpedia depiction redirects to https upload.wikimedia — the pane then
+                // got the redirect body instead of the image bytes: "image failed").
+                connection.setInstanceFollowRedirects(false);
                 connection.setRequestProperty("User-Agent", userAgent);
                 connection.setRequestProperty("Connection", "close");
 
@@ -51,6 +61,16 @@ public class UrlOpener {
                 if (responseCode == 429) {
                     sleepRetryAfter(connection, 5000);
                     continue;
+                }
+
+                if (responseCode >= 300 && responseCode < 400) {
+                    String location = connection.getHeaderField("Location");
+                    connection.disconnect();
+                    if (location == null || redirectsLeft <= 0) {
+                        throw new RuntimeException("HTTP " + responseCode
+                                + " (unfollowable redirect) for " + url);
+                    }
+                    return openHttp(new URL(url, location), redirectsLeft - 1);
                 }
 
                 if (responseCode >= 400) {
