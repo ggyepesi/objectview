@@ -388,7 +388,7 @@ public class ViewConfigEditor extends JPanel {
      *  then each reference's children (re-pathed under it) recursively, bounded by a
      *  depth cap and a cycle guard (a nested type already on the chain stops). */
     private void buildTree(String parentPath, int depth,
-                           FieldRowContext context, Set<Class<?>> chain) {
+                           FieldRowContext context, Set<String> chain) {
         for (FieldRow raw : rowSource.rows(context)) {
             if (raw.isMinorBlock()) {
                 // Multi-check reflection keeps the minor-fields block as a top-level row
@@ -411,14 +411,34 @@ public class ViewConfigEditor extends JPanel {
             allRows.add(state);
 
             NestedFieldSource nested = placed.nested();
+            String cycleKey = nested == null
+                    ? null
+                    : nestedCycleKey(nested);
             if (nested != null
                     && depth < MAX_TREE_DEPTH
-                    && !chain.contains(nested.type())) {
-                Set<Class<?>> next = new java.util.HashSet<>(chain);
-                next.add(nested.type());
+                    && !chain.contains(cycleKey)) {
+                Set<String> next = new java.util.HashSet<>(chain);
+                next.add(cycleKey);
                 buildTree(full, depth + 1, childContext(nested), next);
             }
         }
+    }
+
+    /**
+     * Dynamic model types share one Java holder class, so their semantic type name
+     * must drive cycle detection. Otherwise A -> B -> C is mistaken for a cycle as
+     * soon as B and C happen to use the same holder class.
+     */
+    private static String nestedCycleKey(NestedFieldSource nested) {
+        if (nested.sample() instanceof DynamicFields) {
+            return "dynamic:" + nested.sample().typeName();
+        }
+        if (nested.fieldTypes() != null
+                && nested.displayName() != null
+                && !nested.displayName().isBlank()) {
+            return "schema:" + nested.displayName();
+        }
+        return "class:" + nested.type().getName();
     }
 
     /** Whether {@code row}'s field is currently selected in {@link #sourceConfig},
