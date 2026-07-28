@@ -36,6 +36,7 @@ public class UrlOpener {
     }
 
     private static InputStream openHttp(URL url, int redirectsLeft) throws Exception {
+        int transientAttemptsLeft = 4;
         while (true) {
             HttpURLConnection connection;
 
@@ -60,6 +61,18 @@ public class UrlOpener {
 
                 if (responseCode == 429) {
                     sleepRetryAfter(connection, 5000);
+                    continue;
+                }
+
+                // Transient server-side failures (WDQS/Commons under load return these):
+                // retry a bounded number of times with a short backoff before giving up,
+                // so a momentary 503 doesn't surface as a hard error to every caller.
+                if ((responseCode == 502 || responseCode == 503 || responseCode == 504)
+                        && transientAttemptsLeft-- > 0) {
+                    connection.disconnect();
+                    System.out.println("HTTP " + responseCode + " (transient) for "
+                            + url + ", retrying in 2 seconds...");
+                    Thread.sleep(2000);
                     continue;
                 }
 
