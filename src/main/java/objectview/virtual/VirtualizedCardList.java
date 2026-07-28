@@ -269,6 +269,15 @@ public final class VirtualizedCardList
 
         buildIfNeeded(q);
 
+        // buildIfNeeded() has updated the preferred height, but revalidate() only
+        // queues a future layout. Keep the viewport's view size in sync immediately:
+        // otherwise an expanded final card extends beyond the view's old physical
+        // bottom and downward scrolling is clamped until some later layout pass.
+        setSize(
+                Math.max(getWidth(), effectiveWidth()),
+                preferredContentHeight()
+        );
+
         // Force the enclosing scroll pane to lay out NOW so this view is already
         // resized to its new (taller) preferred height. Without it, scrolling toward
         // a just-expanded LAST card stops at the stale content bottom and the

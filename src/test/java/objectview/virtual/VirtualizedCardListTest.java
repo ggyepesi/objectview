@@ -313,4 +313,26 @@ class VirtualizedCardListTest {
             }
         });
     }
+
+    @Test
+    void expandingLastCardAtBottomImmediatelyUpdatesScrollableHeight() {
+        onEdt(() -> {
+            List<Item> items = makeItems(20);
+            Item last = items.get(items.size() - 1);
+            VirtualizedCardList list = install(items);
+
+            list.navigateToTop(last);
+            int collapsedHeight = list.getHeight();
+
+            realHeight.put(last, 700);
+            list.invalidateCard(last);
+            list.ensureVisible(last);
+
+            assertTrue(list.getPreferredSize().height > collapsedHeight,
+                    "expansion must increase the virtual content height");
+            assertEquals(list.getPreferredSize().height, list.getHeight(),
+                    "the viewport view must adopt the new height immediately so "
+                            + "downward scrolling is not clamped to the old bottom");
+        });
+    }
 }
