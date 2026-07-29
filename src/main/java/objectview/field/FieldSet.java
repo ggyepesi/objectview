@@ -8,9 +8,8 @@ import java.util.List;
  * The fields of a domain object, backing-agnostic: declared Java fields via
  * reflection ({@link ReflectionFieldSet}) or a dynamic property map ({@link
  * DynamicFieldSet}). This is the ONE interface the machinery reads — {@code
- * Card}, the config editors, the search index, the sort keys — so it
- * never branches on {@code instanceof DynamicFields}. Nothing is migrated onto
- * it yet; this is the seam. See #87.
+ * Card}, the config editors, the search index, the sort keys — so those consumers
+ * never branch on {@code instanceof DynamicFields}. See #87.
  *
  * <p>Reads are single-level; dotted paths are composed by reading a reference and
  * wrapping its value with {@link #of} again (what {@code FieldAccess.getPath}
@@ -62,13 +61,14 @@ public interface FieldSet {
     }
 
     /**
-     * As {@link #of(Viewable)}, but a dynamic object is typed by {@code schema}
-     * when given (a reflected object is self-describing, so the schema is
-     * ignored).
+     * As {@link #of(Viewable)}, overlaid with an authoritative {@code schema}
+     * when given. The same overlay is used for reflected and dynamic objects:
+     * metadata therefore cannot change merely because the backing changed.
      */
     static FieldSet of(Viewable object, FieldSchema schema) {
-        return object instanceof DynamicFields dynamic
-                ? new DynamicFieldSet(dynamic, schema)
+        FieldSet backing = object instanceof DynamicFields dynamic
+                ? new DynamicFieldSet(dynamic)
                 : new ReflectionFieldSet(object);
+        return schema == null ? backing : new SchemaFieldSet(backing, schema);
     }
 }

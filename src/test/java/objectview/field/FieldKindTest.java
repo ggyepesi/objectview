@@ -28,5 +28,8 @@ class FieldKindTest {
         assertEquals(FieldKind.TEXT, FieldKind.ofValue("x"));
         assertEquals(FieldKind.BOOLEAN, FieldKind.ofClass(Boolean.class));
         assertEquals(FieldKind.ORDERED, FieldKind.ofValue(3));
+        assertEquals(FieldKind.COLLECTION,
+                FieldKind.ofValue(java.util.Map.of("a", 1)));
+        assertEquals(FieldKind.COLLECTION, FieldKind.ofClass(String[].class));
     }
 }

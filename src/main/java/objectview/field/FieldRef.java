@@ -25,6 +25,14 @@ public interface FieldRef {
     /** The value shape (boolean / ordered / text / reference / collection). */
     FieldKind kind();
 
+    /**
+     * The scalar/element shape. For a scalar this normally equals {@link #kind()};
+     * for a collection it describes one element (e.g. MEDIA for
+     * {@code Collection<ImagePane>}). This prevents consumers from having to infer
+     * an element's semantics from a display label or a currently present value.
+     */
+    FieldKind valueKind();
+
     /** A display type label, e.g. "Integer", "Category", "List&lt;Category&gt;" (or null). */
     String typeLabel();
 
@@ -33,6 +41,15 @@ public interface FieldRef {
 
     /** A multi-valued field (its value is a collection/array). */
     boolean collection();
+
+    /** The logical type name of a referenced value/element, or null for a scalar. */
+    String targetType();
+
+    /**
+     * Plumbing/provenance retained in the data but omitted from ordinary field
+     * pickers and nested traversal.
+     */
+    boolean structural();
 
     /** A minor field — a rendering hint (compact / hidden-by-default), if the backing
      *  distinguishes them; false when it doesn't. */
@@ -59,7 +76,9 @@ public interface FieldRef {
      *  no annotations, and by callers that don't distinguish them. */
     static FieldRef of(String name, FieldKind kind, String typeLabel,
                        boolean reference, boolean collection, boolean minor) {
-        return new Impl(name, kind, typeLabel, reference, collection, minor,
+        return described(name, kind,
+                inferredValueKind(kind, typeLabel, reference, collection),
+                typeLabel, reference, collection, null, false, minor,
                 false, false, "", false, false);
     }
 
@@ -68,12 +87,63 @@ public interface FieldRef {
                        boolean reference, boolean collection, boolean minor,
                        boolean inline, boolean link, String linkText,
                        boolean provenance, boolean annotatedReference) {
-        return new Impl(name, kind, typeLabel, reference, collection, minor,
+        return described(name, kind,
+                inferredValueKind(kind, typeLabel, reference, collection),
+                typeLabel, reference, collection, null, false, minor,
                 inline, link, linkText, provenance, annotatedReference);
     }
 
-    record Impl(String name, FieldKind kind, String typeLabel,
-                boolean reference, boolean collection, boolean minor,
+    /** Complete immutable field description used by compiled/reflected schemas. */
+    static FieldRef described(String name, FieldKind kind, FieldKind valueKind,
+                              String typeLabel, boolean reference,
+                              boolean collection, String targetType,
+                              boolean structural, boolean minor,
+                              boolean inline, boolean link, String linkText,
+                              boolean provenance, boolean annotatedReference) {
+        return new Impl(name,
+                kind == null ? FieldKind.UNKNOWN : kind,
+                valueKind == null ? FieldKind.UNKNOWN : valueKind,
+                typeLabel, reference, collection, targetType, structural, minor,
+                inline, link, linkText == null ? "" : linkText,
+                provenance, annotatedReference);
+    }
+
+    /** Copy {@code field} while changing only its structural role. */
+    static FieldRef withStructural(FieldRef field, boolean structural) {
+        return described(field.name(), field.kind(), field.valueKind(),
+                field.typeLabel(), field.reference(), field.collection(),
+                field.targetType(), structural, field.minor(), field.inline(),
+                field.link(), field.linkText(), field.provenance(),
+                field.annotatedReference());
+    }
+
+    private static FieldKind inferredValueKind(
+            FieldKind kind, String typeLabel, boolean reference,
+            boolean collection) {
+        if (!collection) {
+            return kind == null ? FieldKind.UNKNOWN : kind;
+        }
+        if (reference) {
+            return FieldKind.REFERENCE;
+        }
+        String label = typeLabel == null ? "" : typeLabel;
+        int open = label.indexOf('<');
+        int close = label.lastIndexOf('>');
+        if (open >= 0 && close > open) {
+            label = label.substring(open + 1, close).trim();
+            int comma = label.lastIndexOf(',');
+            if (comma >= 0) {
+                label = label.substring(comma + 1).trim();
+            }
+        } else if (label.endsWith("[]")) {
+            label = label.substring(0, label.length() - 2);
+        }
+        return FieldKind.ofTypeLabel(label);
+    }
+
+    record Impl(String name, FieldKind kind, FieldKind valueKind,
+                String typeLabel, boolean reference, boolean collection,
+                String targetType, boolean structural, boolean minor,
                 boolean inline, boolean link, String linkText,
                 boolean provenance, boolean annotatedReference) implements FieldRef {}
 }

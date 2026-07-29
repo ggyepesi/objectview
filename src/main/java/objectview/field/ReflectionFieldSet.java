@@ -3,12 +3,14 @@ package objectview.field;
 import objectview.Viewable;
 import objectview.ViewableAdapter;
 import objectview.annotations.Link;
+import objectview.viewconfig.ConfigFieldRowSource;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 
 /**
  * A {@link FieldSet} over a hand-written {@link Viewable}'s declared Java fields
@@ -72,44 +74,67 @@ public final class ReflectionFieldSet implements FieldSet {
                 continue;
             }
 
-            Class<?> type = f.getType();
-            boolean collection =
-                    Collection.class.isAssignableFrom(type)
-                            || type.isArray();
-
-            // Direct entity reference; a collection-of-references would need the
-            // generic element type (a later refinement — see
-            // ReflectionDomain.isReferenceField).
-            boolean reference =
-                    Viewable.class.isAssignableFrom(type);
-
-            FieldKind kind =
-                    collection
-                            ? FieldKind.COLLECTION
-                            : reference
-                              ? FieldKind.REFERENCE
-                              : FieldKind.ofClass(type);
-
-            // Annotation-derived render hints — the metadata a dynamic field
-            // can't carry.
-            boolean link = ViewableAdapter.isLinkField(f);
-            Link linkAnn = link ? f.getAnnotation(Link.class) : null;
-
-            out.add(
-                    FieldRef.of(
-                            f.getName(),
-                            kind,
-                            type.getSimpleName(),
-                            reference,
-                            collection,
-                            ViewableAdapter.isMinorField(f),
-                            ViewableAdapter.isInline(f),
-                            link,
-                            linkAnn == null ? "" : linkAnn.text(),
-                            ViewableAdapter.isProvenanceField(f),
-                            ViewableAdapter.isReference(f)));
+            out.add(describe(f, object.getClass()));
         }
 
         return out;
+    }
+
+    /**
+     * Canonical description of a declared Java field. Reflection-backed domains
+     * use this exact method to build their immutable schema, so rendering,
+     * persistence and transform pickers cannot disagree about generic element
+     * types or cardinality.
+     */
+    public static FieldRef describe(Field field, Class<?> owner) {
+        Class<?> type = field.getType();
+        boolean collection = Collection.class.isAssignableFrom(type)
+                || Map.class.isAssignableFrom(type) || type.isArray();
+        Class<? extends Viewable> nested =
+                ViewableFieldPaths.nestedViewableClass(field);
+        boolean reference = nested != null || ViewableAdapter.isReference(field);
+        String targetType = nested == null ? null : nested.getSimpleName();
+
+        FieldKind valueKind;
+        if (reference) {
+            valueKind = FieldKind.REFERENCE;
+        } else if (type.isArray()) {
+            valueKind = FieldKind.ofClass(type.getComponentType());
+        } else if (collection) {
+            valueKind = FieldKind.ofTypeLabel(
+                    elementTypeLabel(ConfigFieldRowSource.describeFieldType(
+                            field, owner)));
+        } else {
+            valueKind = FieldKind.ofClass(type);
+        }
+        FieldKind kind = collection ? FieldKind.COLLECTION : valueKind;
+
+        boolean link = ViewableAdapter.isLinkField(field);
+        Link linkAnn = link ? field.getAnnotation(Link.class) : null;
+        return FieldRef.described(
+                field.getName(), kind, valueKind,
+                ConfigFieldRowSource.describeFieldType(field, owner),
+                reference, collection, targetType, false,
+                ViewableAdapter.isMinorField(field),
+                ViewableAdapter.isInline(field), link,
+                linkAnn == null ? "" : linkAnn.text(),
+                ViewableAdapter.isProvenanceField(field),
+                ViewableAdapter.isReference(field));
+    }
+
+    private static String elementTypeLabel(String label) {
+        if (label == null) {
+            return "";
+        }
+        int open = label.indexOf('<');
+        int close = label.lastIndexOf('>');
+        if (open >= 0 && close > open) {
+            String element = label.substring(open + 1, close).trim();
+            int comma = element.lastIndexOf(',');
+            return comma < 0 ? element
+                    : element.substring(comma + 1).trim();
+        }
+        return label.endsWith("[]")
+                ? label.substring(0, label.length() - 2) : label;
     }
 }

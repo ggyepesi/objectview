@@ -8,6 +8,8 @@ import objectview.media.ImageBlurrer;
 import objectview.media.ImagePane;
 import objectview.media.MediaValue;
 import objectview.field.FieldKind;
+import objectview.field.FieldRef;
+import objectview.field.FieldSet;
 import objectview.field.FieldProperties;
 import objectview.viewconfig.ViewConfig;
 import org.slf4j.Logger;
@@ -15,7 +17,6 @@ import org.slf4j.LoggerFactory;
 
 import objectview.utils.swing.GridBagUtils;
 import objectview.annotations.Link;
-import objectview.field.DynamicFields;
 
 import javax.swing.*;
 import java.awt.*;
@@ -597,23 +598,21 @@ public class Card extends JPanel {
         return String.join(" → ", names);
     }
 
-    // Renders the entity's MEDIA field(s) — a portrait / flag (ImagePane or MediaValue)
-    // — at the top of the card (the header thumbnail / avatar), recording their names so
-    // the normal field pass skips them. Reflection-declared fields only; dynamic
-    // (map-backed) media stays inline for now.
-    private int appendHoistedMedia(int row, java.util.Set<String> hoisted) {
-        for (Field field : config.visibleFieldsFor(viewable.getClass())) {
-            String name = field.getName();
+    // Renders scalar MEDIA field(s) at the top of the card, regardless of whether
+    // they are declared Java fields or dynamic map entries.
+    private int appendHoistedMedia(
+            FieldSet fields, int row, java.util.Set<String> hoisted) {
+        for (FieldRef field : fields.fields()) {
+            String name = field.name();
             if ("name".equals(name)) {
                 continue;
             }
-            Object value;
-            try {
-                value = field.get(viewable);
-            } catch (Exception e) {
+            if (!shows(field)) {
                 continue;
             }
-            if (value == null || FieldKind.ofValue(value) != FieldKind.MEDIA) {
+            Object value = fields.read(name);
+            if (value == null || field.collection()
+                    || field.valueKind() != FieldKind.MEDIA) {
                 continue;
             }
             row = addRenderedField(field, value, row);
@@ -624,46 +623,31 @@ public class Card extends JPanel {
 
     private void buildFields() {
         int row = firstFieldRow;
-
         List<TextBlock.Row> textRows = new ArrayList<>();
+        FieldSet fields = FieldSet.of(
+                viewable, renderContext.fieldSchema(viewable));
 
         // Hoist a MEDIA field (a portrait / flag — ImagePane or MediaValue) to the TOP
         // of the card so the entity's image reads as its avatar instead of sitting
         // buried among the text fields; the hoisted field is skipped in the pass below.
         java.util.Set<String> hoistedMedia = new java.util.HashSet<>();
-        row = appendHoistedMedia(row, hoistedMedia);
+        row = appendHoistedMedia(fields, row, hoistedMedia);
 
-        for (Field field : config.visibleFieldsFor(viewable.getClass())) {
-            String name = field.getName();
+        for (FieldRef field : fields.fields()) {
+            String name = field.name();
 
-            if ("name".equals(name) || hoistedMedia.contains(name)) {
+            if ("name".equals(name) || hoistedMedia.contains(name)
+                    || !shows(field)) {
                 continue;
             }
 
-            Object value;
-
-            try {
-                value = field.get(viewable);
-            } catch (Exception e) {
-                continue;
-            }
+            Object value = fields.read(name);
 
             // A field that renders nothing must not break the text-block
             // batch: a null/empty leaf (e.g. a blank error) sitting between
             // two value leaves would otherwise split them into separate
             // blocks and open a stray, variable vertical gap.
             if (value == null || isEmptyCollectionOrMap(value)) {
-                continue;
-            }
-
-            // A DynamicFields object's map IS its field set — render each entry as
-            // its own field (flat), never the map as one "dynamicFields" block.
-            if (viewable instanceof DynamicFields df
-                    && value == df.dynamicFieldValues()) {
-                for (Map.Entry<String, Object> entry
-                        : df.dynamicFieldValues().entrySet()) {
-                    row = appendDynamicEntry(entry.getKey(), entry.getValue(), textRows, row);
-                }
                 continue;
             }
 
@@ -711,6 +695,17 @@ public class Card extends JPanel {
         }
     }
 
+    private boolean shows(FieldRef field) {
+        if (field == null) {
+            return false;
+        }
+        if (config.hasField(field.name())) {
+            return true;
+        }
+        return field.minor()
+                ? config.isAllMinorFields() : config.isAllFields();
+    }
+
     private int addTextBlock(List<TextBlock.Row> rows, int row) {
         TextBlock block = new TextBlock(rows);
 
@@ -721,93 +716,19 @@ public class Card extends JPanel {
         return row;
     }
 
-    // Renders one entry of a DynamicFields map as a field — scalars fold into the
-    // shared text block, complex values (references, images, collections) render
-    // standalone — the same treatment declared fields get, minus reflection.
-    private int appendDynamicEntry(String key, Object value,
-                                   List<TextBlock.Row> textRows, int row) {
-        if (value == null || isEmptyCollectionOrMap(value) || "name".equals(key)) {
-            return row;
-        }
-        List<String> fieldPath = new ArrayList<>(path);
-        fieldPath.add(key);
-
-        if (value instanceof Boolean flag) {
-            if (flag) {
-                textRows.add(new TextBlock.Row(null, fieldPath, value,
-                                               List.of(FieldLabels.humanize(key))));
-            }
-            return row;
-        }
-
-        // A single reference renders through the SAME collapsible chip a declared
-        // reference gets — but seeded expanded, so it looks like today's always-inline
-        // dynamic field while becoming a collapsible, toggleable chip (#87). A
-        // collection of references keeps the collection renderer (whose items are
-        // already collapsible chips).
-        if (value instanceof Viewable q) {
-            if (!textRows.isEmpty()) {
-                row = addTextBlock(textRows, row);
-                textRows.clear();
-            }
-            JComponent comp = collapsibleReference(key, fieldPath, q, true);
-            if (comp != null) {
-                addSingle(comp, row++);
-            }
-            return row;
-        }
-
-        boolean complex = value instanceof ImagePane
-                || value instanceof MediaValue
-                || value instanceof Collection<?> || value instanceof Map<?, ?>;
-        if (!complex) {
-            textRows.add(textBlockRow(key, fieldPath, value));
-            return row;
-        }
-
-        if (!textRows.isEmpty()) {
-            row = addTextBlock(textRows, row);
-            textRows.clear();
-        }
-        ViewConfig cfg = config.getFieldConfig(key);
-        if (cfg == null) {
-            cfg = defaultConfigForValue(value);
-        }
-        JComponent comp = ValueRenderer.createFieldComponent(
-                copyVisited(), copyAncestors(), renderContext,
-                key, fieldPath, value, cfg, fill);
-        if (comp != null) {
-            addSingle(comp, row++);
-        }
-        return row;
-    }
-
-    private int addRenderedField(Field field, Object value, int row) {
+    private int addRenderedField(FieldRef field, Object value, int row) {
         if (value == null || isEmptyCollectionOrMap(value)) {
             return row;
         }
 
-        String fieldName = field.getName();
+        String fieldName = field.name();
         List<String> fieldPath = new ArrayList<>(path);
         fieldPath.add(fieldName);
 
-        // @Provenance (a Source) renders like @Reference: a collapsed
-        // chip, never force-inlined — the annotation drives the chipping.
-        //
-        // The dynamic-field container map of a DynamicFields object (e.g. a raw
-        // WikidataDynamicObject) must NOT be treated as one collapsible group —
-        // its entries ARE the object's fields, so collapsing it hides all the
-        // content behind a "dynamicFields (n)" header. Render it normally; only
-        // genuine value collections/maps collapse.
-        boolean isDynamicContainer =
-                viewable instanceof DynamicFields df
-                        && value == df.dynamicFieldValues();
         boolean isCollectionOrMap =
-                (value instanceof Collection<?> || value instanceof Map<?, ?>)
-                        && !isDynamicContainer;
+                value instanceof Collection<?> || value instanceof Map<?, ?>;
 
-        if (ViewableAdapter.isReference(field)
-                || ViewableAdapter.isProvenanceField(field)) {
+        if (field.annotatedReference() || field.provenance()) {
             if (isCollectionOrMap) {
                 // The header labels the field; build the items borderless.
                 Object v = value;
@@ -827,7 +748,7 @@ public class Card extends JPanel {
         // @Inline means "always render fully expanded inline" (e.g. a
         // query-log step tree) — never collapse it, or the nested content (the
         // SPARQL, child steps) hides behind a collapsed header.
-        if (ViewableAdapter.isInline(field)) {
+        if (field.inline()) {
             JComponent comp =
                     createInlineFieldComponent(fieldName, fieldPath, value);
 
@@ -838,13 +759,11 @@ public class Card extends JPanel {
             return row;
         }
 
-        if (ViewableAdapter.isLinkField(field)
+        if (field.link()
                 && value instanceof String url
                 && !url.isBlank()) {
-
-            Link link = field.getAnnotation(Link.class);
-            String label = link == null ? "" : link.text();
-            addSingle(new LinkRow(fieldName, fieldPath, url, label), row++);
+            addSingle(new LinkRow(
+                    fieldName, fieldPath, url, field.linkText()), row++);
             return row;
         }
 
@@ -887,10 +806,7 @@ public class Card extends JPanel {
                 copyVisited(),
                 copyAncestors(),
                 renderContext,
-                // The dynamic-field container's entries ARE the object's own fields —
-                // render them flat, WITHOUT the enclosing "dynamicFields" titled border
-                // (a blank name skips the border in basePanel).
-                isDynamicContainer ? "" : fieldName,
+                fieldName,
                 fieldPath,
                 value,
                 fieldCfg,
@@ -1193,19 +1109,18 @@ public class Card extends JPanel {
                 lines);
     }
 
-    private boolean isTextBlockCandidate(Field field, Object value) {
+    private boolean isTextBlockCandidate(FieldRef field, Object value) {
         if (value == null || isEmptyCollectionOrMap(value)) {
             return false;
         }
 
-        if (ViewableAdapter.isReference(field)
-                || ViewableAdapter.isProvenanceField(field)) {
+        if (field.annotatedReference() || field.provenance()) {
             return false;
         }
 
         // @Link string fields render as a dedicated clickable row rather
         // than folding into the (drag-to-select) text block.
-        if (ViewableAdapter.isLinkField(field)
+        if (field.link()
                 && value instanceof String s
                 && !s.isBlank()) {
             return false;

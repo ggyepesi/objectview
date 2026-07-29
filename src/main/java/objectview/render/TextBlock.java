@@ -86,7 +86,7 @@ public class TextBlock extends JComponent implements TextSelectable {
         addMouseListener(TextCopyMouseHandler.INSTANCE);
         addMouseMotionListener(TextCopyMouseHandler.INSTANCE);
         setToolTipText("Drag to select · "
-                + (Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()
+                + (menuShortcutMask()
                         == java.awt.event.InputEvent.META_DOWN_MASK
                         ? "Cmd+C" : "Ctrl+C")
                 + "/right-click to copy");
@@ -95,7 +95,7 @@ public class TextBlock extends JComponent implements TextSelectable {
     }
 
     private void registerCopyShortcut() {
-        int menuMask = Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+        int menuMask = menuShortcutMask();
 
         getInputMap(WHEN_FOCUSED).put(
                 KeyStroke.getKeyStroke(KeyEvent.VK_C, menuMask), "copy");
@@ -107,6 +107,14 @@ public class TextBlock extends JComponent implements TextSelectable {
                 copyToClipboard(sel.isBlank() ? blockText() : sel);
             }
         });
+    }
+
+    private static int menuShortcutMask() {
+        try {
+            return Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+        } catch (HeadlessException ignored) {
+            return java.awt.event.InputEvent.CTRL_DOWN_MASK;
+        }
     }
 
     public boolean isEmpty() {

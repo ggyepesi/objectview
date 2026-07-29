@@ -1,6 +1,7 @@
 package objectview.render;
 
 import objectview.Viewable;
+import objectview.field.FieldSchema;
 import objectview.virtual.VirtualizedCardList;
 import objectview.viewconfig.ViewConfig;
 import org.slf4j.Logger;
@@ -54,6 +55,21 @@ public class RenderContext {
 
     private final Map<Class<?>, ViewConfig> classConfigs =
             new HashMap<>();
+
+    // Optional domain schema resolver. Cards ask this for every object (including
+    // nested references), so a typed object and its saved dynamic counterpart use
+    // identical field metadata.
+    private java.util.function.Function<Viewable, FieldSchema>
+            fieldSchemaResolver = ignored -> null;
+
+    public void setFieldSchemaResolver(
+            java.util.function.Function<Viewable, FieldSchema> resolver) {
+        fieldSchemaResolver = resolver == null ? ignored -> null : resolver;
+    }
+
+    public FieldSchema fieldSchema(Viewable viewable) {
+        return viewable == null ? null : fieldSchemaResolver.apply(viewable);
+    }
 
     // Viewable references the user has opened/closed in place, keyed by identity so
     // the same target stays in sync wherever it appears in the card. Tri-state

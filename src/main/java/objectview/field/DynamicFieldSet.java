@@ -9,23 +9,16 @@ import java.util.Map;
 
 /**
  * A {@link FieldSet} over a {@link DynamicFields} object's property map (the "new"
- * representation — e.g. {@code WikidataDynamicObject}). With a {@link FieldSchema}
- * the fields are typed authoritatively (cardinality and type survive null / single
- * values); without one, types are inferred from the present VALUES (a single-value
- * collection then reads as a scalar). See #87.
+ * representation — e.g. {@code WikidataDynamicObject}). This backing describes
+ * observed values; {@link SchemaFieldSet} overlays authoritative metadata when
+ * a {@link FieldSchema} is available.
  */
 public final class DynamicFieldSet implements FieldSet {
 
     private final DynamicFields object;
-    private final FieldSchema schema;   // nullable — authoritative types when present
 
     public DynamicFieldSet(DynamicFields object) {
-        this(object, null);
-    }
-
-    public DynamicFieldSet(DynamicFields object, FieldSchema schema) {
         this.object = object;
-        this.schema = schema;
     }
 
     @Override
@@ -45,11 +38,6 @@ public final class DynamicFieldSet implements FieldSet {
 
     @Override
     public List<FieldRef> fields() {
-        if (schema != null) {
-            // Authoritative + complete: typed even for a null/absent or single value.
-            return schema.fields();
-        }
-
         List<FieldRef> out = new ArrayList<>();
 
         for (Map.Entry<String, Object> e
@@ -64,35 +52,67 @@ public final class DynamicFieldSet implements FieldSet {
     private static FieldRef fieldRef(String name, Object value) {
         boolean collection =
                 value instanceof Collection<?>
+                        || value instanceof Map<?, ?>
                         || (value != null
                         && value.getClass().isArray());
 
-        boolean reference =
-                value instanceof Viewable
-                        || (value instanceof Collection<?> c
-                        && anyViewable(c));
+        Object element = collection ? firstElement(value) : value;
+        boolean reference = element instanceof Viewable;
+        FieldKind valueKind = FieldKind.ofValue(element);
+        FieldKind kind = collection ? FieldKind.COLLECTION : valueKind;
+        String targetType = reference
+                ? ((Viewable) element).typeName() : null;
 
-        String typeLabel =
-                value == null
-                        ? null
-                        : value.getClass().getSimpleName();
+        String elementLabel = element == null
+                ? "Object" : reference
+                ? targetType : element.getClass().getSimpleName();
+        String typeLabel = value instanceof Map<?, ?> map
+                ? "Map<" + keyTypeLabel(map) + ", " + elementLabel + ">"
+                : collection
+                ? "Collection<" + elementLabel + ">"
+                : value == null ? null : elementLabel;
 
-        return FieldRef.of(
-                name,
-                FieldKind.ofValue(value),
-                typeLabel,
-                reference,
-                collection,
-                false);
+        return FieldRef.described(name, kind, valueKind, typeLabel,
+                reference, collection, targetType, false, false,
+                false, false, "", false, false);
     }
 
-    private static boolean anyViewable(Collection<?> c) {
-        for (Object o : c) {
-            if (o instanceof Viewable) {
-                return true;
+    private static Object firstElement(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            for (Object item : map.values()) {
+                if (item != null) {
+                    return item;
+                }
+            }
+            return null;
+        }
+        if (value instanceof Collection<?> collection) {
+            for (Object item : collection) {
+                if (item != null) {
+                    return item;
+                }
+            }
+            return null;
+        }
+        if (value != null && value.getClass().isArray()) {
+            int length = java.lang.reflect.Array.getLength(value);
+            for (int i = 0; i < length; i++) {
+                Object item = java.lang.reflect.Array.get(value, i);
+                if (item != null) {
+                    return item;
+                }
+            }
+            return null;
+        }
+        return value;
+    }
+
+    private static String keyTypeLabel(Map<?, ?> map) {
+        for (Object key : map.keySet()) {
+            if (key != null) {
+                return key.getClass().getSimpleName();
             }
         }
-
-        return false;
+        return "Object";
     }
 }

@@ -44,7 +44,8 @@ public enum FieldKind {
         if (v instanceof MediaValue || v instanceof ImageRef) {
             return MEDIA;
         }
-        if (v instanceof Collection) {
+        if (v instanceof Collection || v instanceof java.util.Map
+                || v.getClass().isArray()) {
             return COLLECTION;
         }
         if (v instanceof Viewable) {
@@ -79,7 +80,9 @@ public enum FieldKind {
         if (MediaValue.class.isAssignableFrom(c) || ImageRef.class.isAssignableFrom(c)) {
             return MEDIA;
         }
-        if (Collection.class.isAssignableFrom(c)) {
+        if (Collection.class.isAssignableFrom(c)
+                || java.util.Map.class.isAssignableFrom(c)
+                || c.isArray()) {
             return COLLECTION;
         }
         if (Viewable.class.isAssignableFrom(c)) {
@@ -97,6 +100,9 @@ public enum FieldKind {
             return UNKNOWN;
         }
         String l = label.toLowerCase();
+        if (l.contains("image") || l.contains("media")) {
+            return MEDIA;
+        }
         if (l.contains("bool")) {
             return BOOLEAN;
         }

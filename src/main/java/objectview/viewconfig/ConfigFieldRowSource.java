@@ -259,7 +259,10 @@ public final class ConfigFieldRowSource implements FieldRowSource {
                 : value.getClass().getSimpleName();
     }
 
-    private static String describeFieldType(Field field, Class<?> owner) {
+    /** Describes a reflected field with the same generic-type resolution used by
+     *  the config editor. Exposed so persistence bridges can save the declared
+     *  schema even when a field currently has no value. */
+    public static String describeFieldType(Field field, Class<?> owner) {
         Class<?> type = field.getType();
 
         if (Viewable.class.isAssignableFrom(type)) {

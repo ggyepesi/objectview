@@ -4,11 +4,10 @@ import java.util.List;
 
 /**
  * Authoritative field metadata for a type — names, kinds, cardinality, type labels —
- * independent of any one instance's values. It exists for the DYNAMIC representation,
- * where types can't be read reliably from values: a null value has no type, and a
- * one-element collection looks like a scalar. A reflected object is self-describing
- * (its declared field types), so it needs no schema; a {@link DynamicFieldSet} takes
- * one optionally and falls back to value inference when it's absent.
+ * independent of any one instance's values. It is applied equally to reflected and
+ * dynamic representations through {@link SchemaFieldSet}, so changing the backing
+ * cannot change cardinality, nested targets or structural roles. Without a schema,
+ * a backing falls back to its own declared fields or observed values.
  *
  * <p>Suppliers: {@code ProductSchema}/{@code ProductClass} (the compiled model) adapt
  * to this; see #87. Functional — {@link #fields} is the single method.

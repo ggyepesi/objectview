@@ -6,6 +6,7 @@ import objectview.search.SearchPanel;
 import objectview.viewconfig.FieldTypeSource;
 import objectview.viewconfig.ViewConfig;
 import objectview.virtual.VirtualizedGroupTreeView;
+import objectview.field.FieldSchema;
 
 import javax.swing.*;
 import java.awt.*;
@@ -27,12 +28,23 @@ public final class GroupTreeBrowser extends JPanel {
             Viewable sample,
             Set<String> hiddenFields,
             FieldTypeSource fieldTypes) {
+        this(root, memberClass, sample, hiddenFields, fieldTypes, null);
+    }
+
+    public GroupTreeBrowser(
+            ViewableGroup<?> root,
+            Class<? extends Viewable> memberClass,
+            Viewable sample,
+            Set<String> hiddenFields,
+            FieldTypeSource fieldTypes,
+            java.util.function.Function<Viewable, FieldSchema> fieldSchemas) {
 
         setLayout(new BorderLayout(6, 6));
 
         VirtualizedGroupTreeView groupedView = new VirtualizedGroupTreeView(
                 root,
                 ViewConfig.all(memberClass));
+        groupedView.renderContext().setFieldSchemaResolver(fieldSchemas);
 
         groupedView.scrollPane()
                    .getVerticalScrollBar()
