@@ -67,7 +67,13 @@ public abstract class DefaultViewableGroup<
 
     @Override
     public String getIdentifier() {
-        return name;
+        // A local label is not an identity: two branches may both contain a child named
+        // "A". Qualify it by ancestry so B/A and C/A remain distinct snapshot entities.
+        if (parent == null) {
+            return name;
+        }
+        String parentId = parent.getIdentifier();
+        return parentId == null || parentId.isBlank() ? name : parentId + "." + name;
     }
 
     @Override
@@ -109,7 +115,9 @@ public abstract class DefaultViewableGroup<
         if (child == null || child.getIdentifier() == null) {
             return;
         }
-        children.putIfAbsent(child.getIdentifier(), child);
+        // The map is addressed by the LOCAL child label (getChild("A")); the child's
+        // public identifier becomes ancestry-qualified after adoption.
+        children.putIfAbsent(child.getDisplayName(), child);
         adopt(child);
     }
 
