@@ -109,8 +109,24 @@ public class CachedImage {
                     "CachedImage has no URL: " + forDebug);
         }
 
+        // A non-URL source is a Wikimedia Commons file TITLE (e.g. "Coat of arms of X"),
+        // not a loadable URL — resolve it to an (encoded) Special:FilePath link instead of
+        // letting URI.create choke on the spaces.
+        if (!looksLikeUrl(source)) {
+            source = commonsFilePath(source);
+        }
+
         readToImageBuf(source);
         bytesLoaded = true;
+    }
+
+    /** A Commons file title → a loadable {@code Special:FilePath} URL (which redirects to
+     *  the actual upload). Strips a leading {@code File:} and percent-encodes the title. */
+    private static String commonsFilePath(String title) {
+        String name = title.startsWith("File:") ? title.substring(5) : title;
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/"
+                + java.net.URLEncoder.encode(name.strip(),
+                        java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     private static boolean looksLikeUrl(String s) {
