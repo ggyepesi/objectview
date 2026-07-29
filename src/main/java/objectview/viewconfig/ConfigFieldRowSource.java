@@ -268,7 +268,7 @@ public final class ConfigFieldRowSource implements FieldRowSource {
 
         // Resolve any type VARIABLES (e.g. G/T of a generic superclass) to the owner's
         // actual arguments, so e.g. DefaultViewableGroup's Map<String, G> shows as
-        // Map<String, QuizableGroup> rather than Map<String, G>.
+        // Map<String, ViewableGroup> rather than Map<String, G>.
         Map<TypeVariable<?>, Type> bindings = typeBindings(owner);
 
         // The generic ARGUMENTS are shown for their own sake (a String element is as

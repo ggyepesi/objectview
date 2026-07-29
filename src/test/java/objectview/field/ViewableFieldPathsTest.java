@@ -27,7 +27,7 @@ class ViewableFieldPathsTest {
     }
 
     @Test
-    void collectionOfQuizableUsesNestedSelectedFieldsOnly() {
+    void collectionOfViewableUsesNestedSelectedFieldsOnly() {
         ViewConfig childConfig = ViewConfig.of(TestChild.class);
         childConfig.setAllFields(false);
         childConfig.addField("name", ViewConfig.leaf());
