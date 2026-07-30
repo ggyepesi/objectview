@@ -2,7 +2,8 @@ package objectview.viewconfig;
 
 import objectview.Viewable;
 import objectview.ViewableAdapter;
-import objectview.field.DynamicFields;
+import objectview.field.FieldRef;
+import objectview.field.FieldSet;
 import objectview.field.FieldKind;
 import objectview.field.ViewableFieldPaths;
 
@@ -33,11 +34,6 @@ public final class ConfigFieldRowSource implements FieldRowSource {
     public List<FieldRow> rows(FieldRowContext context) {
         List<FieldRow> result = new ArrayList<>();
 
-        if (context.sample() instanceof DynamicFields) {
-            addDynamicRows(result, context);
-            return List.copyOf(result);
-        }
-
         // Schema-backed enumeration: no live sample, but an authoritative field-type
         // source that can LIST its fields (e.g. an empty reference in a compiled model).
         // This is what lets a valueless reference still expand into its children.
@@ -48,75 +44,96 @@ public final class ConfigFieldRowSource implements FieldRowSource {
             return List.copyOf(result);
         }
 
-        Class<? extends Viewable> cls = context.config().getCls();
-        if (cls == null) {
-            return List.of();
-        }
-
-        if (context.minorOnly()) {
-            addReflectedRows(result, context, cls, true);
-        } else {
-            addReflectedRows(result, context, cls, false);
-            if (hasMinorFields(cls)) {
-                result.add(FieldRow.minorBlock());
+        if (context.sample() == null) {
+            // No instance and no schema: describe the configured CLASS by reflection.
+            // FieldSet.of() needs a live object, so a class-only config table (a
+            // ViewConfig with a getCls() but no sample yet) enumerates here instead.
+            Class<? extends Viewable> cls = context.config().getCls();
+            if (cls != null) {
+                addReflectedClassRows(result, context, cls);
             }
+            return List.copyOf(result);
         }
-
+        addFieldSetRows(result, context);
         return List.copyOf(result);
     }
 
-    private void addDynamicRows(List<FieldRow> result,
-                                FieldRowContext context) {
-        DynamicFields dynamic = (DynamicFields) context.sample();
+    /** Enumerates a class's configurable fields with NO instance — the type label comes
+     *  from reflection ({@link #describeFieldType}). The instance-based {@code FieldSet}
+     *  path cannot run without a sample, so a class-only config table uses this. */
+    private void addReflectedClassRows(List<FieldRow> result,
+                                       FieldRowContext context,
+                                       Class<? extends Viewable> cls) {
+        for (Field field : ViewableAdapter.getConfigurableFields(cls)) {
+            if (Modifier.isStatic(field.getModifiers())) {
+                continue;
+            }
+            String name = field.getName();
+            if (context.hiddenFields().contains(name)
+                    || ViewableAdapter.isMinorField(field) != context.minorOnly()) {
+                continue;
+            }
+            if (context.hideMedia()
+                    && FieldKind.ofClass(field.getType()) == FieldKind.MEDIA) {
+                continue;
+            }
+            Class<? extends Viewable> nestedClass =
+                    ViewableFieldPaths.nestedViewableClass(field);
+            NestedFieldSource nested = nestedClass == null ? null
+                    : new NestedFieldSource(
+                            nestedClass, null, null, nestedClass.getSimpleName());
+            result.add(FieldRow.reflected(
+                    field, describeFieldType(field, cls), nested));
+        }
+    }
 
-        // `name` is identity/display data rather than a map entry, but config/search
-        // editors must be able to include or exclude it like any other field.
-        if (!context.hiddenFields().contains("name")
-                && !dynamic.dynamicFieldValues().containsKey("name")) {
+    /** One enumeration path for reflected and dynamic objects. Storage selection and
+     * annotation/schema overlay happen inside FieldSet.of(). */
+    private void addFieldSetRows(
+            List<FieldRow> result, FieldRowContext context) {
+        Viewable sample = context.sample();
+        FieldSet fields = FieldSet.of(sample);
+        if (!fields.has("name") && !context.hiddenFields().contains("name")) {
             result.add(FieldRow.dynamic("name", "String", null));
         }
-
-        for (Map.Entry<String, Object> entry
-                : dynamic.dynamicFieldValues().entrySet()) {
-            String name = entry.getKey();
-            FieldTypeSource.FieldTypeInfo info =
-                    context.fieldTypes() == null
-                            ? null
-                            : context.fieldTypes().field(name);
-
-            // Structural model fields are hidden just like explicit hiddenFields.
+        for (FieldRef field : fields.fields()) {
+            String name = field.name();
+            FieldTypeSource.FieldTypeInfo info = context.fieldTypes() == null
+                    ? null : context.fieldTypes().field(name);
+            boolean minor = field.minor() || info != null && info.minor();
             if (context.hiddenFields().contains(name)
-                    || (info != null && info.structural())) {
+                    || field.structural()
+                    || info != null && info.structural()
+                    || minor != context.minorOnly()) {
+                continue;
+            }
+            if (context.hideMedia() && field.valueKind() == FieldKind.MEDIA) {
                 continue;
             }
 
-            // A minor field (schema flag = the dynamic counterpart of @Minor) is kept
-            // out of the field table and governed wholesale by the "All minor fields"
-            // toggle, exactly as a reflected minor field is excluded from the table.
-            if (info != null && info.minor()) {
-                continue;
-            }
-
-            Object value = entry.getValue();
-            if (context.hideMedia()
-                    && FieldKind.ofValue(value) == FieldKind.MEDIA) {
-                continue;
-            }
-
+            Object value = fields.read(name);
             Viewable child = firstViewable(value);
             NestedFieldSource nested = nestedFor(info, child);
-
-            String typeLabel = info != null
-                    ? info.typeLabel()
-                    : dynamicTypeLabel(value, child);
-
-            result.add(FieldRow.dynamic(name, typeLabel, nested));
+            Field reflected = ViewableAdapter.getField(sample.getClass(), name);
+            if (nested == null && reflected != null) {
+                Class<? extends Viewable> nestedClass =
+                        ViewableFieldPaths.nestedViewableClass(reflected);
+                if (nestedClass != null) {
+                    nested = new NestedFieldSource(
+                            nestedClass, child, null, nestedClass.getSimpleName());
+                }
+            }
+            String label = info != null && info.typeLabel() != null
+                    ? info.typeLabel() : field.typeLabel();
+            result.add(reflected == null
+                    ? FieldRow.dynamic(name, label, nested)
+                    : FieldRow.reflected(reflected, label, nested));
         }
     }
 
     /** Enumerates a reference that has NO live sample value from its schema — the
      *  {@link FieldTypeSource#fieldNames()} of the nested source name the child fields.
-     *  Mirrors {@link #addDynamicRows} but driven by the model, not a map. */
+     *  Driven by the model rather than a live value. */
     private void addSchemaRows(List<FieldRow> result,
                                FieldRowContext context) {
         FieldTypeSource types = context.fieldTypes();
@@ -134,8 +151,8 @@ public final class ConfigFieldRowSource implements FieldRowSource {
             if (info != null && info.structural()) {
                 continue;
             }
-            // Minor fields are governed wholesale by "All minor fields", not listed.
-            if (info != null && info.minor()) {
+            boolean minor = info != null && info.minor();
+            if (minor != context.minorOnly()) {
                 continue;
             }
             result.add(FieldRow.dynamic(
@@ -171,59 +188,30 @@ public final class ConfigFieldRowSource implements FieldRowSource {
         return null;
     }
 
-    private void addReflectedRows(List<FieldRow> result,
-                                  FieldRowContext context,
-                                  Class<? extends Viewable> cls,
-                                  boolean minor) {
-        for (Field field : ViewableAdapter.getConfigurableFields(cls)) {
-            if (Modifier.isStatic(field.getModifiers())) {
-                continue;
-            }
-            if (ViewableAdapter.isMinorField(field) != minor) {
-                continue;
-            }
-            if (context.hiddenFields().contains(field.getName())) {
-                continue;
-            }
-            if (context.hideMedia()
-                    && FieldKind.ofClass(field.getType()) == FieldKind.MEDIA) {
-                continue;
-            }
-
-            Class<? extends Viewable> nestedClass =
-                    ViewableFieldPaths.nestedViewableClass(field);
-
-            NestedFieldSource nested = nestedClass == null
-                    ? null
-                    : new NestedFieldSource(
-                            nestedClass,
-                            null,
-                            null,
-                            nestedClass.getSimpleName());
-
-            result.add(FieldRow.reflected(
-                    field,
-                    describeFieldType(field, cls),
-                    nested));
-        }
-    }
-
     /**
      * Whether {@code context} has any minor field to segregate — reflected (annotation),
      * dynamic sample, or schema-only reference alike. Lets the editor show the
      * "All minor fields" bar for a dynamic/snapshot type, not just a reflected class.
      */
     public boolean hasMinorFields(FieldRowContext context) {
-        if (context.sample() instanceof DynamicFields dynamic) {
-            return anyMinor(dynamic.dynamicFieldValues().keySet(), context);
-        }
         if (context.sample() == null
                 && context.fieldTypes() != null
                 && !context.fieldTypes().fieldNames().isEmpty()) {
             return anyMinor(context.fieldTypes().fieldNames(), context);
         }
-        Class<? extends Viewable> cls = context.config().getCls();
-        return cls != null && hasMinorFields(cls);
+        if (context.sample() == null) {
+            return false;
+        }
+        for (FieldRef field : FieldSet.of(context.sample()).fields()) {
+            FieldTypeSource.FieldTypeInfo info = context.fieldTypes() == null
+                    ? null : context.fieldTypes().field(field.name());
+            if (!context.hiddenFields().contains(field.name())
+                    && !field.structural()
+                    && (field.minor() || info != null && info.minor())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean anyMinor(Collection<String> names,
@@ -244,23 +232,8 @@ public final class ConfigFieldRowSource implements FieldRowSource {
         return false;
     }
 
-    private static boolean hasMinorFields(
-            Class<? extends Viewable> cls) {
-        for (Field field : ViewableAdapter.getAllFields(cls)) {
-            if (!Modifier.isStatic(field.getModifiers())
-                    && ViewableAdapter.isMinorField(field)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private static boolean hasFields(Viewable viewable) {
-        if (viewable instanceof DynamicFields dynamic) {
-            return !dynamic.dynamicFieldValues().isEmpty();
-        }
-        return !ViewableAdapter.getAllFields(
-                viewable.getClass()).isEmpty();
+        return !FieldSet.of(viewable).fields().isEmpty();
     }
 
     private static Viewable firstViewable(Object value) {
@@ -288,22 +261,6 @@ public final class ConfigFieldRowSource implements FieldRowSource {
     private static Class<? extends Viewable> asViewableClass(
             Class<?> cls) {
         return (Class<? extends Viewable>) cls;
-    }
-
-    private static String dynamicTypeLabel(
-            Object value,
-            Viewable child) {
-        if (child != null) {
-            return value instanceof Collection<?>
-                    ? "Collection<" + child.typeName() + ">"
-                    : child.typeName();
-        }
-        if (value instanceof Collection<?>) {
-            return "Collection";
-        }
-        return value == null
-                ? ""
-                : value.getClass().getSimpleName();
     }
 
     /** Describes a reflected field with the same generic-type resolution used by

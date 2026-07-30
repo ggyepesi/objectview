@@ -2,7 +2,7 @@ package objectview.group;
 
 import objectview.Viewable;
 import objectview.ViewableAdapter;
-import objectview.annotations.Hidden;
+import objectview.annotations.Minor;
 import objectview.annotations.Reference;
 
 import java.util.Collection;
@@ -29,10 +29,10 @@ public abstract class DefaultViewableGroup<
 
     // The facet-tree role is transform structure, not data — hidden so it doesn't
     // render as a `role: FACET` row mixed into the results.
-    @Hidden
+    @Minor
     private Role role = Role.UNIVERSE;
 
-    @Hidden
+    @Minor
     private Viewable keyRef;
 
     // A normal object reference. Cycles are handled by the shared identity/reference

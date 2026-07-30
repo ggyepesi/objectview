@@ -66,9 +66,17 @@ public interface FieldSet {
      * metadata therefore cannot change merely because the backing changed.
      */
     static FieldSet of(Viewable object, FieldSchema schema) {
-        FieldSet backing = object instanceof DynamicFields dynamic
-                ? new DynamicFieldSet(dynamic)
-                : new ReflectionFieldSet(object);
-        return schema == null ? backing : new SchemaFieldSet(backing, schema);
+        FieldSet backing;
+        FieldSchema effective = schema;
+        if (object instanceof DynamicFields dynamic) {
+            backing = new DynamicFieldSet(dynamic);
+            if (effective == null) {
+                effective = dynamic.dynamicFieldSchema();
+            }
+        } else {
+            backing = new ReflectionFieldSet(object);
+        }
+        return effective == null
+                ? backing : new SchemaFieldSet(backing, effective);
     }
 }

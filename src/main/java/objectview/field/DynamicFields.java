@@ -18,4 +18,10 @@ public interface DynamicFields {
     /** Field name → value. Values may be scalars, {@link Viewable} references,
      *  or collections/maps of either. */
     Map<String, Object> dynamicFieldValues();
+
+    /** Optional authoritative schema carried with the dynamic value. Persisted
+     * snapshots attach their field graph here after loading. */
+    default FieldSchema dynamicFieldSchema() {
+        return null;
+    }
 }

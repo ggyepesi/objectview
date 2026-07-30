@@ -433,8 +433,8 @@ public class ViewConfigEditor extends JPanel {
      * soon as B and C happen to use the same holder class.
      */
     private static String nestedCycleKey(NestedFieldSource nested) {
-        if (nested.sample() instanceof DynamicFields) {
-            return "dynamic:" + nested.sample().typeName();
+        if (nested.sample() != null) {
+            return "type:" + nested.sample().typeName();
         }
         if (nested.fieldTypes() != null
                 && nested.displayName() != null
