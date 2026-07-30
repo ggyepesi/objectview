@@ -302,12 +302,15 @@ public class ViewConfigEditor extends JPanel {
         updateMinorFieldsBar();
     }
 
-    /** The "All minor fields" bar is meaningful only for a non-minor config table over
-     *  a reflected (not dynamic) sample; show/hide it AND refresh its checked state so
-     *  both follow a row-source switch, not just the value seeded at construction. */
+    /** The "All minor fields" bar governs a non-minor config table that HAS minor fields
+     *  to govern: a reflected class carries them via @Minor; a dynamic/snapshot sample
+     *  declares them through its {@link FieldTypeSource}. Show/hide it AND refresh its
+     *  checked state so both follow a row-source switch, not just the construction seed. */
     private void updateMinorFieldsBar() {
         boolean applicable = !minorOnly && usesConfigRows()
-                && !(sample instanceof DynamicFields);
+                && (!(sample instanceof DynamicFields)
+                    || ((ConfigFieldRowSource) rowSource)
+                            .hasMinorFields(rowContext()));
         minorFieldsBar.setVisible(applicable);
         // When it doesn't apply, force OFF so getConfig() can't read a stale 'selected'.
         allMinorFieldsBox.setSelected(

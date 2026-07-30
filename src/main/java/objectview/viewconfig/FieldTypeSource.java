@@ -27,10 +27,21 @@ public interface FieldTypeSource {
     /**
      * @param typeLabel        what the "Type" column shows (e.g. "List&lt;Category&gt;")
      * @param structural       true to hide the field (plumbing/provenance)
+     * @param minor            true to segregate the field under the "Minor fields"
+     *                         block, governed wholesale by "All minor fields" — the
+     *                         dynamic/schema counterpart of the {@code @Minor}
+     *                         annotation a reflected field carries
      * @param nestedClassName  the referenced class's display name, for the expand
      *                         dialog caption (or null — falls back to the sample class)
      * @param nested           the source for the referenced object's fields (or null)
      */
-    record FieldTypeInfo(String typeLabel, boolean structural,
-                         String nestedClassName, FieldTypeSource nested) {}
+    record FieldTypeInfo(String typeLabel, boolean structural, boolean minor,
+                         String nestedClassName, FieldTypeSource nested) {
+
+        /** Backwards-compatible for callers that don't distinguish minor fields. */
+        public FieldTypeInfo(String typeLabel, boolean structural,
+                             String nestedClassName, FieldTypeSource nested) {
+            this(typeLabel, structural, false, nestedClassName, nested);
+        }
+    }
 }

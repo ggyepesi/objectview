@@ -90,6 +90,13 @@ public final class ConfigFieldRowSource implements FieldRowSource {
                 continue;
             }
 
+            // A minor field (schema flag = the dynamic counterpart of @Minor) is kept
+            // out of the field table and governed wholesale by the "All minor fields"
+            // toggle, exactly as a reflected minor field is excluded from the table.
+            if (info != null && info.minor()) {
+                continue;
+            }
+
             Object value = entry.getValue();
             if (context.hideMedia()
                     && FieldKind.ofValue(value) == FieldKind.MEDIA) {
@@ -125,6 +132,10 @@ public final class ConfigFieldRowSource implements FieldRowSource {
             }
             FieldTypeSource.FieldTypeInfo info = types.field(name);
             if (info != null && info.structural()) {
+                continue;
+            }
+            // Minor fields are governed wholesale by "All minor fields", not listed.
+            if (info != null && info.minor()) {
                 continue;
             }
             result.add(FieldRow.dynamic(
@@ -195,6 +206,42 @@ public final class ConfigFieldRowSource implements FieldRowSource {
                     describeFieldType(field, cls),
                     nested));
         }
+    }
+
+    /**
+     * Whether {@code context} has any minor field to segregate — reflected (annotation),
+     * dynamic sample, or schema-only reference alike. Lets the editor show the
+     * "All minor fields" bar for a dynamic/snapshot type, not just a reflected class.
+     */
+    public boolean hasMinorFields(FieldRowContext context) {
+        if (context.sample() instanceof DynamicFields dynamic) {
+            return anyMinor(dynamic.dynamicFieldValues().keySet(), context);
+        }
+        if (context.sample() == null
+                && context.fieldTypes() != null
+                && !context.fieldTypes().fieldNames().isEmpty()) {
+            return anyMinor(context.fieldTypes().fieldNames(), context);
+        }
+        Class<? extends Viewable> cls = context.config().getCls();
+        return cls != null && hasMinorFields(cls);
+    }
+
+    private static boolean anyMinor(Collection<String> names,
+                                    FieldRowContext context) {
+        FieldTypeSource types = context.fieldTypes();
+        if (types == null) {
+            return false;
+        }
+        for (String name : names) {
+            if (context.hiddenFields().contains(name)) {
+                continue;
+            }
+            FieldTypeSource.FieldTypeInfo info = types.field(name);
+            if (info != null && info.minor() && !info.structural()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean hasMinorFields(
