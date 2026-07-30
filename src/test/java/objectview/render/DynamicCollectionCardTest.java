@@ -2,6 +2,7 @@ package objectview.render;
 
 import objectview.ViewableAdapter;
 import objectview.field.DynamicFields;
+import objectview.field.FieldProperties;
 import objectview.viewconfig.ViewConfig;
 import org.junit.jupiter.api.Test;
 
@@ -49,6 +50,24 @@ class DynamicCollectionCardTest {
                 "a dynamic reference must not render its nested card eagerly");
     }
 
+    @Test
+    void referenceRowsUseTheTargetsQualifiedReferenceLabel() {
+        DynamicThing target = new DynamicThing("Vienna") {
+            @Override public String getReferenceLabel() {
+                return "All/Capitals/VI/Vienna";
+            }
+        };
+
+        ReferenceRow row = new ReferenceRow(
+                "groups", List.of("groups"), target,
+                new RenderContext(), ViewConfig.all(DynamicThing.class),
+                "Vienna", false);
+
+        assertEquals("All/Capitals/VI/Vienna",
+                row.getClientProperty(
+                        FieldProperties.FIELD_VALUE_PROPERTY));
+    }
+
     private static <T extends Component> T find(
             Component root, Class<T> type) {
         if (type.isInstance(root)) {
@@ -75,7 +94,7 @@ class DynamicCollectionCardTest {
         return result;
     }
 
-    private static final class DynamicThing
+    private static class DynamicThing
             extends ViewableAdapter implements DynamicFields {
         private final Map<String, Object> values = new LinkedHashMap<>();
         private final String id;

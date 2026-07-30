@@ -82,6 +82,11 @@ public abstract class DefaultViewableGroup<
     }
 
     @Override
+    public String getReferenceLabel() {
+        return getFullName();
+    }
+
+    @Override
     public Role getRole() {
         return role;
     }

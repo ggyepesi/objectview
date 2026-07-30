@@ -200,7 +200,7 @@ public class ReferenceRow extends TextRow {
     }
 
     private static String name(Viewable target) {
-        String n = target == null ? null : target.getName();
+        String n = target == null ? null : target.getReferenceLabel();
         return n == null ? "" : n;
     }
 }

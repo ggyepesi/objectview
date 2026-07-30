@@ -27,6 +27,14 @@ public interface Viewable {
     /** Alias of {@link #getDisplayName()} (some call sites read it as a "name"). */
     default String getName() { return getDisplayName(); }
 
+    /**
+     * Label used when this object appears as a reference in another object's
+     * field. Most objects use their ordinary name; hierarchical structural
+     * objects may qualify it with ancestry so a leaf is not mistaken for a
+     * top-level value.
+     */
+    default String getReferenceLabel() { return getName(); }
+
     /** The type/dataset name this object is addressed and grouped by. Defaults to the
      *  Java class's simple name; dynamic objects override it with their domain name. */
     default String typeName() { return getClass().getSimpleName(); }
