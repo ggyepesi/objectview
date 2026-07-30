@@ -93,7 +93,9 @@ public final class ConfigFieldRowSource implements FieldRowSource {
             List<FieldRow> result, FieldRowContext context) {
         Viewable sample = context.sample();
         FieldSet fields = FieldSet.of(sample);
-        if (!fields.has("name") && !context.hiddenFields().contains("name")) {
+        if (!context.minorOnly()
+                && !fields.has("name")
+                && !context.hiddenFields().contains("name")) {
             result.add(FieldRow.dynamic("name", "String", null));
         }
         for (FieldRef field : fields.fields()) {
@@ -138,7 +140,8 @@ public final class ConfigFieldRowSource implements FieldRowSource {
                                FieldRowContext context) {
         FieldTypeSource types = context.fieldTypes();
 
-        if (!context.hiddenFields().contains("name")
+        if (!context.minorOnly()
+                && !context.hiddenFields().contains("name")
                 && !types.fieldNames().contains("name")) {
             result.add(FieldRow.dynamic("name", "String", null));
         }
