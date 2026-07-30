@@ -414,34 +414,42 @@ public class ViewConfigEditor extends JPanel {
             allRows.add(state);
 
             NestedFieldSource nested = placed.nested();
-            String cycleKey = nested == null
-                    ? null
-                    : nestedCycleKey(nested);
-            if (nested != null
-                    && depth < MAX_TREE_DEPTH
-                    && !chain.contains(cycleKey)) {
-                Set<String> next = new java.util.HashSet<>(chain);
-                next.add(cycleKey);
-                buildTree(full, depth + 1, childContext(nested), next);
+            if (nested != null) {
+                String cycleKey = nestedCycleKey(nested);
+                if (chain.contains(cycleKey)) {
+                    // Same type already on this path — refer back instead of re-expanding,
+                    // exactly as the instance card does when a nested value reappears.
+                    state.cutNote = "↩ shown above";
+                } else if (depth >= MAX_TREE_DEPTH) {
+                    state.cutNote = "… max depth";
+                } else {
+                    Set<String> next = new java.util.HashSet<>(chain);
+                    next.add(cycleKey);
+                    buildTree(full, depth + 1, childContext(nested), next);
+                }
             }
         }
     }
 
     /**
-     * Dynamic model types share one Java holder class, so their semantic type name
-     * must drive cycle detection. Otherwise A -> B -> C is mistaken for a cycle as
-     * soon as B and C happen to use the same holder class.
+     * The SEMANTIC type name of a nested source, used for cycle detection. Dynamic model
+     * types share one Java holder class, so the logical type name (not the Java class)
+     * must drive it — otherwise A -> B -> C is mistaken for a cycle as soon as B and C
+     * share a holder. Crucially it must NOT depend on whether the level is sample-backed
+     * or schema-backed: a self-referential type (e.g. {@code ViewableGroup.parent}) has to
+     * key identically at every tier so the reflection world (live sample) and the snapshot
+     * world (schema shell) cut the chain at the same depth.
      */
     private static String nestedCycleKey(NestedFieldSource nested) {
         if (nested.sample() != null) {
-            return "type:" + nested.sample().typeName();
+            return nested.sample().typeName();
         }
         if (nested.fieldTypes() != null
                 && nested.displayName() != null
                 && !nested.displayName().isBlank()) {
-            return "schema:" + nested.displayName();
+            return nested.displayName();
         }
-        return "class:" + nested.type().getName();
+        return nested.type().getSimpleName();
     }
 
     /** Whether {@code row}'s field is currently selected in {@link #sourceConfig},
@@ -1426,13 +1434,15 @@ public class ViewConfigEditor extends JPanel {
             }
 
             return switch (col.kind) {
-                case TREE -> row.nested() == null
+                case TREE -> row.nested() == null || state.cutNote != null
                         ? ""
                         : expandedPaths.contains(row.path())
                                 ? "▾"
                                 : "▸";
                 case FIELD -> row.indentedLabel();
-                case TYPE -> row.typeLabel();
+                case TYPE -> state.cutNote == null
+                        ? row.typeLabel()
+                        : row.typeLabel() + "   " + state.cutNote;
                 case EXTRA -> row.isContainer()
                         ? null
                         : col.extra.value(row);
@@ -1750,6 +1760,10 @@ public class ViewConfigEditor extends JPanel {
         boolean use;
         boolean customConfigured;
         ViewConfigEditor childEditor;
+        // Set when a reference is NOT expanded because it revisits a type already on the
+        // path (cycle) or hits the depth cap — surfaced as an explanatory UI tag so the
+        // truncation is never silent.
+        String cutNote;
 
         RowState(FieldRow row) {
             this.row = row;
