@@ -6,7 +6,6 @@ import objectview.field.FieldSet;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,39 +67,11 @@ public final class MultiRootGroup implements ViewableGroup<Viewable> {
     @Override public Viewable getKeyRef() { return null; }
     @Override public ViewableGroup<Viewable> getParent() { return null; }
 
-    @Override public ViewableGroup<Viewable> getChild(String name) {
-        if (name == null) {
-            return null;
-        }
-        for (ViewableGroup<Viewable> root : roots) {
-            if (name.equals(root.getDisplayName())) {
-                return root;
-            }
-        }
-        return null;
-    }
-
     @Override public Collection<ViewableGroup<Viewable>> getChildren() {
         return roots;
     }
 
-    @Override public Map<String, ViewableGroup<Viewable>> getChildrenMap() {
-        Map<String, ViewableGroup<Viewable>> map = new LinkedHashMap<>();
-        for (ViewableGroup<Viewable> root : roots) {
-            map.putIfAbsent(root.getDisplayName(), root);
-        }
-        return Collections.unmodifiableMap(map);
-    }
-
     @Override public Collection<Viewable> getMembers() {
-        return List.copyOf(memberMap().values());
-    }
-
-    @Override public Map<String, Viewable> getMemberMap() {
-        return Collections.unmodifiableMap(memberMap());
-    }
-
-    private Map<String, Viewable> memberMap() {
         Map<String, Viewable> members = new LinkedHashMap<>();
         for (ViewableGroup<Viewable> root : roots) {
             for (Viewable member : root.getMembers()) {
@@ -109,11 +80,7 @@ public final class MultiRootGroup implements ViewableGroup<Viewable> {
                 }
             }
         }
-        return members;
-    }
-
-    @Override public boolean contains(String memberName) {
-        return memberMap().containsKey(memberName);
+        return List.copyOf(members.values());
     }
 
     /** Read-only: only the structural {@code children} field, so a walker sees the roots
