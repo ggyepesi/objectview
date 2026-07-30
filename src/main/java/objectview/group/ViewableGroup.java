@@ -11,7 +11,7 @@ import java.util.Map;
  *
  * @param <T> member type
  */
-public interface ViewableGroup<T extends Viewable> {
+public interface ViewableGroup<T extends Viewable> extends Viewable {
 
     /**
      * What a node means in a faceted tree:

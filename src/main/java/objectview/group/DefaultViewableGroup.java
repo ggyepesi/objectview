@@ -35,8 +35,9 @@ public abstract class DefaultViewableGroup<
     @Hidden
     private Viewable keyRef;
 
-    // The tree back-ref — structure, not content (and cyclic); never a card row.
-    @Hidden
+    // A normal object reference. Cycles are handled by the shared identity/reference
+    // graph machinery, just like Language <-> LanguageFamily.
+    @Reference
     private G parent;
 
     @Reference
