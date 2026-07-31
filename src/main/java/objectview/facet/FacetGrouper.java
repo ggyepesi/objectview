@@ -349,7 +349,9 @@ public final class FacetGrouper {
                     bucket.keyRef(key.ref());
                 }
 
-                bucket.addMember(member);
+                // Each computed node owns exactly the scope assigned here. Ancestors are
+                // populated deliberately by their own grouping step, not by propagation.
+                bucket.addMember(member, false);
 
                 if (buckets != null) {
                     buckets.putIfAbsent(key.name(), bucket);

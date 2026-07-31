@@ -1,6 +1,7 @@
 package objectview.virtual;
 
 import objectview.Viewable;
+import objectview.viewconfig.ViewConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,7 +43,7 @@ import java.util.function.Function;
  */
 public final class VirtualizedCardList
         extends JComponent
-        implements Scrollable, VirtualizedContainer {
+        implements Scrollable, ConfigurableVirtualizedContainer {
 
     private static final Logger log = LoggerFactory.getLogger(VirtualizedCardList.class);
 
@@ -66,6 +67,7 @@ public final class VirtualizedCardList
      * factory. Existing built cards are then discarded and rebuilt lazily.
      */
     private Function<Viewable, JComponent> cardFactory;
+    private java.util.function.Consumer<ViewConfig> cardConfigConsumer;
 
     // Notified with each card as it's (re)materialized on scroll, so an owner can
     // re-apply transient decoration a fresh card would otherwise lack — e.g. the
@@ -133,6 +135,20 @@ public final class VirtualizedCardList
                                                  );
 
         discardBuiltCards();
+    }
+
+    /** Lets the owning card view replace the configuration used by its factory. */
+    public void setCardConfigConsumer(
+            java.util.function.Consumer<ViewConfig> consumer) {
+        this.cardConfigConsumer = consumer;
+    }
+
+    @Override
+    public void setCardConfig(ViewConfig config) {
+        if (cardConfigConsumer != null && config != null) {
+            cardConfigConsumer.accept(config.copy());
+            discardBuiltCards();
+        }
     }
 
     private void discardBuiltCards() {
@@ -313,9 +329,9 @@ public final class VirtualizedCardList
 
         // Let the owner REVEAL the target before it's built + scrolled to — e.g.
         // expand a collapsed card so a search hit on a hidden field becomes
-        // visible. Mirrors VirtualizedGroupTreeView, which expands collapsed
-        // ancestors in its own navigateToTop. The handler may rebuild this card
-        // (changing its height), which the rebuildTops/scroll below then honours.
+        // visible. The handler may also reveal collapsed ancestors before it
+        // rebuilds this card. The rebuild may change its height, which the
+        // rebuildTops/scroll below then honours.
         if (onNavigateReveal != null) {
             onNavigateReveal.accept(q);
         }

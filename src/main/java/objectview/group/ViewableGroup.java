@@ -40,36 +40,46 @@ public interface ViewableGroup<T extends Viewable> extends Viewable {
 
     Collection<? extends ViewableGroup<T>> getChildren();
 
+    /** Members explicitly assigned to this node. Children never imply membership. */
     Collection<T> getMembers();
 
     ViewableGroup<T> getParent();
 
     String getFullName();
 
+    /**
+     * The STABLE key a node is filed under among its siblings — its raw name, independent
+     * of any decorated {@link #getDisplayName()} (a produced group's display name folds in
+     * its rule, e.g. {@code "Regions  [facet: region]"}, which is neither stable nor unique).
+     * Defaults to the display name so plain groups (name == display) are unaffected; the
+     * mutable adapter overrides it with the undecorated name.
+     */
+    default String groupKey() { return getDisplayName(); }
+
     // ---- derived reads (pure functions of getChildren()/getMembers()) -------------------
     // Defaults so every implementation shares one definition; a concrete group only supplies
     // its children/members/parent and these fall out. MutableViewableGroup re-declares the
     // child-returning ones covariantly (returning its self-type G).
 
-    /** The child whose display name is {@code name}, or null. */
+    /** The child filed under {@code name} (its {@link #groupKey()}), or null. */
     default ViewableGroup<T> getChild(String name) {
         if (name == null) {
             return null;
         }
         for (ViewableGroup<T> child : getChildren()) {
-            if (child != null && name.equals(child.getDisplayName())) {
+            if (child != null && name.equals(child.groupKey())) {
                 return child;
             }
         }
         return null;
     }
 
-    /** Children keyed by display name (first wins). */
+    /** Children keyed by {@link #groupKey()} (first wins). */
     default Map<String, ? extends ViewableGroup<T>> getChildrenMap() {
         Map<String, ViewableGroup<T>> map = new LinkedHashMap<>();
         for (ViewableGroup<T> child : getChildren()) {
             if (child != null) {
-                map.putIfAbsent(child.getDisplayName(), child);
+                map.putIfAbsent(child.groupKey(), child);
             }
         }
         return map;

@@ -58,7 +58,7 @@ public abstract class ViewableGroupAdapter implements ViewableGroup<Viewable> {
 
     protected void putChild(ViewableGroup<Viewable> child) {
         if (child != null) {
-            children.put(child.getDisplayName(), child);
+            children.put(child.groupKey(), child);
         }
     }
 
@@ -70,6 +70,7 @@ public abstract class ViewableGroupAdapter implements ViewableGroup<Viewable> {
 
     protected void clearChildren() { children.clear(); }
     protected void clearMembers() { members.clear(); }
+    protected void removeChild(String displayName) { children.remove(displayName); }
 
     /** Read-only structural view — the tree renderer walks children/members, not fields;
      *  this just exposes the same graph so a generic field walker sees it too. */

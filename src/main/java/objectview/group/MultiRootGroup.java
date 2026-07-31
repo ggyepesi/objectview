@@ -6,15 +6,13 @@ import objectview.field.FieldSet;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * A synthetic {@code UNIVERSE} over several independent group roots, so a caller that may
  * yield more than one explicit root still hands out a single {@link ViewableGroup}. It is
- * read-only and does not reparent the roots: its children ARE the given roots, and its
- * members are their union (deduplicated by identifier).
+ * read-only and does not reparent the roots: its children ARE the given roots. Its members
+ * are supplied explicitly by the application and are never inferred from those children.
  *
  * <p>Use {@link #of} — it returns the sole root directly when there is one, this wrapper
  * only when there are several, and {@code null} when there are none. The wrapper is shared
@@ -25,10 +23,15 @@ public final class MultiRootGroup implements ViewableGroup<Viewable> {
 
     private final String label;
     private final List<ViewableGroup<Viewable>> roots;
+    private final List<Viewable> members;
 
-    private MultiRootGroup(String label, List<ViewableGroup<Viewable>> roots) {
+    private MultiRootGroup(
+            String label,
+            List<ViewableGroup<Viewable>> roots,
+            Collection<? extends Viewable> members) {
         this.label = label == null || label.isBlank() ? "Groups" : label;
         this.roots = List.copyOf(roots);
+        this.members = members == null ? List.of() : List.copyOf(members);
     }
 
     /**
@@ -38,6 +41,17 @@ public final class MultiRootGroup implements ViewableGroup<Viewable> {
      */
     public static ViewableGroup<?> of(
             Collection<? extends ViewableGroup<?>> roots, String label) {
+        return of(roots, label, List.of());
+    }
+
+    /**
+     * As {@link #of(Collection, String)}, with the synthetic root's membership supplied
+     * explicitly by the application. Membership is never inferred from child groups.
+     */
+    public static ViewableGroup<?> of(
+            Collection<? extends ViewableGroup<?>> roots,
+            String label,
+            Collection<? extends Viewable> members) {
         if (roots == null || roots.isEmpty()) {
             return null;
         }
@@ -50,7 +64,7 @@ public final class MultiRootGroup implements ViewableGroup<Viewable> {
         if (list.isEmpty()) {
             return null;
         }
-        return list.size() == 1 ? list.get(0) : new MultiRootGroup(label, list);
+        return list.size() == 1 ? list.get(0) : new MultiRootGroup(label, list, members);
     }
 
     // A ViewableGroup<X> is read-compatible as a ViewableGroup<Viewable>: its members are
@@ -72,15 +86,7 @@ public final class MultiRootGroup implements ViewableGroup<Viewable> {
     }
 
     @Override public Collection<Viewable> getMembers() {
-        Map<String, Viewable> members = new LinkedHashMap<>();
-        for (ViewableGroup<Viewable> root : roots) {
-            for (Viewable member : root.getMembers()) {
-                if (member != null) {
-                    members.putIfAbsent(member.getIdentifier(), member);
-                }
-            }
-        }
-        return List.copyOf(members.values());
+        return members;
     }
 
     /** Read-only: only the structural {@code children} field, so a walker sees the roots

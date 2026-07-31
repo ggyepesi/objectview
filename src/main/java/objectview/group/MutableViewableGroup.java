@@ -24,7 +24,13 @@ public interface MutableViewableGroup<
 
     void addChild(G child);
 
-    void addMember(T member);
+    /** Historical default: add here and propagate the member through all ancestors. */
+    default void addMember(T member) {
+        addMember(member, true);
+    }
+
+    /** Add explicitly to this group, optionally retaining ancestor propagation. */
+    void addMember(T member, boolean addToAncestors);
 
     default void addMembers(Collection<? extends T> members) {
         if (members == null) {

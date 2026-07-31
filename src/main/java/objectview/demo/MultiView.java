@@ -1,16 +1,17 @@
 package objectview.demo;
 
 import objectview.Viewable;
-import objectview.render.CardListView;
 import objectview.render.RenderContext;
 import objectview.search.MultiSearchBar;
 import objectview.search.SearchPanel;
+import objectview.search.SearchableCardView;
 import objectview.viewconfig.FieldTypeSource;
 
 import javax.swing.*;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Hosts several {@link CardListView}s side by side that share one
@@ -66,6 +67,20 @@ public class MultiView extends JPanel {
             java.util.Set<String> hiddenFields,
             FieldTypeSource fieldTypes) {
 
+        addSection(title, type, objects, sample, hiddenFields, fieldTypes,
+                null, null);
+    }
+
+    public void addSection(
+            String title,
+            Class<? extends Viewable> type,
+            List<? extends Viewable> objects,
+            Viewable sample,
+            java.util.Set<String> hiddenFields,
+            FieldTypeSource fieldTypes,
+            SearchPanel.ConfigState configState,
+            Consumer<SearchPanel.ConfigState> configListener) {
+
         if (built) {
             throw new IllegalStateException("addSection() after build()");
         }
@@ -75,7 +90,9 @@ public class MultiView extends JPanel {
                 new ArrayList<>(objects),
                 sample,
                 hiddenFields,
-                fieldTypes));
+                fieldTypes,
+                configState,
+                configListener));
     }
 
     public void build(int columnsPerView) {
@@ -112,13 +129,17 @@ public class MultiView extends JPanel {
 
     private JComponent buildSection(
             Section s, int columns, List<SearchPanel> engines) {
-        CardListView view = new CardListView();
-        view.setRenderContext(context);
-
-        for (Viewable q : s.objects()) {
-            view.addViewable(q);
-        }
-        view.createCardsPanel(Math.max(1, columns));
+        SearchableCardView view = SearchableCardView.builder(s.objects())
+                .type(s.type())
+                .sample(s.sample())
+                .hiddenFields(s.hiddenFields())
+                .fieldTypes(s.fieldTypes())
+                .configState(s.configState())
+                .configListener(s.configListener())
+                .renderContext(context)
+                .coordinated(true)
+                .columns(columns)
+                .build();
 
         JPanel body = new JPanel(new BorderLayout(4, 4));
         // Class name + instance count on the section border, so each class shows
@@ -131,25 +152,10 @@ public class MultiView extends JPanel {
             // config toolbar is hidden (the shared bar owns those), but it keeps
             // its own per-field results panel + per-panel navigation, and
             // highlights this section's cards. Driven by the shared bar.
-            SearchPanel engine = s.sample() != null
-                    ? new SearchPanel(s.type(), s.sample())
-                    : new SearchPanel(s.type());
-            if (s.hiddenFields() != null) {
-                engine.setHiddenFields(s.hiddenFields());
-            }
-            if (s.fieldTypes() != null) {
-                engine.setFieldTypes(s.fieldTypes());
-            }
-            engine.setTarget(view.getCardsPanel(), view.getCardsScrollPane());
-            engine.setRenderContext(context);
-            engine.setCoordinated(true);
-            view.addTargetListener(engine);
-            engines.add(engine);
-
-            body.add(engine, BorderLayout.NORTH);
+            if (view.search() != null) engines.add(view.search());
         }
 
-        body.add(view.getCardsScrollPane(), BorderLayout.CENTER);
+        body.add(view, BorderLayout.CENTER);
         return body;
     }
 
@@ -192,6 +198,8 @@ public class MultiView extends JPanel {
             List<Viewable> objects,
             Viewable sample,
             java.util.Set<String> hiddenFields,
-            FieldTypeSource fieldTypes) {
+            FieldTypeSource fieldTypes,
+            SearchPanel.ConfigState configState,
+            Consumer<SearchPanel.ConfigState> configListener) {
     }
 }

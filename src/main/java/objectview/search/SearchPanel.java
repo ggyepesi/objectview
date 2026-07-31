@@ -24,6 +24,7 @@ import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.util.*;
 import java.util.List;
+import java.util.function.Consumer;
 
 public class SearchPanel extends JPanel
         implements CardListener {
@@ -133,12 +134,23 @@ public class SearchPanel extends JPanel
     // live-added cards can be slotted into the sorted order rather than
     // appended at the end.
     private boolean sorted = false;
+    private Consumer<ConfigState> configListener;
+
+    /** Field choices retained by an owning browser when its instance scope changes. */
+    public record ConfigState(
+            ViewConfig search, ViewConfig sort, ViewConfig view) {
+        public ConfigState {
+            search = search == null ? null : search.copy();
+            sort = sort == null ? null : sort.copy();
+            view = view == null ? null : view.copy();
+        }
+    }
 
     public void setTarget(
             JComponent targetPanel,
             JScrollPane targetScrollPane) {
 
-        setTarget(targetPanel, targetScrollPane, true);
+        setTarget(targetPanel, targetScrollPane, false);
     }
 
     /** Wires the Back button to the view's navigation context, so jumping to a
@@ -178,7 +190,7 @@ public class SearchPanel extends JPanel
         clearResults();
 
         if (applyViewConfig) {
-            // applyViewConfig(false);
+            applyViewConfig(false);
         }
     }
 
@@ -339,32 +351,50 @@ public class SearchPanel extends JPanel
 
 
     public SearchPanel(Class<? extends Viewable> cls) {
-        this(cls, null);
+        this(cls, null, null);
     }
 
     /** @param sample a sample instance for a DYNAMIC type (a map-backed Viewable), so
      *                the search/sort/view-config editors enumerate its map-held
      *                fields; null for a reflection type. */
     public SearchPanel(Class<? extends Viewable> cls, Viewable sample) {
+        this(cls, sample, null);
+    }
+
+    public SearchPanel(
+            Class<? extends Viewable> cls,
+            Viewable sample,
+            ConfigState initialConfigs) {
         this.searchClass = cls;
         setLayout(new BorderLayout(6, 6));
 
         ViewConfig nameOnly =
                 nameOnlyConfig(cls);
 
-        ViewConfig viewBase =
-                ViewConfig.all(cls);
+        ViewConfig viewBase = ViewConfig.all(cls)
+                .setAddListener(true)
+                .setThumb(true);
+
+        ViewConfig initialSearch = initialConfigs == null
+                || initialConfigs.search() == null
+                ? nameOnly : initialConfigs.search();
+        ViewConfig initialSort = initialConfigs == null
+                || initialConfigs.sort() == null
+                ? nameOnly : initialConfigs.sort();
+        ViewConfig initialView = initialConfigs == null
+                || initialConfigs.view() == null
+                ? viewBase : initialConfigs.view();
 
         searchEditor =
-                new ViewConfigEditor(nameOnly.copy(), true, sample,
+                new ViewConfigEditor(initialSearch.copy(), true, sample,
                         FieldTableContributor.REORDERABLE);
 
         sortEditor =
-                new ViewConfigEditor(nameOnly.copy(), true, sample,
+                new ViewConfigEditor(initialSort.copy(), true, sample,
                         FieldTableContributor.REORDERABLE);
 
         viewEditor =
-                new ViewConfigEditor(viewBase.copy(), false, sample,
+                new ViewConfigEditor(initialView.copy(), false, sample,
                         FieldTableContributor.REORDERABLE);
 
         // Search / sort over an image is meaningless — hide MEDIA fields there. The
@@ -502,6 +532,18 @@ public class SearchPanel extends JPanel
         return viewEditor.getConfig();
     }
 
+    public ConfigState configState() {
+        return new ConfigState(getSearchConfig(), getSortConfig(), getViewConfig());
+    }
+
+    public void setConfigListener(Consumer<ConfigState> listener) {
+        this.configListener = listener;
+    }
+
+    private void notifyConfigChanged() {
+        if (configListener != null) configListener.accept(configState());
+    }
+
     private void openSearchDialog() {
         if (searchDialog == null) {
             searchDialog =
@@ -520,7 +562,7 @@ public class SearchPanel extends JPanel
                     createDialog(
                             "Sort Configuration",
                             sortEditor,
-                            this::sortTargetPanels);
+                            this::applySort);
         }
 
         sortDialog.setVisible(true);
@@ -532,7 +574,7 @@ public class SearchPanel extends JPanel
                     createDialog(
                             "View Configuration",
                             viewEditor,
-                            this::applyViewConfig);
+                            this::applyView);
         }
 
         viewDialog.setVisible(true);
@@ -616,8 +658,9 @@ public class SearchPanel extends JPanel
     public ViewConfigEditor sortEditor() { return sortEditor; }
     public ViewConfigEditor viewEditor() { return viewEditor; }
 
-    public void applySort() { sortTargetPanels(); }
-    public void applyView() { applyViewConfig(); }
+    public void applySearch() { refreshSearch(); }
+    public void applySort() { sortTargetPanels(); notifyConfigChanged(); }
+    public void applyView() { applyViewConfig(); notifyConfigChanged(); }
 
     /** Sets the field-highlight option from the shared bar and re-runs. */
     public void setFieldHighlight(boolean on) {
@@ -630,6 +673,7 @@ public class SearchPanel extends JPanel
         clearHighlights();
         rebuildSearchIndex();
         searchSync(searchField.getText());
+        notifyConfigChanged();
     }
 
     private void rebuildSearchIndex() {

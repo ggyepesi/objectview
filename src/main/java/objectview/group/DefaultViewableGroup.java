@@ -128,14 +128,13 @@ public abstract class DefaultViewableGroup<
     }
 
     @Override
-    public void addMember(T member) {
+    public void addMember(T member, boolean addToAncestors) {
         if (member == null || member.getIdentifier() == null) {
             return;
         }
-        boolean addedHere =
-                members.putIfAbsent(member.getIdentifier(), member) == null;
-        if (addedHere && parent != null) {
-            parent.addMember(member);
+        boolean addedHere = members.putIfAbsent(member.getIdentifier(), member) == null;
+        if (addedHere && addToAncestors && parent != null) {
+            parent.addMember(member, true);
         }
     }
 

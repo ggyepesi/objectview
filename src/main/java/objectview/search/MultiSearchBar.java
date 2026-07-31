@@ -57,7 +57,8 @@ public class MultiSearchBar extends JPanel {
         JButton sortCfg = new JButton("Sort Config…");
         JButton viewCfg = new JButton("View Config…");
         searchCfg.addActionListener(e -> openConfig("Search Configuration",
-                                                    SearchPanel::searchEditor, eng -> runSearch()));
+                                                    SearchPanel::searchEditor,
+                                                    SearchPanel::applySearch));
         sortCfg.addActionListener(e -> openConfig("Sort Configuration",
                                                   SearchPanel::sortEditor, SearchPanel::applySort));
         viewCfg.addActionListener(e -> openConfig("View Configuration",
