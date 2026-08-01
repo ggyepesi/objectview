@@ -39,6 +39,7 @@ public class GroupTreeView extends JPanel {
             }
         });
         tree.expandRow(0);
+        tree.setSelectionRow(0);
         treeScrollPane = new JScrollPane(tree);
 
         JButton showButton = new JButton("Show instances");

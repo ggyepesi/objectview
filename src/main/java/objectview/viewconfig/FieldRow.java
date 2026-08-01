@@ -15,6 +15,7 @@ public final class FieldRow {
 
     public enum Kind {
         FIELD,
+        CLASS,
         CONTAINER,
         MINOR_BLOCK
     }
@@ -22,6 +23,7 @@ public final class FieldRow {
     private final Kind kind;
     private final String path;
     private final String label;
+    private final String configName;
     private final String typeLabel;
     private final int depth;
     private final Field field;
@@ -30,6 +32,7 @@ public final class FieldRow {
     private FieldRow(Kind kind,
                      String path,
                      String label,
+                     String configName,
                      String typeLabel,
                      int depth,
                      Field field,
@@ -37,6 +40,7 @@ public final class FieldRow {
         this.kind = Objects.requireNonNull(kind);
         this.path = Objects.requireNonNull(path);
         this.label = Objects.requireNonNull(label);
+        this.configName = Objects.requireNonNull(configName);
         this.typeLabel = typeLabel == null ? "" : typeLabel;
         this.depth = depth;
         this.field = field;
@@ -50,6 +54,7 @@ public final class FieldRow {
                 Kind.FIELD,
                 field.getName(),
                 field.getName(),
+                field.getName(),
                 typeLabel,
                 0,
                 field,
@@ -61,6 +66,7 @@ public final class FieldRow {
                                    NestedFieldSource nested) {
         return new FieldRow(
                 Kind.FIELD,
+                name,
                 name,
                 name,
                 typeLabel,
@@ -78,6 +84,7 @@ public final class FieldRow {
                 container ? Kind.CONTAINER : Kind.FIELD,
                 path,
                 label,
+                label,
                 typeLabel,
                 depth,
                 null,
@@ -89,10 +96,26 @@ public final class FieldRow {
                 Kind.MINOR_BLOCK,
                 "Minor fields",
                 "Minor fields",
+                "Minor fields",
                 "",
                 0,
                 null,
                 null);
+    }
+
+    /** A virtual class branch in a field hierarchy. It behaves like an expandable
+     * nested field, but is not itself a configurable field. */
+    public static FieldRow classBranch(
+            String configName, String label, NestedFieldSource nested) {
+        return new FieldRow(
+                Kind.CLASS,
+                configName,
+                label,
+                configName,
+                "",
+                0,
+                null,
+                Objects.requireNonNull(nested));
     }
 
     /**
@@ -102,7 +125,8 @@ public final class FieldRow {
      * name and depth 0; the editor reparents it as it expands.
      */
     public FieldRow at(String fullPath, int depth) {
-        return new FieldRow(kind, fullPath, label, typeLabel, depth, field, nested);
+        return new FieldRow(
+                kind, fullPath, label, configName, typeLabel, depth, field, nested);
     }
 
     public Kind kind() {
@@ -115,6 +139,12 @@ public final class FieldRow {
 
     public String label() {
         return label;
+    }
+
+    /** Name used when folding the row into a ViewConfig. Usually the field label;
+     * virtual class branches use an internal collision-free key. */
+    public String configName() {
+        return configName;
     }
 
     public String typeLabel() {
@@ -139,6 +169,10 @@ public final class FieldRow {
 
     public boolean isContainer() {
         return kind == Kind.CONTAINER;
+    }
+
+    public boolean isClassBranch() {
+        return kind == Kind.CLASS;
     }
 
     public boolean isMinorBlock() {

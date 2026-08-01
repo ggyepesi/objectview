@@ -461,6 +461,10 @@ public class SearchPanel extends JPanel
             subtypeViewEditors.put(subtype.typeName(), ve);
         }
 
+        installClassBranches(searchEditor, subtypeSearchEditors);
+        installClassBranches(sortEditor, subtypeSortEditors);
+        installClassBranches(viewEditor, subtypeViewEditors);
+
         // Search / sort over an image is meaningless — hide MEDIA fields there. The
         // VIEW editor keeps them, so a portrait / flag can be shown or hidden on cards.
         searchEditor.setHideMedia(true);
@@ -603,6 +607,48 @@ public class SearchPanel extends JPanel
         return result;
     }
 
+    private void installClassBranches(
+            ViewConfigEditor base,
+            java.util.Map<String, ViewConfigEditor> subtypeEditors) {
+        java.util.List<ViewConfigEditor.ClassBranch> branches =
+                new java.util.ArrayList<>();
+        for (SubtypeConfig subtype : subtypeConfigs) {
+            ViewConfigEditor editor = subtypeEditors.get(subtype.typeName());
+            if (editor == null) continue;
+            @SuppressWarnings("unchecked")
+            Class<? extends Viewable> type = subtype.sample() == null
+                    ? Viewable.class
+                    : (Class<? extends Viewable>) subtype.sample().getClass();
+            branches.add(new ViewConfigEditor.ClassBranch(
+                    subtype.typeName(), subtype.baseType(), type,
+                    additionalFieldTypes(subtype), editor.getConfig()));
+        }
+        base.setClassBranches(branches);
+    }
+
+    private static FieldTypeSource additionalFieldTypes(SubtypeConfig subtype) {
+        java.util.Set<String> fields = subtype.additionalFields() == null
+                ? java.util.Set.of()
+                : new java.util.LinkedHashSet<>(subtype.additionalFields());
+        FieldTypeSource source = subtype.fieldTypes();
+        return new FieldTypeSource() {
+            @Override public FieldTypeSource.FieldTypeInfo field(String name) {
+                if ("name".equals(name) && !fields.contains(name)) {
+                    return new FieldTypeSource.FieldTypeInfo(
+                            "String", true, false, null, null);
+                }
+                return fields.contains(name) && source != null
+                        ? source.field(name) : null;
+            }
+
+            @Override public java.util.List<String> fieldNames() {
+                java.util.List<String> names = new java.util.ArrayList<>(fields);
+                if (!fields.contains("name")) names.add("name");
+                return java.util.List.copyOf(names);
+            }
+        };
+    }
+
     private static ViewConfig additionalConfig(
             Class<? extends Viewable> cls, java.util.Set<String> fields) {
         ViewConfig config = ViewConfig.of(cls);
@@ -640,50 +686,8 @@ public class SearchPanel extends JPanel
         return editor;
     }
 
-    private JComponent hierarchyEditor(
-            ViewConfigEditor base,
-            java.util.Map<String, ViewConfigEditor> subtypeEditors) {
-        if (subtypeEditors.isEmpty()) return base;
-        JPanel hierarchy = new JPanel();
-        hierarchy.setLayout(new BoxLayout(hierarchy, BoxLayout.Y_AXIS));
-        JPanel basePanel = new JPanel(new BorderLayout());
-        basePanel.setBorder(BorderFactory.createTitledBorder(
-                searchClass.getSimpleName() + " fields"));
-        basePanel.add(base, BorderLayout.CENTER);
-        hierarchy.add(basePanel);
-        subtypeEditors.forEach((name, editor) -> {
-            JPanel section = new JPanel(new BorderLayout());
-            SubtypeConfig subtype = subtypeConfigs.stream()
-                    .filter(value -> name.equals(value.typeName()))
-                    .findFirst().orElse(null);
-            int depth = subtypeDepth(subtype);
-            String baseName = subtype == null ? null : subtype.baseType();
-            section.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createEmptyBorder(0, 18 * depth, 0, 0),
-                    BorderFactory.createTitledBorder(name
-                            + (baseName == null || baseName.isBlank()
-                            ? "" : " extends " + baseName)
-                            + " — additional fields")));
-            section.add(editor, BorderLayout.CENTER);
-            hierarchy.add(section);
-        });
-        return new JScrollPane(hierarchy);
-    }
-
-    private int subtypeDepth(SubtypeConfig subtype) {
-        int depth = 1;
-        java.util.Set<String> seen = new java.util.HashSet<>();
-        String base = subtype == null ? null : subtype.baseType();
-        while (base != null && seen.add(base)) {
-            String parentName = base;
-            SubtypeConfig parent = subtypeConfigs.stream()
-                    .filter(value -> parentName.equals(value.typeName()))
-                    .findFirst().orElse(null);
-            if (parent == null) break;
-            depth++;
-            base = parent.baseType();
-        }
-        return depth;
+    private JComponent hierarchyEditor(ViewConfigEditor base) {
+        return base;
     }
 
     private ViewConfig effectiveConfig(
@@ -691,19 +695,33 @@ public class SearchPanel extends JPanel
             java.util.Map<String, ViewConfigEditor> subtypeEditors,
             Viewable instance) {
         ViewConfig result = baseEditor.getConfig();
+        java.util.Map<String, ViewConfig> branchConfigs =
+                baseEditor.classBranchConfigs();
         for (SubtypeConfig subtype : subtypeConfigs) {
             if (instance != null && (subtype.applies() == null
                     || !subtype.applies().test(instance))) continue;
-            ViewConfigEditor extra = subtypeEditors.get(subtype.typeName());
-            if (extra != null) result = result.withAdditionalFields(extra.getConfig());
+            ViewConfig extra = branchConfigs.get(subtype.typeName());
+            if (extra == null) {
+                ViewConfigEditor fallback = subtypeEditors.get(subtype.typeName());
+                extra = fallback == null ? null : fallback.getConfig();
+            }
+            if (extra != null) result = result.withAdditionalFields(extra);
         }
         return result;
     }
 
     public ConfigState configState() {
         return new ConfigState(getSearchConfig(), getSortConfig(), getViewConfig(),
-                configsOf(subtypeSearchEditors), configsOf(subtypeSortEditors),
-                configsOf(subtypeViewEditors));
+                classConfigs(searchEditor, subtypeSearchEditors),
+                classConfigs(sortEditor, subtypeSortEditors),
+                classConfigs(viewEditor, subtypeViewEditors));
+    }
+
+    private static java.util.Map<String, ViewConfig> classConfigs(
+            ViewConfigEditor base,
+            java.util.Map<String, ViewConfigEditor> fallback) {
+        java.util.Map<String, ViewConfig> branches = base.classBranchConfigs();
+        return branches.isEmpty() ? configsOf(fallback) : branches;
     }
 
     public void setConfigListener(Consumer<ConfigState> listener) {
@@ -719,7 +737,7 @@ public class SearchPanel extends JPanel
             searchDialog =
                     createDialog(
                             "Search Configuration",
-                            hierarchyEditor(searchEditor, subtypeSearchEditors),
+                            hierarchyEditor(searchEditor),
                             this::refreshSearch);
         }
 
@@ -731,7 +749,7 @@ public class SearchPanel extends JPanel
             sortDialog =
                     createDialog(
                             "Sort Configuration",
-                            hierarchyEditor(sortEditor, subtypeSortEditors),
+                            hierarchyEditor(sortEditor),
                             this::applySort);
         }
 
@@ -743,7 +761,7 @@ public class SearchPanel extends JPanel
             viewDialog =
                     createDialog(
                             "View Configuration",
-                            hierarchyEditor(viewEditor, subtypeViewEditors),
+                            hierarchyEditor(viewEditor),
                             this::applyView);
         }
 
