@@ -67,7 +67,8 @@ public final class VirtualizedCardList
      * factory. Existing built cards are then discarded and rebuilt lazily.
      */
     private Function<Viewable, JComponent> cardFactory;
-    private java.util.function.Consumer<ViewConfig> cardConfigConsumer;
+    private java.util.function.Consumer<java.util.function.Function<Viewable, ViewConfig>>
+            cardConfigConsumer;
 
     // Notified with each card as it's (re)materialized on scroll, so an owner can
     // re-apply transient decoration a fresh card would otherwise lack — e.g. the
@@ -139,14 +140,23 @@ public final class VirtualizedCardList
 
     /** Lets the owning card view replace the configuration used by its factory. */
     public void setCardConfigConsumer(
-            java.util.function.Consumer<ViewConfig> consumer) {
+            java.util.function.Consumer<java.util.function.Function<Viewable, ViewConfig>> consumer) {
         this.cardConfigConsumer = consumer;
     }
 
     @Override
     public void setCardConfig(ViewConfig config) {
         if (cardConfigConsumer != null && config != null) {
-            cardConfigConsumer.accept(config.copy());
+            cardConfigConsumer.accept(ignored -> config.copy());
+            discardBuiltCards();
+        }
+    }
+
+    @Override
+    public void setCardConfigResolver(
+            java.util.function.Function<Viewable, ViewConfig> resolver) {
+        if (cardConfigConsumer != null && resolver != null) {
+            cardConfigConsumer.accept(resolver);
             discardBuiltCards();
         }
     }

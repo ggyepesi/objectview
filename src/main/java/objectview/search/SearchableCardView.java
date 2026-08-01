@@ -54,8 +54,10 @@ public final class SearchableCardView extends JPanel {
 
         if (type != null && !builder.members.isEmpty()) {
             search = builder.sample == null
-                    ? new SearchPanel(type, null, builder.configState)
-                    : new SearchPanel(type, builder.sample, builder.configState);
+                    ? new SearchPanel(type, null, builder.configState,
+                            builder.subtypeConfigs)
+                    : new SearchPanel(type, builder.sample, builder.configState,
+                            builder.subtypeConfigs);
             search.setHiddenFields(builder.hiddenFields);
             search.setFieldTypes(builder.fieldTypes);
             search.setRenderContext(context);
@@ -106,6 +108,7 @@ public final class SearchableCardView extends JPanel {
         private String emptyMessage = "No instances.";
         private SearchPanel.ConfigState configState;
         private Consumer<SearchPanel.ConfigState> configListener;
+        private List<SearchPanel.SubtypeConfig> subtypeConfigs = List.of();
 
         private Builder(Collection<? extends Viewable> members) {
             if (members != null) this.members.addAll(members);
@@ -133,6 +136,10 @@ public final class SearchableCardView extends JPanel {
         }
         public Builder configListener(Consumer<SearchPanel.ConfigState> value) {
             configListener = value; return this;
+        }
+        public Builder subtypeConfigs(List<SearchPanel.SubtypeConfig> value) {
+            subtypeConfigs = value == null ? List.of() : List.copyOf(value);
+            return this;
         }
 
         public SearchableCardView build() { return new SearchableCardView(this); }

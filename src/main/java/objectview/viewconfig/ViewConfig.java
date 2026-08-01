@@ -186,6 +186,18 @@ public class ViewConfig {
         return merged;
     }
 
+    /** Adds explicitly selected fields from a subtype configuration while retaining
+     * this configuration's base-field choices and display flags. */
+    public ViewConfig withAdditionalFields(ViewConfig additional) {
+        ViewConfig merged = copy();
+        if (additional == null) return merged;
+        for (Map.Entry<String, ViewConfig> entry : additional.fields.entrySet()) {
+            merged.fields.put(entry.getKey(), entry.getValue().copy());
+        }
+        merged.allMinorFields |= additional.allMinorFields;
+        return merged;
+    }
+
     public boolean hasField(String name) {
         return getFieldConfig(name) != null;
     }

@@ -28,7 +28,7 @@ public class CardListView {
     // Shared across the initial render and any live additions so cards
     // resolve cross-references and class configs consistently.
     private RenderContext context;
-    private ViewConfig cardConfig;
+    private java.util.function.Function<Viewable, ViewConfig> cardConfigResolver;
 
     // Column count and trailing glue filler, remembered so a live add can
     // place the next card.
@@ -119,7 +119,7 @@ public class CardListView {
         // sort and re-layout are O(visible), not O(N), so it stays fast at tens of
         // thousands of cards.
         virtualList = new VirtualizedCardList(this::buildVirtualCard);
-        virtualList.setCardConfigConsumer(config -> cardConfig = config.copy());
+        virtualList.setCardConfigConsumer(resolver -> cardConfigResolver = resolver);
         // A card virtualized out and rebuilt on scroll-back is fresh — tell listeners
         // (the search panel) so they can re-apply a lost highlight.
         virtualList.setOnCardBuilt(card -> {
@@ -228,12 +228,14 @@ public class CardListView {
 
     private Card buildCard(Viewable q) {
         ViewConfig cfg;
-        if (cardConfig == null) {
+        ViewConfig configured = cardConfigResolver == null
+                ? null : cardConfigResolver.apply(q);
+        if (configured == null) {
             cfg = ViewConfig.all(q.getClass())
                     .setAddListener(true)
                     .setThumb(true);
         } else {
-            cfg = cardConfig.copy();
+            cfg = configured.copy();
             if (cfg.getCls() == null) {
                 cfg.setCls(q.getClass());
             }

@@ -135,16 +135,49 @@ public class SearchPanel extends JPanel
     // appended at the end.
     private boolean sorted = false;
     private Consumer<ConfigState> configListener;
+    private final java.util.List<SubtypeConfig> subtypeConfigs;
+    private final java.util.Map<String, ViewConfigEditor> subtypeSearchEditors =
+            new java.util.LinkedHashMap<>();
+    private final java.util.Map<String, ViewConfigEditor> subtypeSortEditors =
+            new java.util.LinkedHashMap<>();
+    private final java.util.Map<String, ViewConfigEditor> subtypeViewEditors =
+            new java.util.LinkedHashMap<>();
 
     /** Field choices retained by an owning browser when its instance scope changes. */
     public record ConfigState(
-            ViewConfig search, ViewConfig sort, ViewConfig view) {
+            ViewConfig search, ViewConfig sort, ViewConfig view,
+            java.util.Map<String, ViewConfig> subtypeSearch,
+            java.util.Map<String, ViewConfig> subtypeSort,
+            java.util.Map<String, ViewConfig> subtypeView) {
+        public ConfigState(ViewConfig search, ViewConfig sort, ViewConfig view) {
+            this(search, sort, view, java.util.Map.of(), java.util.Map.of(),
+                    java.util.Map.of());
+        }
         public ConfigState {
             search = search == null ? null : search.copy();
             sort = sort == null ? null : sort.copy();
             view = view == null ? null : view.copy();
+            subtypeSearch = copyConfigs(subtypeSearch);
+            subtypeSort = copyConfigs(subtypeSort);
+            subtypeView = copyConfigs(subtypeView);
+        }
+
+        private static java.util.Map<String, ViewConfig> copyConfigs(
+                java.util.Map<String, ViewConfig> source) {
+            java.util.Map<String, ViewConfig> copy = new java.util.LinkedHashMap<>();
+            if (source != null) source.forEach((name, config) -> {
+                if (name != null && config != null) copy.put(name, config.copy());
+            });
+            return java.util.Map.copyOf(copy);
         }
     }
+
+    /** One known subtype section in the common class-hierarchy configuration. */
+    public record SubtypeConfig(
+            String typeName, String baseType,
+            Viewable sample, FieldTypeSource fieldTypes,
+            java.util.Set<String> additionalFields,
+            java.util.function.Predicate<Viewable> applies) {}
 
     public void setTarget(
             JComponent targetPanel,
@@ -266,7 +299,7 @@ public class SearchPanel extends JPanel
 
         List<ViewableFieldPaths.FieldPath> sortPaths =
                 ViewableFieldPaths.collect(
-                        sortEditor.getConfig(),
+                        effectiveConfig(sortEditor, subtypeSortEditors, null),
                         ViewableFieldPaths.NOT_MEDIA_FIELDS);
 
         if (sortPaths.isEmpty()) {
@@ -351,21 +384,31 @@ public class SearchPanel extends JPanel
 
 
     public SearchPanel(Class<? extends Viewable> cls) {
-        this(cls, null, null);
+        this(cls, null, null, java.util.List.of());
     }
 
     /** @param sample a sample instance for a DYNAMIC type (a map-backed Viewable), so
      *                the search/sort/view-config editors enumerate its map-held
      *                fields; null for a reflection type. */
     public SearchPanel(Class<? extends Viewable> cls, Viewable sample) {
-        this(cls, sample, null);
+        this(cls, sample, null, java.util.List.of());
     }
 
     public SearchPanel(
             Class<? extends Viewable> cls,
             Viewable sample,
             ConfigState initialConfigs) {
+        this(cls, sample, initialConfigs, java.util.List.of());
+    }
+
+    public SearchPanel(
+            Class<? extends Viewable> cls,
+            Viewable sample,
+            ConfigState initialConfigs,
+            java.util.List<SubtypeConfig> subtypeConfigs) {
         this.searchClass = cls;
+        this.subtypeConfigs = subtypeConfigs == null
+                ? java.util.List.of() : java.util.List.copyOf(subtypeConfigs);
         setLayout(new BorderLayout(6, 6));
 
         ViewConfig nameOnly =
@@ -396,6 +439,27 @@ public class SearchPanel extends JPanel
         viewEditor =
                 new ViewConfigEditor(initialView.copy(), false, sample,
                         FieldTableContributor.REORDERABLE);
+
+        for (SubtypeConfig subtype : this.subtypeConfigs) {
+            if (subtype == null || subtype.typeName() == null) continue;
+            ViewConfig defaultAdditional = additionalConfig(
+                    cls, subtype.additionalFields());
+            ViewConfig noAdditional = additionalConfig(cls, java.util.Set.of());
+            ViewConfigEditor se = subtypeEditor(initialConfigs == null ? null
+                    : initialConfigs.subtypeSearch().get(subtype.typeName()),
+                    noAdditional, true, subtype);
+            ViewConfigEditor so = subtypeEditor(initialConfigs == null ? null
+                    : initialConfigs.subtypeSort().get(subtype.typeName()),
+                    noAdditional, true, subtype);
+            ViewConfigEditor ve = subtypeEditor(initialConfigs == null ? null
+                    : initialConfigs.subtypeView().get(subtype.typeName()),
+                    defaultAdditional, false, subtype);
+            se.setHideMedia(true);
+            so.setHideMedia(true);
+            subtypeSearchEditors.put(subtype.typeName(), se);
+            subtypeSortEditors.put(subtype.typeName(), so);
+            subtypeViewEditors.put(subtype.typeName(), ve);
+        }
 
         // Search / sort over an image is meaningless — hide MEDIA fields there. The
         // VIEW editor keeps them, so a portrait / flag can be shown or hidden on cards.
@@ -532,8 +596,114 @@ public class SearchPanel extends JPanel
         return viewEditor.getConfig();
     }
 
+    private static java.util.Map<String, ViewConfig> configsOf(
+            java.util.Map<String, ViewConfigEditor> editors) {
+        java.util.Map<String, ViewConfig> result = new java.util.LinkedHashMap<>();
+        editors.forEach((name, editor) -> result.put(name, editor.getConfig()));
+        return result;
+    }
+
+    private static ViewConfig additionalConfig(
+            Class<? extends Viewable> cls, java.util.Set<String> fields) {
+        ViewConfig config = ViewConfig.of(cls);
+        config.setAllFields(false);
+        if (fields != null) {
+            for (String field : fields) {
+                if (field != null && !field.isBlank()) {
+                    config.addField(field, ViewConfig.leaf());
+                }
+            }
+        }
+        return config;
+    }
+
+    private ViewConfigEditor subtypeEditor(
+            ViewConfig retained, ViewConfig fallback, boolean selectionOnly,
+            SubtypeConfig subtype) {
+        ViewConfigEditor editor = new ViewConfigEditor(
+                retained == null ? fallback : retained,
+                selectionOnly, subtype.sample(), FieldTableContributor.REORDERABLE);
+        editor.setFieldTypes(subtype.fieldTypes());
+        java.util.Set<String> hidden = new java.util.LinkedHashSet<>();
+        if (subtype.fieldTypes() != null) {
+            hidden.addAll(subtype.fieldTypes().fieldNames());
+        }
+        if (subtype.sample() != null) {
+            for (java.lang.reflect.Field field :
+                    ViewableAdapter.getConfigurableFields(subtype.sample().getClass())) {
+                hidden.add(field.getName());
+            }
+        }
+        hidden.removeAll(subtype.additionalFields() == null
+                ? java.util.Set.of() : subtype.additionalFields());
+        editor.setHiddenFields(hidden);
+        return editor;
+    }
+
+    private JComponent hierarchyEditor(
+            ViewConfigEditor base,
+            java.util.Map<String, ViewConfigEditor> subtypeEditors) {
+        if (subtypeEditors.isEmpty()) return base;
+        JPanel hierarchy = new JPanel();
+        hierarchy.setLayout(new BoxLayout(hierarchy, BoxLayout.Y_AXIS));
+        JPanel basePanel = new JPanel(new BorderLayout());
+        basePanel.setBorder(BorderFactory.createTitledBorder(
+                searchClass.getSimpleName() + " fields"));
+        basePanel.add(base, BorderLayout.CENTER);
+        hierarchy.add(basePanel);
+        subtypeEditors.forEach((name, editor) -> {
+            JPanel section = new JPanel(new BorderLayout());
+            SubtypeConfig subtype = subtypeConfigs.stream()
+                    .filter(value -> name.equals(value.typeName()))
+                    .findFirst().orElse(null);
+            int depth = subtypeDepth(subtype);
+            String baseName = subtype == null ? null : subtype.baseType();
+            section.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createEmptyBorder(0, 18 * depth, 0, 0),
+                    BorderFactory.createTitledBorder(name
+                            + (baseName == null || baseName.isBlank()
+                            ? "" : " extends " + baseName)
+                            + " — additional fields")));
+            section.add(editor, BorderLayout.CENTER);
+            hierarchy.add(section);
+        });
+        return new JScrollPane(hierarchy);
+    }
+
+    private int subtypeDepth(SubtypeConfig subtype) {
+        int depth = 1;
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        String base = subtype == null ? null : subtype.baseType();
+        while (base != null && seen.add(base)) {
+            String parentName = base;
+            SubtypeConfig parent = subtypeConfigs.stream()
+                    .filter(value -> parentName.equals(value.typeName()))
+                    .findFirst().orElse(null);
+            if (parent == null) break;
+            depth++;
+            base = parent.baseType();
+        }
+        return depth;
+    }
+
+    private ViewConfig effectiveConfig(
+            ViewConfigEditor baseEditor,
+            java.util.Map<String, ViewConfigEditor> subtypeEditors,
+            Viewable instance) {
+        ViewConfig result = baseEditor.getConfig();
+        for (SubtypeConfig subtype : subtypeConfigs) {
+            if (instance != null && (subtype.applies() == null
+                    || !subtype.applies().test(instance))) continue;
+            ViewConfigEditor extra = subtypeEditors.get(subtype.typeName());
+            if (extra != null) result = result.withAdditionalFields(extra.getConfig());
+        }
+        return result;
+    }
+
     public ConfigState configState() {
-        return new ConfigState(getSearchConfig(), getSortConfig(), getViewConfig());
+        return new ConfigState(getSearchConfig(), getSortConfig(), getViewConfig(),
+                configsOf(subtypeSearchEditors), configsOf(subtypeSortEditors),
+                configsOf(subtypeViewEditors));
     }
 
     public void setConfigListener(Consumer<ConfigState> listener) {
@@ -549,7 +719,7 @@ public class SearchPanel extends JPanel
             searchDialog =
                     createDialog(
                             "Search Configuration",
-                            searchEditor,
+                            hierarchyEditor(searchEditor, subtypeSearchEditors),
                             this::refreshSearch);
         }
 
@@ -561,7 +731,7 @@ public class SearchPanel extends JPanel
             sortDialog =
                     createDialog(
                             "Sort Configuration",
-                            sortEditor,
+                            hierarchyEditor(sortEditor, subtypeSortEditors),
                             this::applySort);
         }
 
@@ -573,7 +743,7 @@ public class SearchPanel extends JPanel
             viewDialog =
                     createDialog(
                             "View Configuration",
-                            viewEditor,
+                            hierarchyEditor(viewEditor, subtypeViewEditors),
                             this::applyView);
         }
 
@@ -683,7 +853,7 @@ public class SearchPanel extends JPanel
         if (virtualList == null) {
             searchAndSort.rebuildSearchIndex(
                     targetPanel,
-                    getSearchConfig());
+                    effectiveConfig(searchEditor, subtypeSearchEditors, null));
         }
     }
 
@@ -763,7 +933,7 @@ public class SearchPanel extends JPanel
 
         List<ViewableFieldPaths.FieldPath> paths =
                 ViewableFieldPaths.collect(
-                        getSearchConfig(),
+                        effectiveConfig(searchEditor, subtypeSearchEditors, null),
                         ViewableFieldPaths.NOT_MEDIA_FIELDS);
 
         Map<String, ViewableFieldPaths.FieldPath> pathByTitle =
@@ -1012,14 +1182,12 @@ public class SearchPanel extends JPanel
             return;
         }
 
-        ViewConfig cfg =
-                viewEditor.getConfig();
-
         // A grouped/virtual target owns its card factory and can discard/rebuild
         // materialized cards lazily. Do not replace its structural child panels.
         if (virtualList != null) {
             if (virtualList instanceof ConfigurableVirtualizedContainer configurable) {
-                configurable.setCardConfig(cfg);
+                configurable.setCardConfigResolver(q -> effectiveConfig(
+                        viewEditor, subtypeViewEditors, q));
             }
 
             rebuildSearchIndex();
@@ -1046,8 +1214,8 @@ public class SearchPanel extends JPanel
                 continue;
             }
 
-            ViewConfig viewCfg =
-                    cfg.copy();
+            ViewConfig viewCfg = effectiveConfig(
+                    viewEditor, subtypeViewEditors, q);
 
             if (viewCfg.getCls() == null) {
                 viewCfg.setCls(q.getClass());
@@ -1703,7 +1871,7 @@ public class SearchPanel extends JPanel
                 searchAndSort.searchViewables(
                         virtualList.items(),
                         queryTokens,
-                        getSearchConfig());
+                        effectiveConfig(searchEditor, subtypeSearchEditors, null));
 
         // Remember the hits so a card rebuilt on scroll-back gets re-highlighted.
         virtualHits.clear();
@@ -1719,7 +1887,7 @@ public class SearchPanel extends JPanel
         for (ViewableFieldPaths.FieldPath fp
                 : ViewableFieldPaths.collectFromSample(
                 sample,
-                getSearchConfig(),
+                effectiveConfig(searchEditor, subtypeSearchEditors, null),
                 ViewableFieldPaths.NOT_MEDIA_FIELDS)) {
 
             pathByTitle.put(fp.title(), fp);

@@ -39,6 +39,22 @@ public interface Viewable {
      *  Java class's simple name; dynamic objects override it with their domain name. */
     default String typeName() { return getClass().getSimpleName(); }
 
+    /** Classes assigned directly to this instance. Inheritance is resolved by the
+     * owning domain, because the base-class relation belongs to the domain schema.
+     * Ordinary Java-backed objects have their concrete runtime class as their one
+     * direct class; dynamic objects can persist several semantic class claims. */
+    default java.util.Set<String> directClassNames() {
+        String type = typeName();
+        return type == null || type.isBlank()
+                ? java.util.Set.of() : java.util.Set.of(type);
+    }
+
+    /** Absorb additional direct class claims into this instance — used when a merge
+     *  survivor must keep a duplicate's more-specific subclass claim. No-op for objects
+     *  whose class is intrinsic (a reflection object's Java type is fixed); dynamic
+     *  objects union the names into their persisted claim set. */
+    default void absorbClasses(java.util.Collection<String> classNames) { }
+
     /** This object's fields, backing-agnostic (declared reflection or a dynamic map). */
     FieldSet fields();
 }

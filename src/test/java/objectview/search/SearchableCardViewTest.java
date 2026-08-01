@@ -54,6 +54,32 @@ class SearchableCardViewTest {
         assertFalse(componentText(card).contains("secret"));
     }
 
+    @Test void subtypeAdditionalFieldsShareOneHierarchyConfig() {
+        Item base = new Item("base", "base-secret");
+        SubItem subtype = new SubItem("sub", "sub-secret");
+        ViewConfig baseView = ViewConfig.of(Item.class);
+        baseView.setAllFields(false);
+        baseView.addField("name", ViewConfig.leaf());
+        ViewConfig disabledSubtype = ViewConfig.of(SubItem.class);
+        disabledSubtype.setAllFields(false);
+        SearchPanel.ConfigState state = new SearchPanel.ConfigState(
+                null, null, baseView, java.util.Map.of(), java.util.Map.of(),
+                java.util.Map.of("SubItem", disabledSubtype));
+
+        SearchableCardView view = SearchableCardView.builder(List.of(base, subtype))
+                .sample(base)
+                .configState(state)
+                .subtypeConfigs(List.of(new SearchPanel.SubtypeConfig(
+                        "SubItem", "Item", subtype, null, Set.of("internal"),
+                        value -> value instanceof SubItem)))
+                .build();
+
+        Card card = (Card) view.cards().getVirtualList().buildIfNeeded(subtype);
+        assertTrue(componentText(card).contains("sub"));
+        assertFalse(componentText(card).contains("sub-secret"));
+        assertTrue(view.search().configState().subtypeView().containsKey("SubItem"));
+    }
+
     private static String componentText(Component component) {
         StringBuilder text = new StringBuilder();
         if (component instanceof JLabel label) text.append(label.getText()).append('\n');
@@ -65,7 +91,7 @@ class SearchableCardViewTest {
         return text.toString();
     }
 
-    private static final class Item extends ViewableAdapter {
+    private static class Item extends ViewableAdapter {
         private final String name;
         private final String internal;
         private Item(String name) { this(name, ""); }
@@ -75,5 +101,9 @@ class SearchableCardViewTest {
         }
         @Override public String getIdentifier() { return name; }
         @Override public String getDisplayName() { return name; }
+    }
+
+    private static final class SubItem extends Item {
+        private SubItem(String name, String internal) { super(name, internal); }
     }
 }
