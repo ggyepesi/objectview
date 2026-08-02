@@ -10,9 +10,8 @@ import objectview.field.FieldSet;
  * {@code @Provenance} on the owning field controls its compact presentation and
  * prevents it becoming a domain entity of its own.
  *
- * <p>The linked value uses Link's per-instance {@code label|url} form. Today the
- * canonical external identity is a Wikidata QID; a blank value represents a
- * manual/unresolved source.</p>
+ * <p>The linked value uses Link's per-instance {@code label|url} form. The source id
+ * remains separate because not every provider uses Wikidata QIDs.</p>
  */
 public abstract class Source implements Viewable {
 
@@ -30,11 +29,10 @@ public abstract class Source implements Viewable {
     @Hidden
     private final String recordUrl;
 
-    /** The visible link: the canonical NAME (falling back to the id) as clickable link text
-     *  pointing at the record, encoded as Link's per-instance {@code label|url} form so the
-     *  card shows a readable name rather than a bare id. */
+    /** The provider-neutral visible link. It is presentation, not identity: code that needs
+     *  the external key must use {@link #sourceId()} rather than parsing this value. */
     @Link
-    private final String qid;
+    private final String record;
 
     protected Source(String kind, String sourceId, String recordUrl) {
         this(kind, sourceId, recordUrl, "");
@@ -46,7 +44,7 @@ public abstract class Source implements Viewable {
         this.name = name == null ? "" : name.strip();
         this.recordUrl = recordUrl == null ? "" : recordUrl.strip();
         String label = this.name.isBlank() ? this.sourceId : this.name;
-        this.qid = label.isBlank() || this.recordUrl.isBlank()
+        this.record = label.isBlank() || this.recordUrl.isBlank()
                 ? label : label + "|" + this.recordUrl;
     }
 

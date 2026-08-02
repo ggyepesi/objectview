@@ -21,10 +21,11 @@ class ProvenanceFieldTest {
         assertFalse(sourceField.structural());
         assertSame(source, item.fields().read("source"));
 
-        FieldRef qid = source.fields().field("qid");
-        assertTrue(qid.link());
+        FieldRef record = source.fields().field("record");
+        assertTrue(record.link());
         assertEquals("Q42|https://www.wikidata.org/wiki/Q42",
-                source.fields().read("qid"));
+                source.fields().read("record"));
+        assertEquals("Q42", source.sourceId());
     }
 
     private static final class Item extends ViewableAdapter {
