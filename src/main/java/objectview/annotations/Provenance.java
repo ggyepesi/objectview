@@ -7,7 +7,7 @@ import java.lang.annotation.Target;
 
 /**
  * Marks a {@code Viewable}-valued field as <b>provenance</b> (a
- * {@link quiz.source.Source}): where the owner's data came from, not a
+ * {@link objectview.provenance.Source}): where the owner's data came from, not a
  * first-class entity of the domain.
  *
  * <p>Drives two behaviors, both annotation-based (no {@code instanceof}):

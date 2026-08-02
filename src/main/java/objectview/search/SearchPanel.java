@@ -406,6 +406,19 @@ public class SearchPanel extends JPanel
             Viewable sample,
             ConfigState initialConfigs,
             java.util.List<SubtypeConfig> subtypeConfigs) {
+        this(cls, sample, initialConfigs, subtypeConfigs, null);
+    }
+
+    /** Schema-aware construction for a dynamic/snapshot class. The authoritative
+     * fields must be installed before subtype branches ask the editors to serialize
+     * their current config; otherwise a null-sample dynamic class is prematurely
+     * reduced to its few reflected adapter fields and its real values disappear. */
+    public SearchPanel(
+            Class<? extends Viewable> cls,
+            Viewable sample,
+            ConfigState initialConfigs,
+            java.util.List<SubtypeConfig> subtypeConfigs,
+            FieldTypeSource initialFieldTypes) {
         this.searchClass = cls;
         this.subtypeConfigs = subtypeConfigs == null
                 ? java.util.List.of() : java.util.List.copyOf(subtypeConfigs);
@@ -414,7 +427,10 @@ public class SearchPanel extends JPanel
         ViewConfig nameOnly =
                 nameOnlyConfig(cls);
 
-        ViewConfig viewBase = ViewConfig.all(cls)
+        // An instance chip that is explicitly expanded should initially reveal the
+        // complete instance. @Minor remains one switch in View Config, but starts ON;
+        // users can turn it off instead of old/snapshot data looking half-empty.
+        ViewConfig viewBase = ViewConfig.allWithMinorFields(cls)
                 .setAddListener(true)
                 .setThumb(true);
 
@@ -439,6 +455,13 @@ public class SearchPanel extends JPanel
         viewEditor =
                 new ViewConfigEditor(initialView.copy(), false, sample,
                         FieldTableContributor.REORDERABLE);
+
+        // Do this BEFORE installClassBranches(): that method intentionally folds the
+        // visible rows back into a concrete config, so those rows must already be the
+        // snapshot/model schema rather than reflection over WikidataDynamicObject.
+        searchEditor.setFieldTypes(initialFieldTypes);
+        sortEditor.setFieldTypes(initialFieldTypes);
+        viewEditor.setFieldTypes(initialFieldTypes);
 
         for (SubtypeConfig subtype : this.subtypeConfigs) {
             if (subtype == null || subtype.typeName() == null) continue;

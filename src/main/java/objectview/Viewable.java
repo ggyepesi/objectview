@@ -61,6 +61,12 @@ public interface Viewable {
     default void absorbClasses(
             Viewable source, java.util.function.Function<String, String> baseType) { }
 
+    /** Ordinary provenance field. Implementations based on ViewableAdapter inherit
+     * storage; other adapters may leave it absent. */
+    default objectview.provenance.Source source() { return null; }
+
+    default void source(objectview.provenance.Source source) { }
+
     /** This object's fields, backing-agnostic (declared reflection or a dynamic map). */
     FieldSet fields();
 }

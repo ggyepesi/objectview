@@ -35,6 +35,18 @@ public abstract class ViewableAdapter implements Viewable {
     @Hidden
     private transient FieldSet fieldSet;
 
+    /** Ordinary instance provenance. The annotation changes presentation/traversal,
+     * not field visibility: source and source.qid remain configurable and validatable. */
+    @Provenance
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private transient objectview.provenance.Source source;
+
+    @Override public objectview.provenance.Source source() { return source; }
+
+    @Override public void source(objectview.provenance.Source source) {
+        this.source = source;
+    }
+
     public static boolean isMinorField(Field field) {
         return field != null && field.isAnnotationPresent(Minor.class);
     }

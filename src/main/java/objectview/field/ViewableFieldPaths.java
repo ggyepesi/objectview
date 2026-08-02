@@ -211,9 +211,7 @@ public final class ViewableFieldPaths {
         Field leaf =
                 ViewableAdapter.getField(owner.getClass(), name);
 
-        if (leaf != null
-                && (!filter.accept(leaf)
-                || ViewableAdapter.isProvenanceField(leaf))) {
+        if (leaf != null && !filter.accept(leaf)) {
             return;
         }
 
@@ -313,13 +311,12 @@ public final class ViewableFieldPaths {
             // ONE field model over both representations — declared Java fields OR the
             // dynamic property map (objectview.field.FieldSet), no instanceof branch. A
             // reflected field still resolves its java.lang.reflect.Field, to honour
-            // the field filter / provenance skip and carry annotations (@Numeric)
+            // the field filter and carry annotations (@Numeric)
             // downstream; a map-held (dynamic) field has none, so getField is null.
             FieldSet set = FieldSet.of(obj);
             for (FieldRef ref : set.fields()) {
                 Field leaf = ViewableAdapter.getField(obj.getClass(), ref.name());
-                if (leaf != null
-                        && (!filter.accept(leaf) || ViewableAdapter.isProvenanceField(leaf))) {
+                if (leaf != null && !filter.accept(leaf)) {
                     continue;
                 }
                 addSampleField(ref.name(), set.read(ref.name()), leaf,
@@ -531,12 +528,6 @@ public final class ViewableFieldPaths {
         if (field == null || !filter.accept(field)) {
             return;
         }
-        // Provenance (the Source chip) is metadata, not a searchable/sortable
-        // domain field — keep it out of the field paths.
-        if (ViewableAdapter.isProvenanceField(field)) {
-            return;
-        }
-
         String fieldName = field.getName();
 
         List<String> path = new ArrayList<>(prefix);

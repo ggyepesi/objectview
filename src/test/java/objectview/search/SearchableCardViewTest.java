@@ -1,6 +1,8 @@
 package objectview.search;
 
 import objectview.ViewableAdapter;
+import objectview.field.DynamicFields;
+import objectview.viewconfig.FieldTypeSource;
 import objectview.render.Card;
 import objectview.viewconfig.ViewConfig;
 import org.junit.jupiter.api.Test;
@@ -28,6 +30,8 @@ class SearchableCardViewTest {
         assertNotNull(view.cards().getVirtualList());
         assertNotNull(view.search());
         assertTrue(view.renderContext().collapsibleCards());
+        assertTrue(view.search().getViewConfig().isAllMinorFields(),
+                "an expanded instance starts with its complete field set");
     }
 
     @Test void initialViewConfigControlsVirtualizedCards() {
@@ -80,6 +84,42 @@ class SearchableCardViewTest {
         assertTrue(view.search().configState().subtypeView().containsKey("SubItem"));
     }
 
+    @Test void schemaIsInstalledBeforeNullSampleDynamicConfigIsMaterialized() {
+        DynamicItem item = new DynamicItem("visible-value");
+        FieldTypeSource schema = new FieldTypeSource() {
+            @Override public FieldTypeInfo field(String name) {
+                return "detail".equals(name)
+                        ? new FieldTypeInfo("String", false, false, null, null)
+                        : null;
+            }
+
+            @Override public List<String> fieldNames() { return List.of("detail"); }
+        };
+
+        // Snapshot-backed views intentionally have no synthetic sample; fields come
+        // from their saved schema. They must still survive the initial config fold.
+        SearchableCardView view = SearchableCardView.builder(List.of(item))
+                .fieldTypes(schema)
+                .collapsible(true)
+                .build();
+
+        assertTrue(view.search().getViewConfig().hasField("detail"),
+                view.search().getViewConfig().getFields().keySet().toString());
+        Card collapsed = (Card) view.cards().getVirtualList().buildIfNeeded(item);
+        JLabel toggle = findLabel(collapsed, "▶ ");
+        assertNotNull(toggle);
+        java.awt.event.MouseEvent click = new java.awt.event.MouseEvent(
+                toggle, java.awt.event.MouseEvent.MOUSE_PRESSED,
+                System.currentTimeMillis(), 0, 2, 2, 1, false,
+                java.awt.event.MouseEvent.BUTTON1);
+        for (java.awt.event.MouseListener listener : toggle.getMouseListeners()) {
+            listener.mousePressed(click);
+        }
+        Card card = (Card) view.cards().getVirtualList().buildIfNeeded(item);
+        assertTrue(card.getComponentCount() > 1,
+                "a saved dynamic field must not vanish before its schema is installed");
+    }
+
     private static String componentText(Component component) {
         StringBuilder text = new StringBuilder();
         if (component instanceof JLabel label) text.append(label.getText()).append('\n');
@@ -89,6 +129,17 @@ class SearchableCardViewTest {
             }
         }
         return text.toString();
+    }
+
+    private static JLabel findLabel(Component component, String text) {
+        if (component instanceof JLabel label && text.equals(label.getText())) return label;
+        if (component instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                JLabel found = findLabel(child, text);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     private static class Item extends ViewableAdapter {
@@ -105,5 +156,18 @@ class SearchableCardViewTest {
 
     private static final class SubItem extends Item {
         private SubItem(String name, String internal) { super(name, internal); }
+    }
+
+    private static final class DynamicItem extends ViewableAdapter
+            implements DynamicFields {
+        private final java.util.Map<String, Object> values =
+                new java.util.LinkedHashMap<>();
+
+        private DynamicItem(String detail) { values.put("detail", detail); }
+        @Override public String getIdentifier() { return "dynamic"; }
+        @Override public String getDisplayName() { return "Dynamic"; }
+        @Override public java.util.Map<String, Object> dynamicFieldValues() {
+            return values;
+        }
     }
 }

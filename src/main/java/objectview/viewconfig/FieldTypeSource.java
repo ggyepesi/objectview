@@ -26,7 +26,7 @@ public interface FieldTypeSource {
 
     /**
      * @param typeLabel        what the "Type" column shows (e.g. "List&lt;Category&gt;")
-     * @param structural       true to hide the field (plumbing/provenance)
+     * @param structural       true to hide the field (schema plumbing)
      * @param minor            true to segregate the field under the "Minor fields"
      *                         block, governed wholesale by "All minor fields" — the
      *                         dynamic/schema counterpart of the {@code @Minor}

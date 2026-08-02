@@ -45,10 +45,9 @@ public interface FieldRef {
     /** The logical type name of a referenced value/element, or null for a scalar. */
     String targetType();
 
-    /**
-     * Plumbing/provenance retained in the data but omitted from ordinary field
-     * pickers and nested traversal.
-     */
+    /** Plumbing retained in the data but omitted from ordinary field pickers and
+     * nested traversal. Provenance is a separate render/traversal hint and need not
+     * be structural. */
     boolean structural();
 
     /** A minor field — a rendering hint (compact / hidden-by-default), if the backing

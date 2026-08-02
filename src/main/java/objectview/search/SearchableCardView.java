@@ -55,11 +55,10 @@ public final class SearchableCardView extends JPanel {
         if (type != null && !builder.members.isEmpty()) {
             search = builder.sample == null
                     ? new SearchPanel(type, null, builder.configState,
-                            builder.subtypeConfigs)
+                            builder.subtypeConfigs, builder.fieldTypes)
                     : new SearchPanel(type, builder.sample, builder.configState,
-                            builder.subtypeConfigs);
+                            builder.subtypeConfigs, builder.fieldTypes);
             search.setHiddenFields(builder.hiddenFields);
-            search.setFieldTypes(builder.fieldTypes);
             search.setRenderContext(context);
             search.setConfigListener(builder.configListener);
             search.setTargetAndApplyViewConfig(
