@@ -19,15 +19,22 @@ public abstract class Source implements Viewable {
     @Hidden
     private final String kind;
 
-    /** Canonical name used by this source for the linked record. */
-    private final String name;
+    /** The external record id (e.g. a Wikidata QID) — the source's identity; kept visible so
+     *  it survives snapshot round-trips and shows alongside the named link. */
+    private final String sourceId;
 
-    /** The visible source identity; rendered as a clickable link when present. */
-    @Link
-    private final String qid;
+    /** Canonical name used by this source for the linked record. */
+    @Hidden
+    private final String name;
 
     @Hidden
     private final String recordUrl;
+
+    /** The visible link: the canonical NAME (falling back to the id) as clickable link text
+     *  pointing at the record, encoded as Link's per-instance {@code label|url} form so the
+     *  card shows a readable name rather than a bare id. */
+    @Link
+    private final String qid;
 
     protected Source(String kind, String sourceId, String recordUrl) {
         this(kind, sourceId, recordUrl, "");
@@ -35,17 +42,15 @@ public abstract class Source implements Viewable {
 
     protected Source(String kind, String sourceId, String recordUrl, String name) {
         this.kind = kind == null ? "" : kind.strip();
+        this.sourceId = sourceId == null ? "" : sourceId.strip();
         this.name = name == null ? "" : name.strip();
-        String id = sourceId == null ? "" : sourceId.strip();
         this.recordUrl = recordUrl == null ? "" : recordUrl.strip();
-        this.qid = id.isBlank() || this.recordUrl.isBlank()
-                ? id : id + "|" + this.recordUrl;
+        String label = this.name.isBlank() ? this.sourceId : this.name;
+        this.qid = label.isBlank() || this.recordUrl.isBlank()
+                ? label : label + "|" + this.recordUrl;
     }
 
-    public final String sourceId() {
-        int bar = qid.indexOf('|');
-        return bar < 0 ? qid : qid.substring(0, bar).strip();
-    }
+    public final String sourceId() { return sourceId; }
 
     public final String url() { return recordUrl; }
     public final String kind() { return kind; }
@@ -55,7 +60,9 @@ public abstract class Source implements Viewable {
         return kind + "\u0000" + sourceId();
     }
 
-    @Override public final String getDisplayName() { return kind; }
+    @Override public final String getDisplayName() {
+        return name.isBlank() ? kind : name;
+    }
 
     @Override public String typeName() { return "Source"; }
 
