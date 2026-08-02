@@ -19,6 +19,9 @@ public abstract class Source implements Viewable {
     @Hidden
     private final String kind;
 
+    /** Canonical name used by this source for the linked record. */
+    private final String name;
+
     /** The visible source identity; rendered as a clickable link when present. */
     @Link
     private final String qid;
@@ -27,7 +30,12 @@ public abstract class Source implements Viewable {
     private final String recordUrl;
 
     protected Source(String kind, String sourceId, String recordUrl) {
+        this(kind, sourceId, recordUrl, "");
+    }
+
+    protected Source(String kind, String sourceId, String recordUrl, String name) {
         this.kind = kind == null ? "" : kind.strip();
+        this.name = name == null ? "" : name.strip();
         String id = sourceId == null ? "" : sourceId.strip();
         this.recordUrl = recordUrl == null ? "" : recordUrl.strip();
         this.qid = id.isBlank() || this.recordUrl.isBlank()
@@ -41,6 +49,7 @@ public abstract class Source implements Viewable {
 
     public final String url() { return recordUrl; }
     public final String kind() { return kind; }
+    public final String name() { return name; }
 
     @Override public final String getIdentifier() {
         return kind + "\u0000" + sourceId();
