@@ -82,12 +82,11 @@ public class ReferenceRow extends TextRow {
                 ? "Click to collapse · right-click for more"
                 : "Click to expand in place · right-click for more");
 
-        // The searchable value is the TARGET's name, so the path must end in
-        // "name" to match the model search's leaf path (ViewableFieldPaths emits
-        // e.g. ["episodes","name"]). Otherwise the row is never highlighted.
+        // The searchable value is the target's contract display field, so use its
+        // stable key to match the search model's leaf path.
         List<String> searchPath = new ArrayList<>(
                 fieldPath == null ? List.of() : fieldPath);
-        searchPath.add("name");
+        searchPath.add(objectview.field.ViewableContractFieldSet.DISPLAY_KEY);
         putClientProperty(FieldProperties.FIELD_PATH_PROPERTY, searchPath);
     }
 

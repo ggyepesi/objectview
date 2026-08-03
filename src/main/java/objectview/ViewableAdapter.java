@@ -36,7 +36,8 @@ public abstract class ViewableAdapter implements Viewable {
     private transient FieldSet fieldSet;
 
     /** Ordinary instance provenance. The annotation changes presentation/traversal,
-     * not field visibility: source and source.qid remain configurable and validatable. */
+     * not field visibility: source and its nested fields remain configurable and
+     * validatable. */
     @Provenance
     @com.fasterxml.jackson.annotation.JsonIgnore
     private transient objectview.provenance.Source source;
@@ -102,66 +103,6 @@ public abstract class ViewableAdapter implements Viewable {
         return ALL_FIELDS_CACHE.computeIfAbsent(
                 cls,
                 ViewableAdapter::collectAllFields);
-    }
-
-    /**
-     * Fields offered in CONFIG pickers (viewconfig / search / sort):
-     * {@link #getAllFields} PLUS the identity fields (name, qid) for entity
-     * objects.
-     *
-     * <p>Those are {@code @Hidden} — hidden from the card — but are
-     * legitimately searchable / sortable / configurable, and a bare reference
-     * object (a WikidataDynamicObject with no dynamic fields) has nothing else
-     * to offer. Non-entity Viewables (no {@code qid} field) are unchanged.</p>
-     */
-    public static List<Field> getConfigurableFields(Class<?> cls) {
-        List<Field> all = getAllFields(cls);
-
-        Field qid = rawDeclaredField(cls, "qid");
-        if (qid == null) {
-            return all; // not an entity object — leave as-is
-        }
-
-        List<Field> out = new ArrayList<>();
-
-        Field name = rawDeclaredField(cls, "name");
-        if (name != null) {
-            name.setAccessible(true);
-            out.add(name);
-        }
-
-        qid.setAccessible(true);
-        out.add(qid);
-        out.addAll(all);
-
-        // (diagnostic) a field that duplicates the identity name/qid — e.g.
-        // an un-annotated `name` leaking into getAllFields — shows twice in config.
-        java.util.Set<String> seen = new java.util.HashSet<>();
-        for (Field f : out) {
-            if (!seen.add(f.getName())) {
-                log.debug("configurable fields: duplicate '{}' in {}",
-                        f.getName(), cls.getName());
-            }
-        }
-
-        return out;
-    }
-
-    // Declared field by name up the hierarchy, INCLUDING @Hidden ones
-    // (which getAllFields deliberately drops).
-    private static Field rawDeclaredField(Class<?> cls, String name) {
-        for (Class<?> c = cls;
-             c != null;
-             c = c.getSuperclass()) {
-
-            try {
-                return c.getDeclaredField(name);
-            } catch (NoSuchFieldException ignored) {
-                // keep walking up
-            }
-        }
-
-        return null;
     }
 
     private static List<Field> collectAllFields(Class<?> cls) {

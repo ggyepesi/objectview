@@ -285,10 +285,6 @@ public class SearchAndSort {
         String part =
                 path.get(idx);
 
-        if ("name".equals(part) && obj instanceof Viewable q) {
-            return q.getName();
-        }
-
         // Read one level through the ONE FieldSet bridge (#87): a WDO's map-held field
         // (e.g. `won`) or a declared Java field, behind one interface, no `instanceof
         // DynamicFields` fork. has() (vs a present-null value) mirrors the old

@@ -36,12 +36,20 @@ public interface FieldTypeSource {
      * @param nested           the source for the referenced object's fields (or null)
      */
     record FieldTypeInfo(String typeLabel, boolean structural, boolean minor,
-                         String nestedClassName, FieldTypeSource nested) {
+                         String nestedClassName, FieldTypeSource nested,
+                         String label, objectview.field.FieldRole role) {
+
+        public FieldTypeInfo(String typeLabel, boolean structural, boolean minor,
+                             String nestedClassName, FieldTypeSource nested) {
+            this(typeLabel, structural, minor, nestedClassName, nested,
+                    null, objectview.field.FieldRole.NONE);
+        }
 
         /** Backwards-compatible for callers that don't distinguish minor fields. */
         public FieldTypeInfo(String typeLabel, boolean structural,
                              String nestedClassName, FieldTypeSource nested) {
-            this(typeLabel, structural, false, nestedClassName, nested);
+            this(typeLabel, structural, false, nestedClassName, nested,
+                    null, objectview.field.FieldRole.NONE);
         }
     }
 }

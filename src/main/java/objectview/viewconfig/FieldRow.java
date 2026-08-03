@@ -64,10 +64,17 @@ public final class FieldRow {
     public static FieldRow dynamic(String name,
                                    String typeLabel,
                                    NestedFieldSource nested) {
+        return dynamic(name, name, typeLabel, nested);
+    }
+
+    public static FieldRow dynamic(String name,
+                                   String label,
+                                   String typeLabel,
+                                   NestedFieldSource nested) {
         return new FieldRow(
                 Kind.FIELD,
                 name,
-                name,
+                label,
                 name,
                 typeLabel,
                 0,

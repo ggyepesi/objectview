@@ -81,6 +81,8 @@ public interface FieldSet {
         } else {
             backing = new ReflectionFieldSet(object);
         }
+        backing = new LayeredFieldSet(
+                backing, new ViewableContractFieldSet(object), field -> true, false);
         return effective == null
                 ? backing : new SchemaFieldSet(backing, effective);
     }

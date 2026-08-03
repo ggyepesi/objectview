@@ -584,7 +584,8 @@ public class SearchPanel extends JPanel
         cfg.setAllFields(false);
         cfg.setAddListener(false);
         cfg.setThumb(false);
-        cfg.addField("name", ViewConfig.leaf());
+        cfg.addField(objectview.field.ViewableContractFieldSet.DISPLAY_KEY,
+                ViewConfig.leaf());
 
         return cfg;
     }
@@ -656,7 +657,8 @@ public class SearchPanel extends JPanel
         FieldTypeSource source = subtype.fieldTypes();
         return new FieldTypeSource() {
             @Override public FieldTypeSource.FieldTypeInfo field(String name) {
-                if ("name".equals(name) && !fields.contains(name)) {
+                if (objectview.field.ViewableContractFieldSet.DISPLAY_KEY.equals(name)
+                        && !fields.contains(name)) {
                     return new FieldTypeSource.FieldTypeInfo(
                             "String", true, false, null, null);
                 }
@@ -666,7 +668,9 @@ public class SearchPanel extends JPanel
 
             @Override public java.util.List<String> fieldNames() {
                 java.util.List<String> names = new java.util.ArrayList<>(fields);
-                if (!fields.contains("name")) names.add("name");
+                if (!fields.contains(objectview.field.ViewableContractFieldSet.DISPLAY_KEY)) {
+                    names.add(objectview.field.ViewableContractFieldSet.DISPLAY_KEY);
+                }
                 return java.util.List.copyOf(names);
             }
         };
@@ -699,9 +703,11 @@ public class SearchPanel extends JPanel
         }
         if (subtype.sample() != null) {
             for (java.lang.reflect.Field field :
-                    ViewableAdapter.getConfigurableFields(subtype.sample().getClass())) {
+                    ViewableAdapter.getAllFields(subtype.sample().getClass())) {
                 hidden.add(field.getName());
             }
+            objectview.field.ViewableContractFieldSet.fieldRefs().stream()
+                    .map(objectview.field.FieldRef::name).forEach(hidden::add);
         }
         hidden.removeAll(subtype.additionalFields() == null
                 ? java.util.Set.of() : subtype.additionalFields());

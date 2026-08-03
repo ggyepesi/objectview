@@ -38,7 +38,8 @@ class SearchableCardViewTest {
         Item item = new Item("one", "secret");
         ViewConfig viewConfig = ViewConfig.of(Item.class);
         viewConfig.setAllFields(false);
-        viewConfig.addField("name", ViewConfig.leaf());
+        viewConfig.addField(
+                objectview.field.ViewableContractFieldSet.DISPLAY_KEY, ViewConfig.leaf());
         AtomicReference<SearchPanel.ConfigState> retained = new AtomicReference<>();
 
         SearchableCardView view = SearchableCardView.builder(List.of(item))
@@ -63,7 +64,8 @@ class SearchableCardViewTest {
         SubItem subtype = new SubItem("sub", "sub-secret");
         ViewConfig baseView = ViewConfig.of(Item.class);
         baseView.setAllFields(false);
-        baseView.addField("name", ViewConfig.leaf());
+        baseView.addField(
+                objectview.field.ViewableContractFieldSet.DISPLAY_KEY, ViewConfig.leaf());
         ViewConfig disabledSubtype = ViewConfig.of(SubItem.class);
         disabledSubtype.setAllFields(false);
         SearchPanel.ConfigState state = new SearchPanel.ConfigState(

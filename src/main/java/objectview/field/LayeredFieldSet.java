@@ -11,12 +11,20 @@ final class LayeredFieldSet implements FieldSet {
     private final FieldSet primary;
     private final FieldSet secondary;
     private final Predicate<FieldRef> includeSecondary;
+    private final boolean secondaryMetadataWins;
 
     LayeredFieldSet(FieldSet primary, FieldSet secondary,
                     Predicate<FieldRef> includeSecondary) {
+        this(primary, secondary, includeSecondary, true);
+    }
+
+    LayeredFieldSet(FieldSet primary, FieldSet secondary,
+                    Predicate<FieldRef> includeSecondary,
+                    boolean secondaryMetadataWins) {
         this.primary = primary;
         this.secondary = secondary;
         this.includeSecondary = includeSecondary;
+        this.secondaryMetadataWins = secondaryMetadataWins;
     }
 
     @Override public List<FieldRef> fields() {
@@ -25,7 +33,10 @@ final class LayeredFieldSet implements FieldSet {
         // A declared adapter field owns its annotations/render semantics even when
         // a persisted dynamic map supplies the value under the same name.
         secondary.fields().stream().filter(includeSecondary)
-                .forEach(field -> combined.put(field.name(), field));
+                .forEach(field -> {
+                    if (secondaryMetadataWins) combined.put(field.name(), field);
+                    else combined.putIfAbsent(field.name(), field);
+                });
         return new ArrayList<>(combined.values());
     }
 

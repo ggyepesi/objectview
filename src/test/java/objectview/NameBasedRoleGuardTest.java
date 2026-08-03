@@ -33,11 +33,12 @@ class NameBasedRoleGuardTest {
 
     // A role-name string literal used in a role-inference context on one line of code.
     private static final Pattern ANTIPATTERN = Pattern.compile(
-            "\"(?:qid|name|id|identifier|source|record)\"\\s*\\.equals"
-            + "|\\.equals\\(\\s*\"(?:qid|name|id|identifier|source|record)\""
+            "\"(?:qid|name|id|identifier|source|record)\"\\s*\\.equals(?:IgnoreCase)?"
+            + "|\\.equals(?:IgnoreCase)?\\(\\s*\"(?:qid|name|id|identifier|source|record)\""
             + "|rawDeclaredField\\([^)]*\"(?:qid|name|id|identifier|source|record)\""
             + "|(?:containsKey|hasRootPath|new FieldPath)\\([^)]*"
-            + "\"(?:qid|name|id|identifier|source|record)\"");
+            + "\"(?:qid|name|id|identifier|source|record)\""
+            + "|case\\s+\"(?:qid|name|id|identifier|source|record)\"");
 
     private static final Path SOURCE_ROOT = Path.of("src/main/java");
 

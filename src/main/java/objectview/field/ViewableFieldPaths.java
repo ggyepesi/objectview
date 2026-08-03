@@ -78,11 +78,10 @@ public final class ViewableFieldPaths {
                 filter == null ? ALL_FIELDS : filter,
                 out);
 
-        // Identity (name/qid) is implied by "all fields" only. An EXPLICIT config
-        // means exactly what it names — forcing name in regardless made search
-        // hit on name even when the user unchecked it.
+        // Contract views are implied by "all fields" only. An explicit config means
+        // exactly what it names.
         if (config.isAllFields()) {
-            ensureIdentityFields(config.getCls(), out);
+            ensureContractFields(out);
         }
 
         return dedupByPath(out);
@@ -115,10 +114,6 @@ public final class ViewableFieldPaths {
                         new java.util.IdentityHashMap<>()),
                 out);
 
-        if (config.isAllFields()) {
-            ensureIdentityFields(sample.getClass(), out);
-        }
-
         return dedupByPath(out);
     }
 
@@ -135,6 +130,7 @@ public final class ViewableFieldPaths {
 
         try {
             FieldSet set = FieldSet.of(obj);
+            config.migrateLegacyContractKeys(set);
             Set<String> handled = new LinkedHashSet<>();
 
             // Explicit fields first, preserving configuration order.
@@ -142,12 +138,6 @@ public final class ViewableFieldPaths {
                     : config.getFields().entrySet()) {
 
                 String name = entry.getKey();
-
-                if ("name".equals(name)) {
-                    addNamePath(prefix, titlePrefix, out);
-                    handled.add(name);
-                    continue;
-                }
 
                 addConfiguredSampleField(
                         obj,
@@ -168,7 +158,7 @@ public final class ViewableFieldPaths {
             for (FieldRef ref : set.fields()) {
                 String name = ref.name();
 
-                if (handled.contains(name) || "name".equals(name)) {
+                if (handled.contains(name)) {
                     continue;
                 }
 
@@ -211,6 +201,9 @@ public final class ViewableFieldPaths {
         Field leaf =
                 ViewableAdapter.getField(owner.getClass(), name);
 
+        FieldRef ref = set.field(name);
+        String label = ref == null ? name : ref.label();
+
         if (leaf != null && !filter.accept(leaf)) {
             return;
         }
@@ -223,8 +216,8 @@ public final class ViewableFieldPaths {
         path.add(name);
 
         String title = titlePrefix.isEmpty()
-                ? name
-                : titlePrefix + "." + name;
+                ? label
+                : titlePrefix + "." + label;
 
         Viewable child = firstViewable(value);
 
@@ -249,10 +242,11 @@ public final class ViewableFieldPaths {
                     out);
         } else {
             List<String> namePath = new ArrayList<>(path);
-            namePath.add("name");
+            namePath.add(ViewableContractFieldSet.DISPLAY_KEY);
 
             out.add(new FieldPath(
-                    title + ".name",
+                    title + "." + ViewableContractFieldSet.label(
+                            ViewableContractFieldSet.DISPLAY_KEY),
                     namePath,
                     leaf));
         }
@@ -294,7 +288,6 @@ public final class ViewableFieldPaths {
         if (sample == null) {
             return out;
         }
-        out.add(new FieldPath("name", List.of("name"), null));   // identity/display
         collectSample(sample, new ArrayList<>(), "",
                 filter == null ? ALL_FIELDS : filter,
                 java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()),
@@ -319,7 +312,7 @@ public final class ViewableFieldPaths {
                 if (leaf != null && !filter.accept(leaf)) {
                     continue;
                 }
-                addSampleField(ref.name(), set.read(ref.name()), leaf,
+                addSampleField(ref.name(), ref.label(), set.read(ref.name()), leaf,
                         prefix, titlePrefix, filter, branch, out);
             }
         } finally {
@@ -327,12 +320,12 @@ public final class ViewableFieldPaths {
         }
     }
 
-    private static void addSampleField(String name, Object value, Field leaf,
+    private static void addSampleField(String name, String label, Object value, Field leaf,
                                        List<String> prefix, String titlePrefix,
                                        FieldFilter filter, Set<Object> branch, List<FieldPath> out) {
         List<String> path = new ArrayList<>(prefix);
         path.add(name);
-        String title = titlePrefix.isEmpty() ? name : titlePrefix + "." + name;
+        String title = titlePrefix.isEmpty() ? label : titlePrefix + "." + label;
 
         Viewable child = firstViewable(value);
         if (child != null) {
@@ -340,8 +333,11 @@ public final class ViewableFieldPaths {
             // reference), its display name, and (bounded) its nested fields.
             out.add(new FieldPath(title, path, leaf));
             List<String> namePath = new ArrayList<>(path);
-            namePath.add("name");
-            out.add(new FieldPath(title + ".name", namePath, leaf));
+            namePath.add(ViewableContractFieldSet.DISPLAY_KEY);
+            out.add(new FieldPath(
+                    title + "." + ViewableContractFieldSet.label(
+                            ViewableContractFieldSet.DISPLAY_KEY),
+                    namePath, leaf));
             if (prefix.size() < SAMPLE_MAX_DEPTH) {
                 collectSample(child, path, title, filter, branch, out);
             }
@@ -383,12 +379,6 @@ public final class ViewableFieldPaths {
         for (Map.Entry<String, ViewConfig> e : config.getFields().entrySet()) {
             String fieldName = e.getKey();
 
-            if ("name".equals(fieldName)) {
-                addNamePath(prefix, titlePrefix, out);
-                alreadyAdded.add("name");
-                continue;
-            }
-
             Field field = ViewableAdapter.getField(cls, fieldName);
 
             if (field != null && filter.accept(field)) {
@@ -418,15 +408,6 @@ public final class ViewableFieldPaths {
                 continue;
             }
 
-            if ("name".equals(fieldName)) {
-                if ((config.isAllFields() || config.getFields().containsKey("name"))
-                        && !alreadyAdded.contains("name")) {
-                    addNamePath(prefix, titlePrefix, out);
-                    alreadyAdded.add("name");
-                }
-                continue;
-            }
-
             if (!config.showsField(field)) {
                 continue;
             }
@@ -452,8 +433,8 @@ public final class ViewableFieldPaths {
         List<String> path = new ArrayList<>(prefix);
         path.add(fieldName);
         String title = titlePrefix.isEmpty()
-                ? fieldName
-                : titlePrefix + "." + fieldName;
+                ? ViewableContractFieldSet.label(fieldName)
+                : titlePrefix + "." + ViewableContractFieldSet.label(fieldName);
 
         if (childConfig == null || childConfig.getFields().isEmpty()) {
             out.add(new FieldPath(title, path, null));
@@ -465,35 +446,11 @@ public final class ViewableFieldPaths {
         }
     }
 
-    private static void addNamePath(List<String> prefix,
-                                    String titlePrefix,
-                                    List<FieldPath> out) {
-        List<String> namePath = new ArrayList<>(prefix);
-        namePath.add("name");
-
-        String title = titlePrefix.isEmpty()
-                ? "name"
-                : titlePrefix + ".name";
-
-        out.add(new FieldPath(title, namePath, null));
-    }
-
-    // Identity fields (name + qid) are @Hidden — hidden from the CARD
-    // (they're the title/identity) but still meaningful to search/sort/configure
-    // by. Without this a bare reference object (a WikidataDynamicObject with no
-    // dynamic fields) offers nothing to configure. Scoped to entity objects (those
-    // that declare a `qid` field) so non-Wikidata Viewables are untouched.
-    private static void ensureIdentityFields(Class<?> cls, List<FieldPath> out) {
-        Field qid = rawDeclaredField(cls, "qid");
-        if (qid == null) {
-            return;
-        }
-        if (!hasRootPath(out, "name")) {
-            out.add(new FieldPath("name", List.of("name"), null));
-        }
-        if (!hasRootPath(out, "qid")) {
-            qid.setAccessible(true);
-            out.add(new FieldPath("qid", List.of("qid"), qid));
+    private static void ensureContractFields(List<FieldPath> out) {
+        for (FieldRef field : ViewableContractFieldSet.fieldRefs()) {
+            if (!hasRootPath(out, field.name())) {
+                out.add(new FieldPath(field.label(), List.of(field.name()), null));
+            }
         }
     }
 
@@ -504,19 +461,6 @@ public final class ViewableFieldPaths {
             }
         }
         return false;
-    }
-
-    // Finds a declared field by name up the hierarchy, INCLUDING @Hidden
-    // ones (which ViewableAdapter.getField deliberately omits).
-    private static Field rawDeclaredField(Class<?> cls, String name) {
-        for (Class<?> c = cls; c != null; c = c.getSuperclass()) {
-            try {
-                return c.getDeclaredField(name);
-            } catch (NoSuchFieldException ignored) {
-                // keep walking up
-            }
-        }
-        return null;
     }
 
     private static void collectField(Field field,
@@ -557,10 +501,11 @@ public final class ViewableFieldPaths {
                         out);
             } else {
                 List<String> namePath = new ArrayList<>(path);
-                namePath.add("name");
+                namePath.add(ViewableContractFieldSet.DISPLAY_KEY);
 
                 out.add(new FieldPath(
-                        title + ".name",
+                        title + "." + ViewableContractFieldSet.label(
+                                ViewableContractFieldSet.DISPLAY_KEY),
                         namePath,
                         field));
             }

@@ -70,33 +70,25 @@ public final class FieldAccess {
     // --- field access, through the ONE FieldSet bridge (dynamic map or declared) ---
 
     private static Object readField(Object obj, String name) {
-        // A type that publishes its own addressable views (e.g. FlexibleDate:
-        // year/month/day/monthDay) owns that vocabulary — resolve through the type,
-        // not reflection, so precision-aware views are authoritative. Stays
-        // type-agnostic: no instanceof of any concrete value type.
-        if (obj instanceof objectview.utils.Addressable a && a.viewNames().contains(name)) {
-            return a.view(name);
-        }
         // A Viewable reads through the ONE FieldSet bridge — a dynamic property map OR
         // declared Java fields behind one interface, no `instanceof DynamicFields`
         // fork (#87). has() distinguishes a present-but-null field (return its value)
-        // from an absent one (fall through to identity), preserving the layered
-        // map -> reflection -> identity fallback exactly.
+        // from an absent one (fall through to a published view, then identity).
         if (obj instanceof objectview.Viewable q) {
             FieldSet fs = FieldSet.of(q);
             if (fs.has(name)) {
-                return fs.read(name);
+                return fs.read(name);   // a REAL field always wins
             }
-            // Identity / display come from the Viewable contract, not a raw field: for a
-            // dynamic object `name`/`qid` aren't in the property map (they're identity,
-            // @Hidden), so getDisplayName()/getIdentifier() are the right source.
-            if ("name".equals(name)) {
-                return q.getDisplayName();
-            }
-            if ("qid".equals(name) || "id".equals(name) || "identifier".equals(name)) {
-                return q.getIdentifier();
+            // Only then any addressable view the type publishes (e.g. value projections),
+            // so a real field of the same name takes precedence generically — the ordering
+            // guarantee lives here, not in each Addressable implementation.
+            if (obj instanceof objectview.utils.Addressable a && a.viewNames().contains(name)) {
+                return a.view(name);
             }
             return null;
+        }
+        if (obj instanceof objectview.utils.Addressable a && a.viewNames().contains(name)) {
+            return a.view(name);
         }
         // A non-Viewable nested value (a heterogeneous map value, a JDK type, …):
         // reflect. Reading is tolerant — return null rather than crash a caller

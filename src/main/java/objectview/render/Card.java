@@ -310,6 +310,13 @@ public class Card extends JPanel {
                 ? ViewConfig.of(viewable == null ? null : viewable.getClass())
                 : config;
 
+        if (viewable != null) {
+            // Saved pre-contract configs may still name the old synthetic name/qid
+            // fields. Translate them once at the boundary, while preserving genuine
+            // backing fields with those names.
+            this.config.migrateLegacyContractKeys(FieldSet.of(viewable));
+        }
+
         setLayout(new GridBagLayout());
         setOpaque(false);
 
@@ -479,9 +486,11 @@ public class Card extends JPanel {
         JLabel titleLabel = new JLabel(title);
         titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD));
         titleLabel.setForeground(new Color(0, 80, 180));
-        titleLabel.putClientProperty(FieldProperties.FIELD_NAME_PROPERTY, "name");
+        titleLabel.putClientProperty(FieldProperties.FIELD_NAME_PROPERTY,
+                objectview.field.ViewableContractFieldSet.DISPLAY_KEY);
         titleLabel.putClientProperty(FieldProperties.FIELD_VALUE_PROPERTY, title);
-        titleLabel.putClientProperty(FieldProperties.FIELD_PATH_PROPERTY, List.of("name"));
+        titleLabel.putClientProperty(FieldProperties.FIELD_PATH_PROPERTY,
+                List.of(objectview.field.ViewableContractFieldSet.DISPLAY_KEY));
 
         if (renderContext.selectionEnabled()) {
             titleLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -526,9 +535,11 @@ public class Card extends JPanel {
                         ? "Click to focus existing panel"
                         : "Double-click to open full view");
 
-        titleLabel.putClientProperty(FieldProperties.FIELD_NAME_PROPERTY, "name");
+        titleLabel.putClientProperty(FieldProperties.FIELD_NAME_PROPERTY,
+                objectview.field.ViewableContractFieldSet.DISPLAY_KEY);
         titleLabel.putClientProperty(FieldProperties.FIELD_VALUE_PROPERTY, title);
-        titleLabel.putClientProperty(FieldProperties.FIELD_PATH_PROPERTY, List.of("name"));
+        titleLabel.putClientProperty(FieldProperties.FIELD_PATH_PROPERTY,
+                List.of(objectview.field.ViewableContractFieldSet.DISPLAY_KEY));
 
         // A view can enable single-selection (e.g. curation, to pick the instance
         // to fill): a single click on the card's name selects it — the render
@@ -604,7 +615,7 @@ public class Card extends JPanel {
             FieldSet fields, int row, java.util.Set<String> hoisted) {
         for (FieldRef field : fields.fields()) {
             String name = field.name();
-            if ("name".equals(name)) {
+            if (field.role() != objectview.field.FieldRole.NONE) {
                 continue;
             }
             if (!shows(field)) {
@@ -636,7 +647,7 @@ public class Card extends JPanel {
         for (FieldRef field : fields.fields()) {
             String name = field.name();
 
-            if ("name".equals(name) || hoistedMedia.contains(name)
+            if (field.role() != objectview.field.FieldRole.NONE || hoistedMedia.contains(name)
                     || !shows(field)) {
                 continue;
             }
@@ -1151,8 +1162,9 @@ public class Card extends JPanel {
                 new ArrayList<>(base == null ? List.of() : base);
 
         if (out.isEmpty()
-                || !"name".equals(out.get(out.size() - 1))) {
-            out.add("name");
+                || !objectview.field.ViewableContractFieldSet.DISPLAY_KEY.equals(
+                        out.get(out.size() - 1))) {
+            out.add(objectview.field.ViewableContractFieldSet.DISPLAY_KEY);
         }
 
         return out;
@@ -1371,9 +1383,6 @@ public class Card extends JPanel {
         boolean sameNamedChild = false;
         int otherValuedFields = 0;
         for (Field field : config.visibleFieldsFor(viewable.getClass())) {
-            if ("name".equals(field.getName())) {
-                continue;
-            }
             Object value;
             try {
                 value = field.get(viewable);
@@ -1451,11 +1460,11 @@ public class Card extends JPanel {
         }
 
         String part = path.get(idx);
-        // "name" is a synthetic leaf (Viewable.getName()), not a real field.
-        if ("name".equals(part)) {
-            return changed;
+        if (obj instanceof Viewable q) {
+            FieldSet fields = FieldSet.of(q);
+            if (!fields.has(part)) return changed;
+            return changed | expandCollectionsAlong(fields.read(part), path, idx + 1);
         }
-
         Field f = ViewableAdapter.getField(obj.getClass(), part);
         if (f == null) {
             return changed;
@@ -1478,7 +1487,8 @@ public class Card extends JPanel {
     }
 
     public String getTitle() {
-        return (config.isAllFields() || config.getFields().containsKey("name"))
+        return (config.isAllFields() || config.getFields().containsKey(
+                objectview.field.ViewableContractFieldSet.DISPLAY_KEY))
                 ? safeName(viewable)
                 : "";
     }

@@ -60,7 +60,7 @@ class ViewableFieldPathsTest {
         Set<String> paths = pathStrings(ViewableFieldPaths.collectFromSample(
                 card, config, ViewableFieldPaths.NOT_MEDIA_FIELDS));
 
-        assertEquals(Set.of("children.name"), paths);
+        assertEquals(Set.of("children." + ViewableContractFieldSet.DISPLAY_KEY), paths);
     }
 
     @Test
@@ -162,22 +162,24 @@ class ViewableFieldPathsTest {
 
     @Test
     void allFieldsImpliesIdentityExplicitConfigDoesNot() {
-        // "All fields" implies the identity (name/qid). An EXPLICIT config means
+        // "All fields" implies the contract display/identity views. An explicit config means
         // exactly what it names — forcing name in regardless made search hit on
         // name even when the user unchecked it.
         ViewConfig all = ViewConfig.of(EntityCard.class);
         all.setAllFields(true);
         Set<String> allPaths = pathStrings(ViewableFieldPaths.collect(
                 all, ViewableFieldPaths.NOT_MEDIA_FIELDS));
-        assertTrue(allPaths.contains("name"), allPaths.toString());
-        assertTrue(allPaths.contains("qid"), allPaths.toString());
+        assertTrue(allPaths.contains(ViewableContractFieldSet.DISPLAY_KEY), allPaths.toString());
+        assertTrue(allPaths.contains(ViewableContractFieldSet.IDENTITY_KEY), allPaths.toString());
 
         ViewConfig explicit = ViewConfig.of(EntityCard.class);
         explicit.setAllFields(false);
         Set<String> explicitPaths = pathStrings(ViewableFieldPaths.collect(
                 explicit, ViewableFieldPaths.NOT_MEDIA_FIELDS));
-        assertFalse(explicitPaths.contains("name"), explicitPaths.toString());
-        assertFalse(explicitPaths.contains("qid"), explicitPaths.toString());
+        assertFalse(explicitPaths.contains(ViewableContractFieldSet.DISPLAY_KEY),
+                explicitPaths.toString());
+        assertFalse(explicitPaths.contains(ViewableContractFieldSet.IDENTITY_KEY),
+                explicitPaths.toString());
     }
 
     @Test
@@ -212,19 +214,20 @@ class ViewableFieldPathsTest {
 
         assertEquals(allPaths.stream().distinct().count(), allPaths.size(),
                 "no duplicate paths: " + allPaths);
-        assertEquals(1, allPaths.stream().filter(p -> p.equals(List.of("name"))).count());
-        assertEquals(1, allPaths.stream().filter(p -> p.equals(List.of("qid"))).count());
+        assertEquals(1, allPaths.stream().filter(p -> p.equals(
+                List.of(ViewableContractFieldSet.DISPLAY_KEY))).count());
+        assertEquals(1, allPaths.stream().filter(p -> p.equals(
+                List.of(ViewableContractFieldSet.IDENTITY_KEY))).count());
     }
 
     @Test
-    void nonEntityDoesNotGetSyntheticQid() {
-        // No qid field → identity-field injection is a no-op (existing behavior).
+    void explicitEmptyConfigDoesNotImplyContractFields() {
         ViewConfig config = ViewConfig.of(TestChild.class);
         config.setAllFields(false);
 
         Set<String> paths = pathStrings(ViewableFieldPaths.collect(
                 config, ViewableFieldPaths.NOT_MEDIA_FIELDS));
 
-        assertFalse(paths.contains("qid"), paths.toString());
+        assertFalse(paths.contains(ViewableContractFieldSet.IDENTITY_KEY), paths.toString());
     }
 }

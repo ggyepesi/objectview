@@ -22,6 +22,14 @@ public interface FieldRef {
 
     String name();
 
+    /** Human-facing label, independent of the stable machine key returned by
+     * {@link #name()}. Ordinary stored fields keep their name as the label. */
+    default String label() { return name(); }
+
+    /** The field's semantic role (identity / title / …), declared as metadata so consumers
+     *  react to the ROLE, never to the name. Ordinary fields are {@link FieldRole#NONE}. */
+    default FieldRole role() { return FieldRole.NONE; }
+
     /** The value shape (boolean / ordered / text / reference / collection). */
     FieldKind kind();
 
@@ -99,7 +107,21 @@ public interface FieldRef {
                               boolean structural, boolean minor,
                               boolean inline, boolean link, String linkText,
                               boolean provenance, boolean annotatedReference) {
-        return new Impl(name,
+        return described(name, name, FieldRole.NONE, kind, valueKind, typeLabel,
+                reference, collection, targetType, structural, minor, inline,
+                link, linkText, provenance, annotatedReference);
+    }
+
+    /** Complete description including presentation label and semantic role. */
+    static FieldRef described(String name, String label, FieldRole role,
+                              FieldKind kind, FieldKind valueKind,
+                              String typeLabel, boolean reference,
+                              boolean collection, String targetType,
+                              boolean structural, boolean minor,
+                              boolean inline, boolean link, String linkText,
+                              boolean provenance, boolean annotatedReference) {
+        return new Impl(name, label == null ? name : label,
+                role == null ? FieldRole.NONE : role,
                 kind == null ? FieldKind.UNKNOWN : kind,
                 valueKind == null ? FieldKind.UNKNOWN : valueKind,
                 typeLabel, reference, collection, targetType, structural, minor,
@@ -109,11 +131,21 @@ public interface FieldRef {
 
     /** Copy {@code field} while changing only its structural role. */
     static FieldRef withStructural(FieldRef field, boolean structural) {
-        return described(field.name(), field.kind(), field.valueKind(),
+        return described(field.name(), field.label(), field.role(),
+                field.kind(), field.valueKind(),
                 field.typeLabel(), field.reference(), field.collection(),
                 field.targetType(), structural, field.minor(), field.inline(),
                 field.link(), field.linkText(), field.provenance(),
                 field.annotatedReference());
+    }
+
+    /** Copy {@code field} under another stable key without losing its metadata. */
+    static FieldRef withName(FieldRef field, String name) {
+        return described(name, field.label(), field.role(),
+                field.kind(), field.valueKind(), field.typeLabel(),
+                field.reference(), field.collection(), field.targetType(),
+                field.structural(), field.minor(), field.inline(), field.link(),
+                field.linkText(), field.provenance(), field.annotatedReference());
     }
 
     private static FieldKind inferredValueKind(
@@ -140,9 +172,44 @@ public interface FieldRef {
         return FieldKind.ofTypeLabel(label);
     }
 
-    record Impl(String name, FieldKind kind, FieldKind valueKind,
+    record Impl(String name, String label, FieldRole role,
+                FieldKind kind, FieldKind valueKind,
                 String typeLabel, boolean reference, boolean collection,
                 String targetType, boolean structural, boolean minor,
                 boolean inline, boolean link, String linkText,
                 boolean provenance, boolean annotatedReference) implements FieldRef {}
+
+    /** A COMPUTED/virtual field: ordinary metadata plus a semantic {@link FieldRole}, with no
+     *  backing Java field or map entry — its value is produced by a reader in the FieldSet.
+     *  Surfaces contract-derived data (identity/title) as an ordinary, role-tagged field. */
+    static FieldRef computed(String name, String label, FieldKind kind, FieldRole role) {
+        return new Computed(name, label == null ? name : label,
+                kind == null ? FieldKind.UNKNOWN : kind,
+                role == null ? FieldRole.NONE : role);
+    }
+
+    record Computed(String name, String label, FieldKind kind,
+                    FieldRole role) implements FieldRef {
+        @Override public FieldKind valueKind() { return kind; }
+        @Override public String typeLabel() {
+            return switch (kind) {
+                case TEXT -> "String";
+                case BOOLEAN -> "Boolean";
+                case ORDERED -> "Number";
+                case MEDIA -> "MediaValue";
+                case REFERENCE -> "Viewable";
+                default -> "Object";
+            };
+        }
+        @Override public boolean reference() { return false; }
+        @Override public boolean collection() { return false; }
+        @Override public String targetType() { return null; }
+        @Override public boolean structural() { return false; }
+        @Override public boolean minor() { return false; }
+        @Override public boolean inline() { return false; }
+        @Override public boolean link() { return false; }
+        @Override public String linkText() { return ""; }
+        @Override public boolean provenance() { return false; }
+        @Override public boolean annotatedReference() { return false; }
+    }
 }

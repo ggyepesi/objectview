@@ -64,7 +64,18 @@ public final class ConfigFieldRowSource implements FieldRowSource {
     private void addReflectedClassRows(List<FieldRow> result,
                                        FieldRowContext context,
                                        Class<? extends Viewable> cls) {
-        for (Field field : ViewableAdapter.getConfigurableFields(cls)) {
+        List<Field> reflectedFields = ViewableAdapter.getAllFields(cls);
+        if (!context.minorOnly()) {
+            for (FieldRef field : objectview.field.ViewableContractFieldSet.fieldRefs()) {
+                boolean physicallyDeclared = reflectedFields.stream()
+                        .anyMatch(candidate -> candidate.getName().equals(field.name()));
+                if (!physicallyDeclared && !context.hiddenFields().contains(field.name())) {
+                    result.add(FieldRow.dynamic(
+                            field.name(), field.label(), field.typeLabel(), null));
+                }
+            }
+        }
+        for (Field field : reflectedFields) {
             if (Modifier.isStatic(field.getModifiers())) {
                 continue;
             }
@@ -93,11 +104,7 @@ public final class ConfigFieldRowSource implements FieldRowSource {
             List<FieldRow> result, FieldRowContext context) {
         Viewable sample = context.sample();
         FieldSet fields = FieldSet.of(sample);
-        if (!context.minorOnly()
-                && !fields.has("name")
-                && !context.hiddenFields().contains("name")) {
-            result.add(FieldRow.dynamic("name", "String", null));
-        }
+        context.config().migrateLegacyContractKeys(fields);
         for (FieldRef field : fields.fields()) {
             String name = field.name();
             FieldTypeSource.FieldTypeInfo info = context.fieldTypes() == null
@@ -127,8 +134,10 @@ public final class ConfigFieldRowSource implements FieldRowSource {
             }
             String label = info != null && info.typeLabel() != null
                     ? info.typeLabel() : field.typeLabel();
+            String displayLabel = info != null && info.label() != null
+                    ? info.label() : field.label();
             result.add(reflected == null
-                    ? FieldRow.dynamic(name, label, nested)
+                    ? FieldRow.dynamic(name, displayLabel, label, nested)
                     : FieldRow.reflected(reflected, label, nested));
         }
     }
@@ -140,10 +149,14 @@ public final class ConfigFieldRowSource implements FieldRowSource {
                                FieldRowContext context) {
         FieldTypeSource types = context.fieldTypes();
 
-        if (!context.minorOnly()
-                && !context.hiddenFields().contains("name")
-                && !types.fieldNames().contains("name")) {
-            result.add(FieldRow.dynamic("name", "String", null));
+        if (!context.minorOnly()) {
+            for (FieldRef field : objectview.field.ViewableContractFieldSet.fieldRefs()) {
+                if (!context.hiddenFields().contains(field.name())
+                        && !types.fieldNames().contains(field.name())) {
+                    result.add(FieldRow.dynamic(
+                            field.name(), field.label(), field.typeLabel(), null));
+                }
+            }
         }
 
         for (String name : types.fieldNames()) {
@@ -160,6 +173,7 @@ public final class ConfigFieldRowSource implements FieldRowSource {
             }
             result.add(FieldRow.dynamic(
                     name,
+                    info != null && info.label() != null ? info.label() : name,
                     info != null ? info.typeLabel() : "",
                     nestedFor(info, null)));
         }

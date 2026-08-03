@@ -143,10 +143,6 @@ public final class RenderEstimator {
                         : config;
 
         for (Field field : cfg.visibleFieldsFor(q.getClass())) {
-            if ("name".equals(field.getName())) {
-                continue;
-            }
-
             try {
                 field.setAccessible(true);
                 Object value = field.get(q);
