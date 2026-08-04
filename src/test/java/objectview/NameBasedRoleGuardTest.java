@@ -19,10 +19,10 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * FORCING RULE — objectview must never infer a field/class ROLE from its literal NAME
- * ("qid", "name", "id", "source", "record", …). Special roles (identity, title, provenance,
+ * ("qid", "name", "id", "source", "record", …). Special roles (identity, title,
  * link, entity) belong on declared flags/annotations read through a generic public mechanism,
- * not string-matched. Name inference is fragile and has bitten us repeatedly (Oscars fields,
- * the provenance {@code source} whose {@code @Link} field was named {@code qid}).
+ * not string-matched. Name inference is fragile and has bitten us repeatedly (e.g. Oscars
+ * fields, and a {@code @Link} field that happened to be named {@code qid}).
  *
  * <p>This scans objectview's own source for that anti-pattern and compares it to a frozen
  * allowlist ({@code name-based-role-allowlist.txt}). A NEW occurrence fails the build — you

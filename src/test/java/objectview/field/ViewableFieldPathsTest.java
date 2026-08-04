@@ -237,7 +237,7 @@ class ViewableFieldPathsTest {
                 FieldRef.of("code", FieldKind.TEXT, "String", false, false, false)));
         FieldRef category = FieldRef.described("category", FieldKind.REFERENCE,
                 FieldKind.REFERENCE, "Category", true, false, "Category",
-                false, false, false, false, "", false, false);
+                false, false, false, false, "", false);
         FieldRef image = FieldRef.of("image", FieldKind.MEDIA, "Image",
                 false, false, false);
         FieldTypeSource root = source(List.of(category, image), child);

@@ -732,7 +732,7 @@ public class Card extends JPanel {
         boolean isCollectionOrMap =
                 value instanceof Collection<?> || value instanceof Map<?, ?>;
 
-        if (field.annotatedReference() || field.provenance()) {
+        if (field.annotatedReference()) {
             if (isCollectionOrMap) {
                 // The header labels the field; build the items borderless.
                 Object v = value;
@@ -1118,7 +1118,7 @@ public class Card extends JPanel {
             return false;
         }
 
-        if (field.annotatedReference() || field.provenance()) {
+        if (field.annotatedReference()) {
             return false;
         }
 

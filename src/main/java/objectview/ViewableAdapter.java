@@ -53,10 +53,6 @@ public abstract class ViewableAdapter implements Viewable {
         return field != null && field.isAnnotationPresent(Link.class);
     }
 
-    public static boolean isProvenanceField(Field field) {
-        return field != null && field.isAnnotationPresent(Provenance.class);
-    }
-
     public static boolean isHidden(Field field) {
         return field != null
                 && field.isAnnotationPresent(Hidden.class);

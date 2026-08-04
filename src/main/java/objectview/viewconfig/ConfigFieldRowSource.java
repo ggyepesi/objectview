@@ -112,7 +112,6 @@ public final class ConfigFieldRowSource implements FieldRowSource {
             if (context.hiddenFields().contains(name)
                     || field.structural()
                     || info != null && info.structural()
-                    || field.provenance()
                     || minor != context.minorOnly()) {
                 continue;
             }

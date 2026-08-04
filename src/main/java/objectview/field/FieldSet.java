@@ -74,7 +74,7 @@ public interface FieldSet {
             // presentation metadata; do not leak the map container itself.
             backing = new LayeredFieldSet(
                     new DynamicFieldSet(dynamic), new ReflectionFieldSet(object),
-                    field -> field.provenance() || field.link());
+                    field -> field.link());
             if (effective == null) {
                 effective = dynamic.dynamicFieldSchema();
             }

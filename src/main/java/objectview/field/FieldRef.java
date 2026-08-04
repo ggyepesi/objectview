@@ -7,7 +7,7 @@ package objectview.field;
  * or a dynamic property map ({@link DynamicFields}). The rendering / search /
  * sort / config machinery reads this instead of re-deriving field metadata two ways.
  *
- * <p>The <b>render hints</b> ({@link #inline()}, {@link #link()}, {@link #provenance()},
+ * <p>The <b>render hints</b> ({@link #inline()}, {@link #link()},
  * {@link #annotatedReference()}) are annotation-derived and so only a <i>declared</i>
  * field can carry them — a dynamic map value has no annotations and reports them all
  * false / empty. A single render builder reads these hints first, then falls back to
@@ -54,8 +54,7 @@ public interface FieldRef {
     String targetType();
 
     /** Plumbing retained in the data but omitted from ordinary field pickers and
-     * nested traversal. Provenance is a separate render/traversal hint and need not
-     * be structural. */
+     * nested traversal. */
     boolean structural();
 
     /** A minor field — a rendering hint (compact / hidden-by-default), if the backing
@@ -73,9 +72,6 @@ public interface FieldRef {
     /** The {@code @Link} display text (empty when none / not a link field). */
     String linkText();
 
-    /** {@code @Provenance} — a source/metadata field (chip; skipped by reference walks). */
-    boolean provenance();
-
     /** {@code @Reference} — force reference-chip rendering. */
     boolean annotatedReference();
 
@@ -86,18 +82,18 @@ public interface FieldRef {
         return described(name, kind,
                 inferredValueKind(kind, typeLabel, reference, collection),
                 typeLabel, reference, collection, null, false, minor,
-                false, false, "", false, false);
+                false, false, "", false);
     }
 
     /** A declared field, carrying its annotation-derived render hints. */
     static FieldRef of(String name, FieldKind kind, String typeLabel,
                        boolean reference, boolean collection, boolean minor,
                        boolean inline, boolean link, String linkText,
-                       boolean provenance, boolean annotatedReference) {
+                       boolean annotatedReference) {
         return described(name, kind,
                 inferredValueKind(kind, typeLabel, reference, collection),
                 typeLabel, reference, collection, null, false, minor,
-                inline, link, linkText, provenance, annotatedReference);
+                inline, link, linkText, annotatedReference);
     }
 
     /** Complete immutable field description used by compiled/reflected schemas. */
@@ -106,10 +102,10 @@ public interface FieldRef {
                               boolean collection, String targetType,
                               boolean structural, boolean minor,
                               boolean inline, boolean link, String linkText,
-                              boolean provenance, boolean annotatedReference) {
+                              boolean annotatedReference) {
         return described(name, name, FieldRole.NONE, kind, valueKind, typeLabel,
                 reference, collection, targetType, structural, minor, inline,
-                link, linkText, provenance, annotatedReference);
+                link, linkText, annotatedReference);
     }
 
     /** Complete description including presentation label and semantic role. */
@@ -119,14 +115,14 @@ public interface FieldRef {
                               boolean collection, String targetType,
                               boolean structural, boolean minor,
                               boolean inline, boolean link, String linkText,
-                              boolean provenance, boolean annotatedReference) {
+                              boolean annotatedReference) {
         return new Impl(name, label == null ? name : label,
                 role == null ? FieldRole.NONE : role,
                 kind == null ? FieldKind.UNKNOWN : kind,
                 valueKind == null ? FieldKind.UNKNOWN : valueKind,
                 typeLabel, reference, collection, targetType, structural, minor,
                 inline, link, linkText == null ? "" : linkText,
-                provenance, annotatedReference);
+                annotatedReference);
     }
 
     /** Copy {@code field} while changing only its structural role. */
@@ -135,8 +131,7 @@ public interface FieldRef {
                 field.kind(), field.valueKind(),
                 field.typeLabel(), field.reference(), field.collection(),
                 field.targetType(), structural, field.minor(), field.inline(),
-                field.link(), field.linkText(), field.provenance(),
-                field.annotatedReference());
+                field.link(), field.linkText(), field.annotatedReference());
     }
 
     /** Copy {@code field} under another stable key without losing its metadata. */
@@ -145,7 +140,7 @@ public interface FieldRef {
                 field.kind(), field.valueKind(), field.typeLabel(),
                 field.reference(), field.collection(), field.targetType(),
                 field.structural(), field.minor(), field.inline(), field.link(),
-                field.linkText(), field.provenance(), field.annotatedReference());
+                field.linkText(), field.annotatedReference());
     }
 
     private static FieldKind inferredValueKind(
@@ -177,7 +172,7 @@ public interface FieldRef {
                 String typeLabel, boolean reference, boolean collection,
                 String targetType, boolean structural, boolean minor,
                 boolean inline, boolean link, String linkText,
-                boolean provenance, boolean annotatedReference) implements FieldRef {}
+                boolean annotatedReference) implements FieldRef {}
 
     /** A COMPUTED/virtual field: ordinary metadata plus a semantic {@link FieldRole}, with no
      *  backing Java field or map entry — its value is produced by a reader in the FieldSet.
@@ -209,7 +204,6 @@ public interface FieldRef {
         @Override public boolean inline() { return false; }
         @Override public boolean link() { return false; }
         @Override public String linkText() { return ""; }
-        @Override public boolean provenance() { return false; }
         @Override public boolean annotatedReference() { return false; }
     }
 }

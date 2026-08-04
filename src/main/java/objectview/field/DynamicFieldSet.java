@@ -74,7 +74,7 @@ public final class DynamicFieldSet implements FieldSet {
 
         return FieldRef.described(name, kind, valueKind, typeLabel,
                 reference, collection, targetType, false, false,
-                false, false, "", false, false);
+                false, false, "", false);
     }
 
     private static Object firstElement(Object value) {

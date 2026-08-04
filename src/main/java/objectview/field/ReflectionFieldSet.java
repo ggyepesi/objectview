@@ -118,7 +118,6 @@ public final class ReflectionFieldSet implements FieldSet {
                 ViewableAdapter.isMinorField(field),
                 ViewableAdapter.isInline(field), link,
                 linkAnn == null ? "" : linkAnn.text(),
-                ViewableAdapter.isProvenanceField(field),
                 ViewableAdapter.isReference(field));
     }
 
