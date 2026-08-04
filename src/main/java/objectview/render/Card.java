@@ -144,7 +144,11 @@ public class Card extends JPanel {
         if (highlightColor != null) {
             g.setColor(highlightColor);
             g.fillRect(0, 0, getWidth(), getHeight());
-        } else if (selected) {
+        }
+        // The selection tint composites OVER any search-hit highlight (it is
+        // semi-transparent), so selecting a highlighted hit is visibly distinct
+        // rather than being masked by the hit colour.
+        if (selected) {
             g.setColor(SELECTION_TINT);
             g.fillRect(0, 0, getWidth(), getHeight());
         }
