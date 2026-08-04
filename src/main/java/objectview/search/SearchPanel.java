@@ -136,6 +136,8 @@ public class SearchPanel extends JPanel
     private boolean sorted = false;
     private Consumer<ConfigState> configListener;
     private final java.util.List<SubtypeConfig> subtypeConfigs;
+    private final FieldTypeSource rootFieldTypes;
+    private final Viewable fieldPathSample;
     private final java.util.Map<String, ViewConfigEditor> subtypeSearchEditors =
             new java.util.LinkedHashMap<>();
     private final java.util.Map<String, ViewConfigEditor> subtypeSortEditors =
@@ -298,9 +300,7 @@ public class SearchPanel extends JPanel
         }
 
         List<ViewableFieldPaths.FieldPath> sortPaths =
-                ViewableFieldPaths.collect(
-                        effectiveConfig(sortEditor, subtypeSortEditors, null),
-                        ViewableFieldPaths.NOT_MEDIA_FIELDS);
+                configuredPaths(sortEditor, subtypeSortEditors);
 
         if (sortPaths.isEmpty()) {
             return;
@@ -420,6 +420,8 @@ public class SearchPanel extends JPanel
             java.util.List<SubtypeConfig> subtypeConfigs,
             FieldTypeSource initialFieldTypes) {
         this.searchClass = cls;
+        this.rootFieldTypes = initialFieldTypes;
+        this.fieldPathSample = sample;
         this.subtypeConfigs = subtypeConfigs == null
                 ? java.util.List.of() : java.util.List.copyOf(subtypeConfigs);
         setLayout(new BorderLayout(6, 6));
@@ -660,7 +662,10 @@ public class SearchPanel extends JPanel
                 if (objectview.field.ViewableContractFieldSet.DISPLAY_KEY.equals(name)
                         && !fields.contains(name)) {
                     return new FieldTypeSource.FieldTypeInfo(
-                            "String", true, false, null, null);
+                            "String", true, false, null, null, "Name",
+                            objectview.field.FieldRole.DISPLAY,
+                            objectview.field.FieldKind.TEXT,
+                            objectview.field.FieldKind.TEXT);
                 }
                 return fields.contains(name) && source != null
                         ? source.field(name) : null;
@@ -737,6 +742,43 @@ public class SearchPanel extends JPanel
             if (extra != null) result = result.withAdditionalFields(extra);
         }
         return result;
+    }
+
+    /** The single field-path boundary used by search, sorting and highlighting.
+     * Schema-backed domains never inspect an instance to discover paths. */
+    private List<ViewableFieldPaths.FieldPath> configuredPaths(
+            ViewConfigEditor baseEditor,
+            java.util.Map<String, ViewConfigEditor> subtypeEditors) {
+        List<ViewableFieldPaths.FieldPath> paths = new ArrayList<>();
+        if (rootFieldTypes != null) {
+            paths.addAll(ViewableFieldPaths.collectFromSchema(
+                    baseEditor.getConfig(), rootFieldTypes, true));
+            java.util.Map<String, ViewConfig> branches = baseEditor.classBranchConfigs();
+            for (SubtypeConfig subtype : subtypeConfigs) {
+                ViewConfig config = branches.get(subtype.typeName());
+                if (config == null) {
+                    ViewConfigEditor editor = subtypeEditors.get(subtype.typeName());
+                    config = editor == null ? null : editor.getConfig();
+                }
+                if (config != null && subtype.fieldTypes() != null) {
+                    paths.addAll(ViewableFieldPaths.collectFromSchema(
+                            config, subtype.fieldTypes(), true));
+                }
+            }
+        } else {
+            ViewConfig config = effectiveConfig(baseEditor, subtypeEditors, null);
+            paths.addAll(fieldPathSample == null
+                    ? ViewableFieldPaths.collect(config,
+                            ViewableFieldPaths.NOT_MEDIA_FIELDS)
+                    : ViewableFieldPaths.collectFromSample(fieldPathSample, config,
+                            ViewableFieldPaths.NOT_MEDIA_FIELDS));
+        }
+        java.util.LinkedHashMap<String, ViewableFieldPaths.FieldPath> unique =
+                new java.util.LinkedHashMap<>();
+        for (ViewableFieldPaths.FieldPath path : paths) {
+            unique.putIfAbsent(path.dotted(), path);
+        }
+        return List.copyOf(unique.values());
     }
 
     public ConfigState configState() {
@@ -900,7 +942,7 @@ public class SearchPanel extends JPanel
         if (virtualList == null) {
             searchAndSort.rebuildSearchIndex(
                     targetPanel,
-                    effectiveConfig(searchEditor, subtypeSearchEditors, null));
+                    configuredPaths(searchEditor, subtypeSearchEditors));
         }
     }
 
@@ -979,9 +1021,7 @@ public class SearchPanel extends JPanel
             List<String> queryTokens) {
 
         List<ViewableFieldPaths.FieldPath> paths =
-                ViewableFieldPaths.collect(
-                        effectiveConfig(searchEditor, subtypeSearchEditors, null),
-                        ViewableFieldPaths.NOT_MEDIA_FIELDS);
+                configuredPaths(searchEditor, subtypeSearchEditors);
 
         Map<String, ViewableFieldPaths.FieldPath> pathByTitle =
                 new LinkedHashMap<>();
@@ -1918,7 +1958,7 @@ public class SearchPanel extends JPanel
                 searchAndSort.searchViewables(
                         virtualList.items(),
                         queryTokens,
-                        effectiveConfig(searchEditor, subtypeSearchEditors, null));
+                        configuredPaths(searchEditor, subtypeSearchEditors));
 
         // Remember the hits so a card rebuilt on scroll-back gets re-highlighted.
         virtualHits.clear();
@@ -1927,15 +1967,8 @@ public class SearchPanel extends JPanel
         Map<String, ViewableFieldPaths.FieldPath> pathByTitle =
                 new LinkedHashMap<>();
 
-        Viewable sample = virtualList.items().isEmpty()
-                ? null
-                : virtualList.items().get(0);
-
         for (ViewableFieldPaths.FieldPath fp
-                : ViewableFieldPaths.collectFromSample(
-                sample,
-                effectiveConfig(searchEditor, subtypeSearchEditors, null),
-                ViewableFieldPaths.NOT_MEDIA_FIELDS)) {
+                : configuredPaths(searchEditor, subtypeSearchEditors)) {
 
             pathByTitle.put(fp.title(), fp);
         }

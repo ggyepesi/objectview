@@ -3,6 +3,7 @@ import objectview.ViewableAdapter;
 
 import objectview.annotations.Hidden;
 import objectview.viewconfig.ViewConfig;
+import objectview.viewconfig.FieldTypeSource;
 import org.junit.jupiter.api.Test;
 import objectview.media.ImagePane;
 
@@ -229,5 +230,51 @@ class ViewableFieldPathsTest {
                 config, ViewableFieldPaths.NOT_MEDIA_FIELDS));
 
         assertFalse(paths.contains(ViewableContractFieldSet.IDENTITY_KEY), paths.toString());
+    }
+
+    @Test void schemaEnumeratesNestedAndAbsentFieldsWithoutASample() {
+        FieldTypeSource child = source(List.of(
+                FieldRef.of("code", FieldKind.TEXT, "String", false, false, false)));
+        FieldRef category = FieldRef.described("category", FieldKind.REFERENCE,
+                FieldKind.REFERENCE, "Category", true, false, "Category",
+                false, false, false, false, "", false, false);
+        FieldRef image = FieldRef.of("image", FieldKind.MEDIA, "Image",
+                false, false, false);
+        FieldTypeSource root = source(List.of(category, image), child);
+
+        ViewConfig nested = ViewConfig.of(TestCard.class);
+        nested.setAllFields(false);
+        ViewConfig categoryConfig = ViewConfig.leaf();
+        categoryConfig.setAllFields(true);
+        nested.addField("category", categoryConfig);
+        nested.addField("image", ViewConfig.leaf());
+
+        Set<String> paths = pathStrings(ViewableFieldPaths.collectFromSchema(
+                nested, root, true));
+        assertEquals(Set.of("category.code"), paths);
+    }
+
+    private static FieldTypeSource source(List<FieldRef> refs) {
+        return source(refs, null);
+    }
+
+    private static FieldTypeSource source(
+            List<FieldRef> refs, FieldTypeSource categoryChildren) {
+        return new FieldTypeSource() {
+            @Override public FieldTypeInfo field(String name) {
+                FieldRef ref = refs.stream().filter(f -> f.name().equals(name))
+                        .findFirst().orElse(null);
+                if (ref == null) return null;
+                FieldTypeSource nested = "category".equals(name)
+                        ? categoryChildren : null;
+                return new FieldTypeInfo(ref.typeLabel(), ref.structural(), ref.minor(),
+                        ref.targetType(), nested, ref.label(), ref.role(),
+                        ref.kind(), ref.valueKind());
+            }
+
+            @Override public List<String> fieldNames() {
+                return refs.stream().map(FieldRef::name).toList();
+            }
+        };
     }
 }

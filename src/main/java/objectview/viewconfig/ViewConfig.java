@@ -10,11 +10,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class ViewConfig {
 
-    // Read compatibility only. Runtime consumers use the stable contract keys; these
-    // aliases are translated here once and never interpreted by field access/rendering.
-    private static final String LEGACY_DISPLAY_KEY = "name";
-    private static final String LEGACY_IDENTITY_KEY = "qid";
-
     // Explicitly configured fields. These are shown regardless of minor/non-minor.
     private final Map<String, ViewConfig> fields = new LinkedHashMap<>();
     private Class<? extends Viewable> cls;
@@ -213,27 +208,6 @@ public class ViewConfig {
 
     public void addField(String name, ViewConfig config) {
         fields.put(name, config);
-    }
-
-    /** Migrate pre-contract synthetic identity/display keys when they do not denote a
-     * real field in the current backing. The replacement preserves configuration order. */
-    public void migrateLegacyContractKeys(objectview.field.FieldSet available) {
-        migrateLegacyKey(LEGACY_DISPLAY_KEY,
-                objectview.field.ViewableContractFieldSet.DISPLAY_KEY, available);
-        migrateLegacyKey(LEGACY_IDENTITY_KEY,
-                objectview.field.ViewableContractFieldSet.IDENTITY_KEY, available);
-    }
-
-    private void migrateLegacyKey(String legacy, String canonical,
-                                  objectview.field.FieldSet available) {
-        if (!fields.containsKey(legacy) || available != null && available.has(legacy)) return;
-        Map<String, ViewConfig> migrated = new LinkedHashMap<>();
-        for (Map.Entry<String, ViewConfig> entry : fields.entrySet()) {
-            migrated.put(entry.getKey().equals(legacy) ? canonical : entry.getKey(),
-                    entry.getValue());
-        }
-        fields.clear();
-        fields.putAll(migrated);
     }
 
     public Map<String, ViewConfig> getFields() {

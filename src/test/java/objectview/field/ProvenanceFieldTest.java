@@ -1,42 +1,37 @@
 package objectview.field;
 
 import objectview.ViewableAdapter;
-import objectview.provenance.Source;
+import objectview.annotations.Link;
+import objectview.annotations.Provenance;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ProvenanceFieldTest {
-
-    @Test void sourceIsAnOrdinaryNestedFieldWithSpecializedHints() {
+    @Test void provenanceIsAnOrdinaryFieldWithSpecializedHints() {
         Item item = new Item();
-        TestSource source = new TestSource("Q42");
-        item.source(source);
-
-        FieldRef sourceField = item.fields().field("source");
+        FieldRef sourceField = item.fields().field("origin");
         assertTrue(sourceField.provenance());
         assertFalse(sourceField.structural());
-        assertSame(source, item.fields().read("source"));
-
-        FieldRef record = source.fields().field("record");
-        assertTrue(record.link());
-        assertEquals("Q42|https://www.wikidata.org/wiki/Q42",
-                source.fields().read("record"));
-        assertEquals("Q42", source.sourceId());
+        assertSame(item.origin, item.fields().read("origin"));
+        assertTrue(item.origin.fields().field("record").link());
     }
 
     private static final class Item extends ViewableAdapter {
+        @Provenance
+        private final TestSource origin = new TestSource();
+
         @Override public String getIdentifier() { return "item"; }
         @Override public String getDisplayName() { return "Item"; }
-        @Override public FieldSet fields() { return FieldSet.of(this); }
     }
 
-    private static final class TestSource extends Source {
-        private TestSource(String qid) {
-            super("Wikidata", qid, "https://www.wikidata.org/wiki/" + qid);
-        }
+    private static final class TestSource extends ViewableAdapter {
+        @Link
+        private final String record = "Q42|https://www.wikidata.org/wiki/Q42";
+
+        @Override public String getIdentifier() { return "Q42"; }
+        @Override public String getDisplayName() { return "Wikidata"; }
     }
 }

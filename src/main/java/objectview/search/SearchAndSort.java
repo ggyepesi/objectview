@@ -6,7 +6,6 @@ import objectview.field.ViewableFieldPaths;
 
 import objectview.annotations.Numeric;
 import objectview.render.Card;
-import objectview.viewconfig.ViewConfig;
 
 import javax.swing.*;
 import java.awt.*;
@@ -39,18 +38,13 @@ public class SearchAndSort {
 
     public void rebuildSearchIndex(
             JComponent targetPanel,
-            ViewConfig searchConfig) {
+            List<ViewableFieldPaths.FieldPath> paths) {
 
         searchIndex.clear();
 
-        if (targetPanel == null || searchConfig == null) {
+        if (targetPanel == null || paths == null) {
             return;
         }
-
-        List<ViewableFieldPaths.FieldPath> paths =
-                ViewableFieldPaths.collect(
-                        searchConfig,
-                        ViewableFieldPaths.NOT_MEDIA_FIELDS);
 
         for (Component c : targetPanel.getComponents()) {
             if (!(c instanceof Card qp)) {
@@ -108,24 +102,18 @@ public class SearchAndSort {
     public Map<String, List<objectview.Viewable>> searchViewables(
             List<objectview.Viewable> viewables,
             List<String> queryTokens,
-            ViewConfig searchConfig) {
+            List<ViewableFieldPaths.FieldPath> paths) {
 
         Map<String, List<objectview.Viewable>> out =
                 new LinkedHashMap<>();
 
         if (viewables == null
                 || viewables.isEmpty()
-                || searchConfig == null
+                || paths == null
                 || queryTokens == null
                 || queryTokens.isEmpty()) {
             return out;
         }
-
-        List<ViewableFieldPaths.FieldPath> paths =
-                ViewableFieldPaths.collectFromSample(
-                        viewables.get(0),
-                        searchConfig,
-                        ViewableFieldPaths.NOT_MEDIA_FIELDS);
 
         for (ViewableFieldPaths.FieldPath fp : paths) {
             List<objectview.Viewable> hits = null;

@@ -91,7 +91,10 @@ class SearchableCardViewTest {
         FieldTypeSource schema = new FieldTypeSource() {
             @Override public FieldTypeInfo field(String name) {
                 return "detail".equals(name)
-                        ? new FieldTypeInfo("String", false, false, null, null)
+                        ? new FieldTypeInfo("String", false, false, null, null,
+                                null, objectview.field.FieldRole.NONE,
+                                objectview.field.FieldKind.TEXT,
+                                objectview.field.FieldKind.TEXT)
                         : null;
             }
 

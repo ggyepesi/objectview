@@ -104,7 +104,6 @@ public final class ConfigFieldRowSource implements FieldRowSource {
             List<FieldRow> result, FieldRowContext context) {
         Viewable sample = context.sample();
         FieldSet fields = FieldSet.of(sample);
-        context.config().migrateLegacyContractKeys(fields);
         for (FieldRef field : fields.fields()) {
             String name = field.name();
             FieldTypeSource.FieldTypeInfo info = context.fieldTypes() == null

@@ -310,13 +310,6 @@ public class Card extends JPanel {
                 ? ViewConfig.of(viewable == null ? null : viewable.getClass())
                 : config;
 
-        if (viewable != null) {
-            // Saved pre-contract configs may still name the old synthetic name/qid
-            // fields. Translate them once at the boundary, while preserving genuine
-            // backing fields with those names.
-            this.config.migrateLegacyContractKeys(FieldSet.of(viewable));
-        }
-
         setLayout(new GridBagLayout());
         setOpaque(false);
 

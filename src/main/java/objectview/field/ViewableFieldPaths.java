@@ -5,6 +5,7 @@ import objectview.ViewableAdapter;
 
 import objectview.media.ImagePane;
 import objectview.viewconfig.ViewConfig;
+import objectview.viewconfig.FieldTypeSource;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.ParameterizedType;
@@ -88,6 +89,64 @@ public final class ViewableFieldPaths {
     }
 
     /**
+     * Enumerates configured paths exclusively from an authoritative schema
+     * projection. No instance value or reflected field participates in discovery,
+     * so null/empty fields and dynamic/reflected representations yield the same
+     * stable paths.
+     */
+    public static List<FieldPath> collectFromSchema(
+            ViewConfig config, FieldTypeSource schema, boolean excludeMedia) {
+        List<FieldPath> out = new ArrayList<>();
+        if (config == null || schema == null) return out;
+        collectSchema(config, schema, new ArrayList<>(), "", excludeMedia,
+                new LinkedHashSet<>(), out);
+        return dedupByPath(out);
+    }
+
+    private static void collectSchema(
+            ViewConfig config, FieldTypeSource schema, List<String> prefix,
+            String titlePrefix, boolean excludeMedia,
+            Set<FieldTypeSource> branch, List<FieldPath> out) {
+        if (config == null || schema == null || !branch.add(schema)) return;
+        try {
+            LinkedHashSet<String> names = new LinkedHashSet<>(config.getFields().keySet());
+            names.addAll(schema.fieldNames());
+            for (String name : names) {
+                FieldTypeSource.FieldTypeInfo info = schema.field(name);
+                if (info == null || info.structural()) continue;
+                boolean explicit = config.getFields().containsKey(name);
+                boolean selected = explicit || (info.minor()
+                        ? config.isAllMinorFields() : config.isAllFields());
+                if (!selected || excludeMedia
+                        && (info.kind() == FieldKind.MEDIA
+                        || info.valueKind() == FieldKind.MEDIA)) continue;
+
+                List<String> path = new ArrayList<>(prefix);
+                path.add(name);
+                String label = info.label() == null || info.label().isBlank()
+                        ? name : info.label();
+                String title = titlePrefix.isEmpty() ? label : titlePrefix + "." + label;
+                ViewConfig child = config.getFieldConfig(name);
+                boolean childSelected = child != null && (child.isAllFields()
+                        || child.isAllMinorFields() || !child.getFields().isEmpty());
+                if (info.nested() != null && childSelected) {
+                    collectSchema(child, info.nested(), path, title, excludeMedia,
+                            branch, out);
+                } else if (info.nested() != null) {
+                    List<String> displayPath = new ArrayList<>(path);
+                    displayPath.add(ViewableContractFieldSet.DISPLAY_KEY);
+                    out.add(new FieldPath(title + "." + ViewableContractFieldSet.label(
+                            ViewableContractFieldSet.DISPLAY_KEY), displayPath, null));
+                } else {
+                    out.add(new FieldPath(title, path, null));
+                }
+            }
+        } finally {
+            branch.remove(schema);
+        }
+    }
+
+    /**
      * Field paths enumerated from a sample instance, restricted recursively by
      * {@code config}. Unlike filtering only the first path segment, this method
      * applies each child {@link ViewConfig} at the level it configures.
@@ -130,7 +189,6 @@ public final class ViewableFieldPaths {
 
         try {
             FieldSet set = FieldSet.of(obj);
-            config.migrateLegacyContractKeys(set);
             Set<String> handled = new LinkedHashSet<>();
 
             // Explicit fields first, preserving configuration order.

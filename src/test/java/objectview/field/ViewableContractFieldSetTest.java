@@ -1,7 +1,6 @@
 package objectview.field;
 
 import objectview.ViewableAdapter;
-import objectview.viewconfig.ViewConfig;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
@@ -31,26 +30,6 @@ class ViewableContractFieldSetTest {
         assertEquals("stored value", fields.read(ViewableContractFieldSet.DISPLAY_KEY));
         assertEquals(FieldRole.NONE,
                 fields.field(ViewableContractFieldSet.DISPLAY_KEY).role());
-    }
-
-    @Test void legacySyntheticKeysMigrateButRealFieldsDoNot() {
-        Item item = new Item("item-1", "Item one");
-        ViewConfig legacy = ViewConfig.leaf();
-        legacy.addField("name", ViewConfig.leaf());
-        legacy.addField("qid", ViewConfig.leaf());
-        legacy.migrateLegacyContractKeys(FieldSet.of(item));
-
-        assertEquals(java.util.List.of(
-                        ViewableContractFieldSet.DISPLAY_KEY,
-                        ViewableContractFieldSet.IDENTITY_KEY),
-                java.util.List.copyOf(legacy.getFields().keySet()));
-
-        item.values.put("name", "real field");
-        ViewConfig physical = ViewConfig.leaf();
-        physical.addField("name", ViewConfig.leaf());
-        physical.migrateLegacyContractKeys(FieldSet.of(item));
-        assertEquals(java.util.List.of("name"),
-                java.util.List.copyOf(physical.getFields().keySet()));
     }
 
     private static final class Item extends ViewableAdapter implements DynamicFields {
