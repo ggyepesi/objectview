@@ -162,24 +162,22 @@ class ViewableFieldPathsTest {
     }
 
     @Test
-    void allFieldsImpliesIdentityExplicitConfigDoesNot() {
-        // "All fields" implies the contract display/identity views. An explicit config means
+    void allFieldsImpliesDisplayExplicitConfigDoesNot() {
+        // "All fields" implies the contract display-name view. An explicit config means
         // exactly what it names — forcing name in regardless made search hit on
-        // name even when the user unchecked it.
+        // name even when the user unchecked it. Identity is never a field either way.
         ViewConfig all = ViewConfig.of(EntityCard.class);
         all.setAllFields(true);
         Set<String> allPaths = pathStrings(ViewableFieldPaths.collect(
                 all, ViewableFieldPaths.NOT_MEDIA_FIELDS));
         assertTrue(allPaths.contains(ViewableContractFieldSet.DISPLAY_KEY), allPaths.toString());
-        assertTrue(allPaths.contains(ViewableContractFieldSet.IDENTITY_KEY), allPaths.toString());
+        assertFalse(allPaths.contains(ViewableContractFieldSet.IDENTITY_KEY), allPaths.toString());
 
         ViewConfig explicit = ViewConfig.of(EntityCard.class);
         explicit.setAllFields(false);
         Set<String> explicitPaths = pathStrings(ViewableFieldPaths.collect(
                 explicit, ViewableFieldPaths.NOT_MEDIA_FIELDS));
         assertFalse(explicitPaths.contains(ViewableContractFieldSet.DISPLAY_KEY),
-                explicitPaths.toString());
-        assertFalse(explicitPaths.contains(ViewableContractFieldSet.IDENTITY_KEY),
                 explicitPaths.toString());
     }
 
@@ -201,9 +199,10 @@ class ViewableFieldPathsTest {
     }
 
     @Test
-    void collectSurfacesIdentityExactlyOnce() {
-        // Identity (name + qid) must appear once each — never doubled — so a
-        // duplicated field can't build an inconsistent composite sort/search key.
+    void collectSurfacesDisplayExactlyOnceAndNeverIdentity() {
+        // The display name must appear exactly once — never doubled — so a duplicated
+        // field can't build an inconsistent composite sort/search key. Identity is not
+        // a field, so it never appears.
         ViewConfig config = ViewConfig.of(EntityCard.class);
 
         List<ViewableFieldPaths.FieldPath> paths = ViewableFieldPaths.collect(
@@ -217,7 +216,7 @@ class ViewableFieldPathsTest {
                 "no duplicate paths: " + allPaths);
         assertEquals(1, allPaths.stream().filter(p -> p.equals(
                 List.of(ViewableContractFieldSet.DISPLAY_KEY))).count());
-        assertEquals(1, allPaths.stream().filter(p -> p.equals(
+        assertEquals(0, allPaths.stream().filter(p -> p.equals(
                 List.of(ViewableContractFieldSet.IDENTITY_KEY))).count());
     }
 
@@ -229,7 +228,7 @@ class ViewableFieldPathsTest {
         Set<String> paths = pathStrings(ViewableFieldPaths.collect(
                 config, ViewableFieldPaths.NOT_MEDIA_FIELDS));
 
-        assertFalse(paths.contains(ViewableContractFieldSet.IDENTITY_KEY), paths.toString());
+        assertFalse(paths.contains(ViewableContractFieldSet.DISPLAY_KEY), paths.toString());
     }
 
     @Test void schemaEnumeratesNestedAndAbsentFieldsWithoutASample() {

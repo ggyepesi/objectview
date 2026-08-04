@@ -5,19 +5,26 @@ import objectview.Viewable;
 import java.util.List;
 
 /**
- * Read-only fields supplied by the {@link Viewable} contract itself. Their names are
- * stable, reserved configuration keys; labels and semantic roles remain metadata.
+ * The field the {@link Viewable} contract projects for rendering, configuration,
+ * search and sort: the DISPLAY name ({@link Viewable#getDisplayName()}), shown as
+ * the panel title and offered — under the reserved key {@link #DISPLAY_KEY}, label
+ * "Name" — as a configurable/searchable field.
+ *
+ * <p>{@link Viewable#getIdentifier()} is deliberately NOT projected as a field. It
+ * is a keying method (identity / equality) that is never rendered — so there is
+ * nothing to highlight, sort or configure. {@link #IDENTITY_KEY} stays a reserved
+ * key so the data plane can recognise and never store it, but identity is a method,
+ * not a field.
  */
 public final class ViewableContractFieldSet implements FieldSet {
 
+    /** Reserved key for the identity contract. NOT a projected field — see class doc. */
     public static final String IDENTITY_KEY = "@view:identity";
     public static final String DISPLAY_KEY = "@view:display";
 
-    private static final FieldRef IDENTITY = FieldRef.computed(
-            IDENTITY_KEY, "Identifier", FieldKind.TEXT, FieldRole.IDENTITY);
     private static final FieldRef DISPLAY = FieldRef.computed(
             DISPLAY_KEY, "Name", FieldKind.TEXT, FieldRole.DISPLAY);
-    private static final List<FieldRef> FIELDS = List.of(DISPLAY, IDENTITY);
+    private static final List<FieldRef> FIELDS = List.of(DISPLAY);
 
     private final Viewable viewable;
 
@@ -32,6 +39,7 @@ public final class ViewableContractFieldSet implements FieldSet {
 
     /** Human label for a reserved key; ordinary keys remain unchanged. */
     public static String label(String key) {
+        if (IDENTITY_KEY.equals(key)) return "Identifier";
         FieldRef field = FIELDS.stream()
                 .filter(candidate -> candidate.name().equals(key))
                 .findFirst()
@@ -44,11 +52,7 @@ public final class ViewableContractFieldSet implements FieldSet {
     @Override public Object read(String name) {
         FieldRef field = field(name);
         if (field == null || viewable == null) return null;
-        return switch (field.role()) {
-            case IDENTITY -> viewable.getIdentifier();
-            case DISPLAY -> viewable.getDisplayName();
-            case NONE -> null;
-        };
+        return field.role() == FieldRole.DISPLAY ? viewable.getDisplayName() : null;
     }
 
     @Override public boolean has(String name) { return field(name) != null; }
