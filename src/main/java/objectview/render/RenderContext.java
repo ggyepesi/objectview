@@ -71,6 +71,22 @@ public class RenderContext {
         return viewable == null ? null : fieldSchemaResolver.apply(viewable);
     }
 
+    // Optional per-card header decoration (e.g. an identity chip). Source-agnostic: the card
+    // places whatever component the caller returns for a viewable in the header's trailing
+    // slot and never interprets it, so identity/provenance presentation stays outside the
+    // renderer. A null result means no decoration for that card.
+    private java.util.function.Function<Viewable, javax.swing.JComponent>
+            cardDecorator = ignored -> null;
+
+    public void setCardDecorator(
+            java.util.function.Function<Viewable, javax.swing.JComponent> decorator) {
+        cardDecorator = decorator == null ? ignored -> null : decorator;
+    }
+
+    public javax.swing.JComponent cardDecoration(Viewable viewable) {
+        return viewable == null ? null : cardDecorator.apply(viewable);
+    }
+
     // Viewable references the user has opened/closed in place, keyed by identity so
     // the same target stays in sync wherever it appears in the card. Tri-state
     // (mirrors collectionExpanded): absent = use the caller's default, else the

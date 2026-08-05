@@ -80,6 +80,9 @@ public class Card extends JPanel {
     private final Viewable viewable;
     private final ViewConfig config;
     private final boolean fill;
+    // True only for a top-level instance card (not a nested reference/value sub-card), so a
+    // header decoration (e.g. an identity chip) attaches to instances, never to nested cards.
+    private final boolean rootRender;
 
     private Color highlightColor = null;
 
@@ -302,6 +305,7 @@ public class Card extends JPanel {
         }
 
         this.viewable = viewable;
+        this.rootRender = rootRender;
         this.visited = visited == null ? identitySetOf() : visited;
         this.ancestors = ancestors == null ? identitySetOf() : ancestors;
         this.renderContext = renderContext == null
@@ -509,7 +513,21 @@ public class Card extends JPanel {
         header.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Color.LIGHT_GRAY));
         header.add(toggle, BorderLayout.WEST);
         header.add(titleLabel, BorderLayout.CENTER);
+        attachDecoration(header);
         return header;
+    }
+
+    /** Place the caller-supplied header decoration (e.g. an identity chip) in the header's
+     *  trailing slot, when the render context provides one for this card's viewable. The card
+     *  never interprets the component — identity/provenance presentation stays outside it. */
+    private void attachDecoration(JPanel header) {
+        if (!rootRender || renderContext == null) {
+            return;
+        }
+        JComponent decoration = renderContext.cardDecoration(viewable);
+        if (decoration != null) {
+            header.add(decoration, BorderLayout.EAST);
+        }
     }
 
     private JComponent createTitleHeader(Viewable q) {
@@ -567,6 +585,7 @@ public class Card extends JPanel {
         header.setBorder(BorderFactory.createMatteBorder(
                 0, 0, 1, 0, Color.LIGHT_GRAY));
         header.add(titleLabel, BorderLayout.WEST);
+        attachDecoration(header);
 
         return header;
     }

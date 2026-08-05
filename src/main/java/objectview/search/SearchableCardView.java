@@ -34,6 +34,9 @@ public final class SearchableCardView extends JPanel {
         if (builder.fieldSchemas != null) {
             context.setFieldSchemaResolver(builder.fieldSchemas);
         }
+        if (builder.cardDecorator != null) {
+            context.setCardDecorator(builder.cardDecorator);
+        }
         if (builder.selectionListener != null) {
             context.setSelectionEnabled(true);
             context.addSelectionListener(builder.selectionListener);
@@ -99,6 +102,7 @@ public final class SearchableCardView extends JPanel {
         private Set<String> hiddenFields = Set.of();
         private FieldTypeSource fieldTypes;
         private Function<Viewable, FieldSchema> fieldSchemas;
+        private Function<Viewable, JComponent> cardDecorator;
         private Consumer<Object> selectionListener;
         private RenderContext context;
         private Boolean collapsible;
@@ -121,6 +125,12 @@ public final class SearchableCardView extends JPanel {
         public Builder fieldTypes(FieldTypeSource value) { fieldTypes = value; return this; }
         public Builder fieldSchemas(Function<Viewable, FieldSchema> value) {
             fieldSchemas = value; return this;
+        }
+        /** A source-agnostic per-card header decoration (e.g. an identity chip). The card
+         *  places whatever component this returns for a viewable in the header's trailing
+         *  slot; a null result means no decoration. */
+        public Builder cardDecorator(Function<Viewable, JComponent> value) {
+            cardDecorator = value; return this;
         }
         public Builder selectionListener(Consumer<Object> value) {
             selectionListener = value; return this;
