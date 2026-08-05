@@ -481,7 +481,7 @@ public class ViewConfigEditor extends JPanel {
                     Set<String> next = new java.util.HashSet<>(chain);
                     next.add(cycleKey);
                     buildTree(full, depth + 1,
-                            childContext(nested, full), next);
+                            childContext(nested, full, placed.isClassBranch()), next);
                 }
             }
         }
@@ -525,14 +525,22 @@ public class ViewConfigEditor extends JPanel {
     }
 
     private FieldRowContext childContext(
-            NestedFieldSource nested, String fullPath) {
+            NestedFieldSource nested, String fullPath, boolean classBranch) {
         ViewConfig configured = sourceConfigAt(fullPath);
+        // A subtype branch is the SAME object with extra fields, so its inherited
+        // contract fields (Name/identity) already show at the base — hide them here so
+        // they don't duplicate under the subtype. A nested REFERENCE is a different
+        // object, so it keeps its own contract fields.
+        Set<String> hidden = classBranch
+                ? Set.of(objectview.field.ViewableContractFieldSet.IDENTITY_KEY,
+                        objectview.field.ViewableContractFieldSet.DISPLAY_KEY)
+                : Set.of();
         return new FieldRowContext(
                 configured == null ? ViewConfig.all(nested.type()) : configured,
                 nested.sample(),
                 false,
                 hideMedia,
-                Set.of(),
+                hidden,
                 nested.fieldTypes());
     }
 
