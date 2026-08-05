@@ -77,7 +77,6 @@ public class ViewConfigEditor extends JPanel {
 
     private List<Col> cols;
     private Runnable changeListener;
-    private boolean toggleDeselect;
 
     // ---- construction ------------------------------------------------------
 
@@ -218,19 +217,6 @@ public class ViewConfigEditor extends JPanel {
                             fireConfigChanged();
                         }
                     });
-            // Toggle-deselect: pressing the already-selected row clears it (firing the
-            // change listener with no selection) — the filter picker clears its filter.
-            table.addMouseListener(new java.awt.event.MouseAdapter() {
-                @Override public void mousePressed(java.awt.event.MouseEvent e) {
-                    if (!toggleDeselect) {
-                        return;
-                    }
-                    int row = table.rowAtPoint(e.getPoint());
-                    if (row >= 0 && table.isRowSelected(row)) {
-                        javax.swing.SwingUtilities.invokeLater(table::clearSelection);
-                    }
-                }
-            });
         }
 
         installColumns();
@@ -248,13 +234,6 @@ public class ViewConfigEditor extends JPanel {
     }
 
     // ---- row-source configuration -----------------------------------------
-
-    /** When true, pressing the already-selected row clears the selection (single mode),
-     *  firing the change listener with no selection — so a field picker can toggle its
-     *  filter off by re-clicking the selected field. */
-    public void setToggleDeselect(boolean toggleDeselect) {
-        this.toggleDeselect = toggleDeselect;
-    }
 
     public void setChangeListener(Runnable changeListener) {
         this.changeListener = changeListener;
@@ -567,6 +546,30 @@ public class ViewConfigEditor extends JPanel {
 
     private static String classBranchKey(String name) {
         return CLASS_BRANCH_PREFIX + name;
+    }
+
+    /** Semantic meaning of a field-table path. Class branches use stable synthetic keys in
+     *  ViewConfig serialization, but application operations need the owning class and the
+     *  plain field path. Keeping that translation here prevents clients from depending on
+     *  the private key syntax. */
+    public record ResolvedFieldPath(String owner, String path) { }
+
+    public static ResolvedFieldPath resolveFieldPath(String baseOwner, String editorPath) {
+        if (baseOwner == null || editorPath == null || editorPath.isBlank()) {
+            return null;
+        }
+        String owner = baseOwner;
+        java.util.List<String> fields = new java.util.ArrayList<>();
+        for (String segment : editorPath.split("\\.")) {
+            if (segment.startsWith(CLASS_BRANCH_PREFIX)
+                    && segment.length() > CLASS_BRANCH_PREFIX.length()) {
+                owner = segment.substring(CLASS_BRANCH_PREFIX.length());
+            } else if (!segment.isBlank()) {
+                fields.add(segment);
+            }
+        }
+        return fields.isEmpty() ? null
+                : new ResolvedFieldPath(owner, String.join(".", fields));
     }
 
     /** Delegates ordinary field discovery, then appends direct subtype children whose
