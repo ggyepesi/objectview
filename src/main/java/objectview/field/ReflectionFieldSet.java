@@ -3,6 +3,7 @@ package objectview.field;
 import objectview.Viewable;
 import objectview.ViewableAdapter;
 import objectview.annotations.Link;
+import objectview.annotations.DisplayField;
 import objectview.viewconfig.ConfigFieldRowSource;
 
 import java.lang.reflect.Field;
@@ -111,8 +112,10 @@ public final class ReflectionFieldSet implements FieldSet {
 
         boolean link = ViewableAdapter.isLinkField(field);
         Link linkAnn = link ? field.getAnnotation(Link.class) : null;
+        FieldRole role = field.isAnnotationPresent(DisplayField.class)
+                ? FieldRole.DISPLAY : FieldRole.NONE;
         return FieldRef.described(
-                field.getName(), kind, valueKind,
+                field.getName(), field.getName(), role, kind, valueKind,
                 ConfigFieldRowSource.describeFieldType(field, owner),
                 reference, collection, targetType, false,
                 ViewableAdapter.isMinorField(field),

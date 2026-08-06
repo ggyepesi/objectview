@@ -74,16 +74,16 @@ public interface FieldSet {
             // presentation metadata; do not leak the map container itself.
             backing = new LayeredFieldSet(
                     new DynamicFieldSet(dynamic), new ReflectionFieldSet(object),
-                    field -> field.link());
+                    field -> field.link() || field.role() == FieldRole.DISPLAY);
             if (effective == null) {
                 effective = dynamic.dynamicFieldSchema();
             }
         } else {
             backing = new ReflectionFieldSet(object);
         }
-        backing = new LayeredFieldSet(
-                backing, new ViewableContractFieldSet(object), field -> true, false);
-        return effective == null
-                ? backing : new SchemaFieldSet(backing, effective);
+        if (effective != null) {
+            backing = new SchemaFieldSet(backing, effective);
+        }
+        return ViewableContractFieldSet.overlay(object, backing);
     }
 }

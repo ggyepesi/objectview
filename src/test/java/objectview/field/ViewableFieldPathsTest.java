@@ -2,6 +2,7 @@ package objectview.field;
 import objectview.ViewableAdapter;
 
 import objectview.annotations.Hidden;
+import objectview.annotations.DisplayField;
 import objectview.viewconfig.ViewConfig;
 import objectview.viewconfig.FieldTypeSource;
 import org.junit.jupiter.api.Test;
@@ -89,6 +90,20 @@ class ViewableFieldPathsTest {
     }
 
     @Test
+    void collapsedReferenceUsesItsBoundDisplayField() {
+        DisplayChild child = new DisplayChild("Meryl");
+        DisplayParent parent = new DisplayParent(child);
+        ViewConfig config = ViewConfig.of(DisplayParent.class);
+        config.setAllFields(false);
+        config.addField("child", ViewConfig.leaf());
+
+        Set<String> paths = pathStrings(ViewableFieldPaths.collectFromSample(
+                parent, config, ViewableFieldPaths.NOT_MEDIA_FIELDS));
+
+        assertEquals(Set.of("child.label"), paths);
+    }
+
+    @Test
     void imagePaneFieldsAreExcluded() {
         ViewConfig config = ViewConfig.of(TestCard.class);
         config.setAllFields(false);
@@ -146,6 +161,20 @@ class ViewableFieldPathsTest {
 
         @Override public String getIdentifier() { return name; }
         @Override public String getDisplayName() { return name; }
+    }
+
+    private static final class DisplayParent extends ViewableAdapter {
+        private final DisplayChild child;
+        private DisplayParent(DisplayChild child) { this.child = child; }
+        @Override public String getIdentifier() { return "parent"; }
+        @Override public String getDisplayName() { return "Parent"; }
+    }
+
+    private static final class DisplayChild extends ViewableAdapter {
+        @DisplayField private final String label;
+        private DisplayChild(String label) { this.label = label; }
+        @Override public String getIdentifier() { return label; }
+        @Override public String getDisplayName() { return label; }
     }
 
     // Mirrors WikidataDynamicObject: identity fields hidden from the card, and a

@@ -1,7 +1,6 @@
 package objectview.search;
 
 import objectview.Viewable;
-import objectview.ViewableAdapter;
 import objectview.field.ViewableFieldPaths;
 
 import objectview.annotations.Numeric;
@@ -12,7 +11,6 @@ import java.awt.*;
 import java.lang.reflect.Field;
 import java.util.*;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Non-UI helper for SearchPanel.
@@ -29,9 +27,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * - navigation result rows
  */
 public class SearchAndSort {
-
-    private final Map<Class<?>, Map<String, Field>> fieldCache =
-            new ConcurrentHashMap<>();
 
     private final List<SearchEntry> searchIndex =
             new ArrayList<>();
@@ -217,96 +212,11 @@ public class SearchAndSort {
     private Object extractValue(
             Object obj,
             List<String> path) {
-
         try {
-            return extractRecursive(obj, path, 0);
-        } catch (Exception ignored) {
+            return objectview.field.FieldAccess.getPathValues(obj, path);
+        } catch (RuntimeException ignored) {
             return null;
         }
-    }
-
-    private Object extractRecursive(
-            Object obj,
-            List<String> path,
-            int idx) throws Exception {
-
-        if (obj == null) {
-            return null;
-        }
-
-        if (idx >= path.size()) {
-            return obj;
-        }
-
-        if (obj instanceof Collection<?> c) {
-            List<Object> out =
-                    new ArrayList<>();
-
-            for (Object item : c) {
-                Object v =
-                        extractRecursive(item, path, idx);
-
-                if (v != null) {
-                    out.add(v);
-                }
-            }
-
-            return out.isEmpty() ? null : out;
-        }
-
-        if (obj instanceof Map<?, ?> m) {
-            List<Object> out =
-                    new ArrayList<>();
-
-            for (Object v : m.values()) {
-                Object vv =
-                        extractRecursive(v, path, idx);
-
-                if (vv != null) {
-                    out.add(vv);
-                }
-            }
-
-            return out.isEmpty() ? null : out;
-        }
-
-        String part =
-                path.get(idx);
-
-        // Read one level through the ONE FieldSet bridge (#87): a WDO's map-held field
-        // (e.g. `won`) or a declared Java field, behind one interface, no `instanceof
-        // DynamicFields` fork. has() (vs a present-null value) mirrors the old
-        // containsKey guard so an absent field still returns null.
-        if (obj instanceof Viewable q) {
-            objectview.field.FieldSet fs = objectview.field.FieldSet.of(q);
-            if (fs.has(part)) {
-                return extractRecursive(fs.read(part), path, idx + 1);
-            }
-            return null;
-        }
-
-        Field f =
-                getFieldCached(obj.getClass(), part);
-
-        if (f == null) {
-            return null;
-        }
-
-        return extractRecursive(f.get(obj), path, idx + 1);
-    }
-
-    private Field getFieldCached(
-            Class<?> cls,
-            String name) {
-
-        Map<String, Field> map =
-                fieldCache.computeIfAbsent(
-                        cls,
-                        k -> new ConcurrentHashMap<>());
-
-        return map.computeIfAbsent(
-                name,
-                key -> ViewableAdapter.getField(cls, key));
     }
 
     private String flattenForSearch(Object value) {
@@ -334,10 +244,10 @@ public class SearchAndSort {
             StringBuilder sb =
                     new StringBuilder();
 
-            for (Object item : m.values()) {
-                sb.append(flattenForSearch(item))
-                  .append(' ');
-            }
+            m.forEach((key, item) -> sb.append(flattenForSearch(key))
+                    .append(' ')
+                    .append(flattenForSearch(item))
+                    .append(' '));
 
             return sb.toString();
         }

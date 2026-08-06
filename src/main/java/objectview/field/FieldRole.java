@@ -2,10 +2,10 @@ package objectview.field;
 
 /**
  * The semantic role a field plays, declared as METADATA so the machinery reacts to the role
- * — never to a field's name. IDENTITY and DISPLAY are the {@link objectview.Viewable} contract
- * ({@code getIdentifier()} / {@code getDisplayName()}) surfaced as ordinary fields through a
- * computed {@link FieldSet} layer, so discovery, reading, rendering, search, sort and config
- * all treat them uniformly instead of string-matching {@code "qid"}/{@code "name"}.
+ * — never to a field's name. DISPLAY can be bound to a real field with
+ * {@link objectview.annotations.DisplayField}; otherwise the Viewable contract supplies a
+ * computed fallback. Discovery, rendering, search, sort and config can therefore react to
+ * the role without string-matching {@code "name"} or another domain-specific key.
  */
 public enum FieldRole {
     /** An ordinary field — no special semantics. */

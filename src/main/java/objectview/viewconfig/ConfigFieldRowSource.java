@@ -66,7 +66,11 @@ public final class ConfigFieldRowSource implements FieldRowSource {
                                        Class<? extends Viewable> cls) {
         List<Field> reflectedFields = ViewableAdapter.getAllFields(cls);
         if (!context.minorOnly()) {
-            for (FieldRef field : objectview.field.ViewableContractFieldSet.fieldRefs()) {
+            boolean hasDisplayField = !objectview.field.ViewableContractFieldSet.DISPLAY_KEY
+                    .equals(objectview.field.ViewableContractFieldSet.displayKey(cls));
+            for (FieldRef field : hasDisplayField
+                    ? List.<FieldRef>of()
+                    : objectview.field.ViewableContractFieldSet.fieldRefs()) {
                 boolean physicallyDeclared = reflectedFields.stream()
                         .anyMatch(candidate -> candidate.getName().equals(field.name()));
                 if (!physicallyDeclared && !context.hiddenFields().contains(field.name())) {
@@ -149,7 +153,15 @@ public final class ConfigFieldRowSource implements FieldRowSource {
         FieldTypeSource types = context.fieldTypes();
 
         if (!context.minorOnly()) {
-            for (FieldRef field : objectview.field.ViewableContractFieldSet.fieldRefs()) {
+            // More than one DISPLAY field is a small user error, not a crash (last wins):
+            // as long as at least one real field is bound, skip the synthetic display field.
+            boolean hasDisplayField = types.fieldNames().stream().anyMatch(name -> {
+                FieldTypeSource.FieldTypeInfo info = types.field(name);
+                return info != null && info.role() == objectview.field.FieldRole.DISPLAY;
+            });
+            for (FieldRef field : hasDisplayField
+                    ? List.<FieldRef>of()
+                    : objectview.field.ViewableContractFieldSet.fieldRefs()) {
                 if (!context.hiddenFields().contains(field.name())
                         && !types.fieldNames().contains(field.name())) {
                     result.add(FieldRow.dynamic(

@@ -86,7 +86,13 @@ public class ReferenceRow extends TextRow {
         // stable key to match the search model's leaf path.
         List<String> searchPath = new ArrayList<>(
                 fieldPath == null ? List.of() : fieldPath);
-        searchPath.add(objectview.field.ViewableContractFieldSet.DISPLAY_KEY);
+        String displayKey = objectview.field.ViewableContractFieldSet.displayKey(
+                objectview.field.FieldSet.of(target, renderContext == null
+                        ? null : renderContext.fieldSchema(target)));
+        if (searchPath.isEmpty()
+                || !displayKey.equals(searchPath.get(searchPath.size() - 1))) {
+            searchPath.add(displayKey);
+        }
         putClientProperty(FieldProperties.FIELD_PATH_PROPERTY, searchPath);
     }
 

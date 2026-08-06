@@ -15,6 +15,7 @@ import objectview.viewconfig.ViewConfig;
 import objectview.viewconfig.ViewConfigEditor;
 import objectview.virtual.CardStackLayout;
 import objectview.virtual.ConfigurableVirtualizedContainer;
+import objectview.virtual.SearchNavigableContainer;
 import objectview.virtual.VirtualizedContainer;
 
 import javax.swing.*;
@@ -586,8 +587,21 @@ public class SearchPanel extends JPanel
         cfg.setAllFields(false);
         cfg.setAddListener(false);
         cfg.setThumb(false);
-        cfg.addField(objectview.field.ViewableContractFieldSet.DISPLAY_KEY,
-                ViewConfig.leaf());
+        String displayKey = objectview.field.ViewableContractFieldSet.displayKey(cls);
+        if (fieldPathSample != null) {
+            displayKey = objectview.field.ViewableContractFieldSet.displayKey(
+                    objectview.field.FieldSet.of(fieldPathSample));
+        } else if (rootFieldTypes != null) {
+            String schemaDisplayKey = null;
+            for (String name : rootFieldTypes.fieldNames()) {
+                FieldTypeSource.FieldTypeInfo info = rootFieldTypes.field(name);
+                if (info != null && info.role() == objectview.field.FieldRole.DISPLAY) {
+                    schemaDisplayKey = name;   // last-declared wins (no crash on duplicates)
+                }
+            }
+            if (schemaDisplayKey != null) displayKey = schemaDisplayKey;
+        }
+        cfg.addField(displayKey, ViewConfig.leaf());
 
         return cfg;
     }
@@ -662,7 +676,7 @@ public class SearchPanel extends JPanel
                 if (objectview.field.ViewableContractFieldSet.DISPLAY_KEY.equals(name)
                         && !fields.contains(name)) {
                     return new FieldTypeSource.FieldTypeInfo(
-                            "String", true, false, null, null, "Name",
+                            "String", true, false, null, null, "Display label",
                             objectview.field.FieldRole.DISPLAY,
                             objectview.field.FieldKind.TEXT,
                             objectview.field.FieldKind.TEXT);
@@ -1273,7 +1287,7 @@ public class SearchPanel extends JPanel
         // materialized cards lazily. Do not replace its structural child panels.
         if (virtualList != null) {
             if (virtualList instanceof ConfigurableVirtualizedContainer configurable) {
-                configurable.setCardConfigResolver(q -> effectiveConfig(
+                configurable.setViewConfigResolver(q -> effectiveConfig(
                         viewEditor, subtypeViewEditors, q));
             }
 
@@ -1717,6 +1731,9 @@ public class SearchPanel extends JPanel
     private void clearHighlights() {
         currentHit =
                 null;
+        if (virtualList instanceof SearchNavigableContainer navigable) {
+            navigable.clearSearchHighlight();
+        }
         // NOTE: virtualHits is NOT cleared here — clearHighlights fires on every
         // navigate-between-hits, but the hit set belongs to the whole QUERY, so a
         // card rebuilt on scroll-back can be re-highlighted. It's reset per query
@@ -2045,16 +2062,17 @@ public class SearchPanel extends JPanel
     }
 
     /**
-     * Reveals the current data hit through the target container. For a grouped
-     * target this expands the matching group path and lazily materializes the
-     * leaf card. The ordinary Card expansion/highlight machinery is
-     * then reused unchanged.
+     * Reveals the current data hit through the target container. A grouped card
+     * target expands/materializes its card; a search-aware presentation such as
+     * the table selects its field cell and matching collection/map entry.
      */
     private void navigateToCurrentVirtual(HitGroupQ g) {
         clearHighlights();
 
         Viewable q = g.hits.get(g.index);
-        JComponent card = virtualList.navigateToTop(q);
+        JComponent card = virtualList instanceof SearchNavigableContainer navigable
+                ? navigable.revealSearchHit(q, g.fieldPath, g.queryTokens)
+                : virtualList.navigateToTop(q);
 
         if (card == null) {
             return;
@@ -2090,7 +2108,11 @@ public class SearchPanel extends JPanel
             }
         }
 
-        markCurrentHitVirtual(card);
+        // Search-aware presentations paint their own row/cell highlight. Card
+        // containers retain the existing component-border highlight below.
+        if (!(virtualList instanceof SearchNavigableContainer)) {
+            markCurrentHitVirtual(card);
+        }
 
         targetPanel.revalidate();
         targetPanel.repaint();

@@ -37,6 +37,57 @@ public final class FieldAccess {
         return current;
     }
 
+    /**
+     * Reads a path without collapsing collection-valued intermediates to an
+     * arbitrary first element. This is the common read path for search, sort and
+     * tabular cells: a nested path such as {@code languages.name} therefore yields
+     * all language names, while a direct map/collection leaf remains intact.
+     */
+    public static Object getPathValues(Object root, List<String> path) {
+        if (path == null || path.isEmpty()) {
+            return root;
+        }
+        return getPathValues(root, path, 0);
+    }
+
+    private static Object getPathValues(Object current, List<String> path, int index) {
+        if (current == null || index >= path.size()) {
+            return current;
+        }
+        if (current instanceof Collection<?> values) {
+            List<Object> result = new ArrayList<>();
+            for (Object value : values) {
+                addFlattened(result, getPathValues(value, path, index));
+            }
+            return result.isEmpty() ? null : result;
+        }
+        if (current instanceof Map<?, ?> values) {
+            List<Object> result = new ArrayList<>();
+            for (Object value : values.values()) {
+                addFlattened(result, getPathValues(value, path, index));
+            }
+            return result.isEmpty() ? null : result;
+        }
+        if (current.getClass().isArray()) {
+            List<Object> result = new ArrayList<>();
+            int length = java.lang.reflect.Array.getLength(current);
+            for (int i = 0; i < length; i++) {
+                addFlattened(result, getPathValues(
+                        java.lang.reflect.Array.get(current, i), path, index));
+            }
+            return result.isEmpty() ? null : result;
+        }
+        return getPathValues(readField(current, path.get(index)), path, index + 1);
+    }
+
+    private static void addFlattened(List<Object> target, Object value) {
+        if (value instanceof Collection<?> nested) {
+            target.addAll(nested);
+        } else if (value != null) {
+            target.add(value);
+        }
+    }
+
     public static void setPath(Object root, String path, Object value) {
         var parts = split(path);
         writeField(owner(root, path), parts.get(parts.size() - 1), value);

@@ -488,10 +488,10 @@ public class Card extends JPanel {
         titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD));
         titleLabel.setForeground(new Color(0, 80, 180));
         titleLabel.putClientProperty(FieldProperties.FIELD_NAME_PROPERTY,
-                objectview.field.ViewableContractFieldSet.DISPLAY_KEY);
+                displayFieldKey(viewable));
         titleLabel.putClientProperty(FieldProperties.FIELD_VALUE_PROPERTY, title);
         titleLabel.putClientProperty(FieldProperties.FIELD_PATH_PROPERTY,
-                List.of(objectview.field.ViewableContractFieldSet.DISPLAY_KEY));
+                List.of(displayFieldKey(viewable)));
 
         if (renderContext.selectionEnabled()) {
             titleLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -551,10 +551,10 @@ public class Card extends JPanel {
                         : "Double-click to open full view");
 
         titleLabel.putClientProperty(FieldProperties.FIELD_NAME_PROPERTY,
-                objectview.field.ViewableContractFieldSet.DISPLAY_KEY);
+                displayFieldKey(q));
         titleLabel.putClientProperty(FieldProperties.FIELD_VALUE_PROPERTY, title);
         titleLabel.putClientProperty(FieldProperties.FIELD_PATH_PROPERTY,
-                List.of(objectview.field.ViewableContractFieldSet.DISPLAY_KEY));
+                List.of(displayFieldKey(q)));
 
         // A view can enable single-selection (e.g. curation, to pick the instance
         // to fill): a single click on the card's name selects it — the render
@@ -596,7 +596,7 @@ public class Card extends JPanel {
         addSingle(
                 new ReferenceRow(
                         "",
-                        namePath(path),
+                        path,
                         q,
                         renderContext,
                         openCfg,
@@ -1058,7 +1058,7 @@ public class Card extends JPanel {
         if (renderContext != null && renderContext.isTopLevel(target)) {
             return new ReferenceRow(
                     fieldName,
-                    namePath(fieldPath),
+                    fieldPath,
                     target,
                     renderContext,
                     configForNested(target),
@@ -1073,7 +1073,7 @@ public class Card extends JPanel {
         ReferenceRow chip =
                 new ReferenceRow(
                         fieldName,
-                        namePath(fieldPath),
+                        fieldPath,
                         target,
                         renderContext,
                         configForNested(target),
@@ -1171,19 +1171,6 @@ public class Card extends JPanel {
         }
 
         return true;
-    }
-
-    private static List<String> namePath(List<String> base) {
-        List<String> out =
-                new ArrayList<>(base == null ? List.of() : base);
-
-        if (out.isEmpty()
-                || !objectview.field.ViewableContractFieldSet.DISPLAY_KEY.equals(
-                        out.get(out.size() - 1))) {
-            out.add(objectview.field.ViewableContractFieldSet.DISPLAY_KEY);
-        }
-
-        return out;
     }
 
     private boolean isEmptyCollectionOrMap(Object value) {
@@ -1503,9 +1490,21 @@ public class Card extends JPanel {
     }
 
     public String getTitle() {
-        return (config.isAllFields() || config.getFields().containsKey(
-                objectview.field.ViewableContractFieldSet.DISPLAY_KEY))
+        String displayKey = displayFieldKey(viewable);
+        return (config.isAllFields()
+                || config.getFields().containsKey(displayKey)
+                || config.getFields().containsKey(
+                        objectview.field.ViewableContractFieldSet.DISPLAY_KEY))
                 ? safeName(viewable)
                 : "";
+    }
+
+    private String displayFieldKey(Viewable value) {
+        if (value == null) {
+            return objectview.field.ViewableContractFieldSet.DISPLAY_KEY;
+        }
+        return objectview.field.ViewableContractFieldSet.displayKey(
+                FieldSet.of(value, renderContext == null
+                        ? null : renderContext.fieldSchema(value)));
     }
 }

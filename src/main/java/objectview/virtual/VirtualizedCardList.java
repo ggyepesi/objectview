@@ -145,15 +145,7 @@ public final class VirtualizedCardList
     }
 
     @Override
-    public void setCardConfig(ViewConfig config) {
-        if (cardConfigConsumer != null && config != null) {
-            cardConfigConsumer.accept(ignored -> config.copy());
-            discardBuiltCards();
-        }
-    }
-
-    @Override
-    public void setCardConfigResolver(
+    public void setViewConfigResolver(
             java.util.function.Function<Viewable, ViewConfig> resolver) {
         if (cardConfigConsumer != null && resolver != null) {
             cardConfigConsumer.accept(resolver);

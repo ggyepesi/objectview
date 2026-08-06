@@ -110,6 +110,10 @@ public abstract class ViewableAdapter implements Viewable {
                 }
 
                 if (isHidden(field)) {
+                    if (field.isAnnotationPresent(DisplayField.class)) {
+                        throw new IllegalStateException("A @DisplayField cannot also be "
+                                + "@Hidden: " + current.getName() + "." + field.getName());
+                    }
                     continue;
                 }
 

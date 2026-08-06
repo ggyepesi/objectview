@@ -1447,7 +1447,7 @@ public class ViewConfigEditor extends JPanel {
         config.setAddListener(false);
         config.setThumb(false);
         config.addField(
-                objectview.field.ViewableContractFieldSet.DISPLAY_KEY,
+                objectview.field.ViewableContractFieldSet.displayKey(cls),
                 ViewConfig.leaf());
         return config;
     }

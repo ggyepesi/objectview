@@ -4,9 +4,9 @@
 
 A Swing library for **rendering, searching, and virtualizing large collections of
 structured objects** — through one small SPI. Implement `Viewable` on your own
-type and objectview gives you painted cards, live search/sort, reference-chip
-navigation, and a virtualized list that stays smooth at **tens of thousands** of
-objects.
+type and objectview gives you painted cards or a row/column table, live
+search/sort, reference navigation, and virtualized rendering that stays smooth at
+**tens of thousands** of objects.
 
 It carries almost no baggage: its entire dependency footprint is `slf4j-api`
 (logging facade — you supply the binding) and `jackson-databind` (view-config
@@ -38,10 +38,25 @@ Reference fields (`sequelTo`, or a `List<Book>`) render as chips that scroll to
 and flash the target's card. See `objectview.demo.Quickstart` for the full runnable
 version.
 
+When a declared field is exactly the value returned by `getDisplayName()`, bind
+that relationship explicitly rather than exposing both values:
+
+```java
+@DisplayField
+public String title;
+```
+
+The field then keeps its real key (`title`) in configuration and table columns,
+while cards consume it as their header. A Viewable without such a field receives
+the computed `Display label` fallback.
+
 ## What you get
 
 - **Cards** — each object painted as a card of typed field rows (text, numbers,
   links, images, references), with selectable/copyable text.
+- **Tables** — the same configured fields become columns through
+  `SearchableTableView`; collections and maps show one entry at a time with
+  in-cell navigation, without storing a component per cell.
 - **Search & sort** — a live search bar over the current set, with per-field
   configuration (`ViewConfig`) and match highlighting.
 - **Virtualization** — `VirtualizedCardList` builds only the cards on screen, so
@@ -70,6 +85,7 @@ Runnable demos in `objectview.demo`:
 |------|-------|
 | `Quickstart` | the 30-second example above |
 | `SearchDemo` | live search, sort, field highlight + bulk expand/collapse toolbar |
+| `TableViewDemo` | the same search/config pipeline in the lightweight table layout |
 | `MultiViewDemo` | two views sharing a context; click a chip to navigate between them |
 | `RenderBenchmark [count]` | scale — 100,000 rich cards |
 

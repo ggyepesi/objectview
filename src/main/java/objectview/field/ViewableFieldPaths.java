@@ -82,7 +82,7 @@ public final class ViewableFieldPaths {
         // Contract views are implied by "all fields" only. An explicit config means
         // exactly what it names.
         if (config.isAllFields()) {
-            ensureContractFields(out);
+            ensureContractFields(out, config.getCls());
         }
 
         return dedupByPath(out);
@@ -133,10 +133,11 @@ public final class ViewableFieldPaths {
                     collectSchema(child, info.nested(), path, title, excludeMedia,
                             branch, out);
                 } else if (info.nested() != null) {
+                    String displayKey = schemaDisplayKey(info.nested());
                     List<String> displayPath = new ArrayList<>(path);
-                    displayPath.add(ViewableContractFieldSet.DISPLAY_KEY);
+                    displayPath.add(displayKey);
                     out.add(new FieldPath(title + "." + ViewableContractFieldSet.label(
-                            ViewableContractFieldSet.DISPLAY_KEY), displayPath, null));
+                            displayKey), displayPath, null));
                 } else {
                     out.add(new FieldPath(title, path, null));
                 }
@@ -299,12 +300,13 @@ public final class ViewableFieldPaths {
                     branch,
                     out);
         } else {
+            String displayKey = ViewableContractFieldSet.displayKey(FieldSet.of(child));
             List<String> namePath = new ArrayList<>(path);
-            namePath.add(ViewableContractFieldSet.DISPLAY_KEY);
+            namePath.add(displayKey);
 
             out.add(new FieldPath(
                     title + "." + ViewableContractFieldSet.label(
-                            ViewableContractFieldSet.DISPLAY_KEY),
+                            displayKey),
                     namePath,
                     leaf));
         }
@@ -390,11 +392,12 @@ public final class ViewableFieldPaths {
             // A reference: offer the reference ITSELF (for invert / group-by-
             // reference), its display name, and (bounded) its nested fields.
             out.add(new FieldPath(title, path, leaf));
+            String displayKey = ViewableContractFieldSet.displayKey(FieldSet.of(child));
             List<String> namePath = new ArrayList<>(path);
-            namePath.add(ViewableContractFieldSet.DISPLAY_KEY);
+            namePath.add(displayKey);
             out.add(new FieldPath(
                     title + "." + ViewableContractFieldSet.label(
-                            ViewableContractFieldSet.DISPLAY_KEY),
+                            displayKey),
                     namePath, leaf));
             if (prefix.size() < SAMPLE_MAX_DEPTH) {
                 collectSample(child, path, title, filter, branch, out);
@@ -504,7 +507,12 @@ public final class ViewableFieldPaths {
         }
     }
 
-    private static void ensureContractFields(List<FieldPath> out) {
+    private static void ensureContractFields(
+            List<FieldPath> out, Class<? extends Viewable> type) {
+        if (!ViewableContractFieldSet.DISPLAY_KEY.equals(
+                ViewableContractFieldSet.displayKey(type))) {
+            return;
+        }
         for (FieldRef field : ViewableContractFieldSet.fieldRefs()) {
             if (!hasRootPath(out, field.name())) {
                 out.add(new FieldPath(field.label(), List.of(field.name()), null));
@@ -558,12 +566,14 @@ public final class ViewableFieldPaths {
                         filter,
                         out);
             } else {
+                String displayKey = ViewableContractFieldSet.displayKey(
+                        asViewableClass(nested));
                 List<String> namePath = new ArrayList<>(path);
-                namePath.add(ViewableContractFieldSet.DISPLAY_KEY);
+                namePath.add(displayKey);
 
                 out.add(new FieldPath(
                         title + "." + ViewableContractFieldSet.label(
-                                ViewableContractFieldSet.DISPLAY_KEY),
+                                displayKey),
                         namePath,
                         field));
             }
@@ -577,6 +587,21 @@ public final class ViewableFieldPaths {
     @SuppressWarnings("unchecked")
     private static Class<? extends Viewable> asViewableClass(Class<?> cls) {
         return (Class<? extends Viewable>) cls;
+    }
+
+    private static String schemaDisplayKey(FieldTypeSource schema) {
+        if (schema != null) {
+            String found = null;
+            for (String name : schema.fieldNames()) {
+                FieldTypeSource.FieldTypeInfo info = schema.field(name);
+                if (info == null || info.role() != FieldRole.DISPLAY) continue;
+                // More than one DISPLAY is a small user error, not a crash: the last
+                // declared wins (deterministic; a later annotation overrides an earlier).
+                found = name;
+            }
+            if (found != null) return found;
+        }
+        return ViewableContractFieldSet.DISPLAY_KEY;
     }
 
     @SuppressWarnings("unchecked")
