@@ -284,6 +284,30 @@ public final class VirtualizedCardList
     }
 
     /**
+     * Re-sizes this view to its current content height and lays out the enclosing scroll
+     * pane NOW, so the vertical scrollbar's range reflects the content immediately.
+     *
+     * <p>{@code buildIfNeeded}/{@code revalidate} only QUEUE a future layout. That is not
+     * enough on a card toggle: when a short log did not need scrolling and a card expands
+     * past the viewport, nothing else forces the {@link JScrollPane} to notice the taller
+     * content within the same event, so the newly-needed scrollbar never appears (and on
+     * collapse the stale range lingers). Sizing the view + validating the scroll pane here,
+     * synchronously, makes the scroll range take effect at once for both directions.
+     */
+    private void syncScrollPaneToContent() {
+        setSize(
+                Math.max(getWidth(), effectiveWidth()),
+                preferredContentHeight()
+        );
+
+        JScrollPane sp = (JScrollPane)
+                SwingUtilities.getAncestorOfClass(JScrollPane.class, this);
+        if (sp != null) {
+            sp.validate();
+        }
+    }
+
+    /**
      * Builds the card and scrolls enough to make it visible.
      */
     public JComponent ensureVisible(Viewable q) {
@@ -295,24 +319,7 @@ public final class VirtualizedCardList
 
         buildIfNeeded(q);
 
-        // buildIfNeeded() has updated the preferred height, but revalidate() only
-        // queues a future layout. Keep the viewport's view size in sync immediately:
-        // otherwise an expanded final card extends beyond the view's old physical
-        // bottom and downward scrolling is clamped until some later layout pass.
-        setSize(
-                Math.max(getWidth(), effectiveWidth()),
-                preferredContentHeight()
-        );
-
-        // Force the enclosing scroll pane to lay out NOW so this view is already
-        // resized to its new (taller) preferred height. Without it, scrolling toward
-        // a just-expanded LAST card stops at the stale content bottom and the
-        // expanded body stays clipped until an unrelated relayout (e.g. a new entry).
-        JScrollPane sp = (JScrollPane)
-                SwingUtilities.getAncestorOfClass(JScrollPane.class, this);
-        if (sp != null) {
-            sp.validate();
-        }
+        syncScrollPaneToContent();
 
         scrollRectToVisible(new Rectangle(
                 0,
@@ -926,6 +933,15 @@ public final class VirtualizedCardList
             rebuildTops();
             revalidate();
         }
+        // Re-evaluate the scrollbar range NOW, in the same event as the toggle click —
+        // not only via the deferred ensureVisible on expand (which loses the race when a
+        // competing layout runs first) and not at all on collapse. This is what makes a
+        // short, non-scrolling log grow a scrollbar the instant a card expands past it.
+        // Re-evaluate the scrollbar range NOW, in the same event as the toggle click —
+        // not only via the deferred ensureVisible on expand (which loses the race when a
+        // competing layout runs first) and not at all on collapse. This is what makes a
+        // short, non-scrolling log grow a scrollbar the instant a card expands past it.
+        syncScrollPaneToContent();
         repaint();
         updateVisible();
     }

@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -311,6 +312,120 @@ class VirtualizedCardListTest {
             for (int n = 0; n < 600; n += 37) {
                 assertLandsCorrectly(list, items, n);
             }
+        });
+    }
+
+    /** Realized-frame integration: unlike the other cases (which set the viewport extent
+     *  by hand and read back the view size), this builds a real JScrollPane, packs it in a
+     *  frame, and lets Swing's ScrollPaneLayout decide scrollbar visibility — the only way
+     *  to prove the vertical scrollbar actually appears when a short (non-scrolling) list
+     *  grows past the viewport on expand. Skipped when headless. */
+    @Test
+    void expandingAShortListShowsTheScrollbarInARealScrollPane() {
+        org.junit.jupiter.api.Assumptions.assumeFalse(
+                java.awt.GraphicsEnvironment.isHeadless(), "needs a display");
+        onEdt(() -> {
+            List<Item> items = makeItems(2);   // 2 short cards fit a tall viewport
+            VirtualizedCardList list = new VirtualizedCardList(this::card);
+            JScrollPane sp = new JScrollPane();
+            sp.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+            list.install(sp);
+            list.setItems(new ArrayList<>(items));
+
+            javax.swing.JFrame frame = new javax.swing.JFrame();
+            frame.setContentPane(sp);
+            frame.setSize(VIEW_W + 40, 900);   // viewport taller than the 2 collapsed cards
+            frame.setVisible(true);
+            frame.validate();
+
+            assertFalse(sp.getVerticalScrollBar().isShowing(),
+                    "precondition: the short list must not need a scrollbar");
+
+            // Exactly the real toggle path: invalidate + ensureVisible, and rely ONLY on
+            // ensureVisible's own scroll-pane sync — no external frame.validate() nudge.
+            realHeight.put(items.get(0), 2000);   // expand the first card well past the view
+            list.invalidateCard(items.get(0));
+            list.ensureVisible(items.get(0));
+
+            try {
+                assertTrue(sp.getVerticalScrollBar().isShowing(),
+                        "the vertical scrollbar must appear once the expanded content "
+                                + "exceeds the viewport");
+            } finally {
+                frame.dispose();
+            }
+        });
+    }
+
+    @Test
+    void invalidateCardAloneSyncsTheScrollRangeForBothExpandAndCollapse() {
+        onEdt(() -> {
+            List<Item> items = makeItems(20);
+            VirtualizedCardList list = install(items);
+            Item first = items.get(0);
+            list.navigateToTop(first);
+
+            // Expand via invalidateCard ONLY (no ensureVisible): the collapse path takes
+            // exactly this route, and the synchronous expand must not depend on the
+            // deferred ensureVisible to grow the scroll range.
+            realHeight.put(first, 900);
+            list.invalidateCard(first);
+            assertEquals(list.getPreferredSize().height, list.getHeight(),
+                    "invalidateCard alone must sync the view height on expand");
+
+            // Collapse back: the range must shrink immediately too, not linger stale.
+            realHeight.put(first, COLLAPSED);
+            list.invalidateCard(first);
+            assertEquals(list.getPreferredSize().height, list.getHeight(),
+                    "invalidateCard alone must sync the view height on collapse");
+        });
+    }
+
+    @Test
+    void expandingACardInAShortListThatDidNotScrollAddsTheScrollRange() {
+        onEdt(() -> {
+            // A short log: a single collapsed card fits the viewport, so there is no
+            // scrollbar at all. COLLAPSED (100) <= VIEW_H (400).
+            List<Item> items = makeItems(1);
+            VirtualizedCardList list = install(items);
+            Item only = items.get(0);
+            list.navigateToTop(only);
+
+            assertTrue(list.getPreferredSize().height <= VIEW_H,
+                    "precondition: the short content must fit without scrolling");
+
+            // Expand it past the viewport — now the content needs scrolling.
+            realHeight.put(only, 700);
+            list.invalidateCard(only);
+            list.ensureVisible(only);
+
+            assertTrue(list.getPreferredSize().height > VIEW_H,
+                    "expansion must push the content past the viewport");
+            assertEquals(list.getPreferredSize().height, list.getHeight(),
+                    "the view must adopt the taller height immediately so the newly "
+                            + "needed scrollbar appears — even though the list did not "
+                            + "scroll before");
+        });
+    }
+
+    @Test
+    void expandingAnAlreadyVisibleCardUpdatesTheScrollRange() {
+        onEdt(() -> {
+            List<Item> items = makeItems(20);
+            VirtualizedCardList list = install(items);
+
+            // The first card is already at the top and fully visible; expanding it
+            // requires no scroll-to-reveal, so ensureVisible's scrollRectToVisible is
+            // a no-op — but the scroll range must still grow.
+            Item first = items.get(0);
+            list.navigateToTop(first);
+
+            realHeight.put(first, 700);
+            list.invalidateCard(first);
+            list.ensureVisible(first);
+
+            assertEquals(list.getPreferredSize().height, list.getHeight(),
+                    "expanding an already-visible card must still update the view height");
         });
     }
 
