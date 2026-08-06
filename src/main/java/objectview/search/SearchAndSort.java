@@ -369,8 +369,19 @@ public class SearchAndSort {
     }
 
     private static boolean isNumericField(Field field) {
-        return field != null
-                && field.isAnnotationPresent(Numeric.class);
+        if (field == null) {
+            return false;
+        }
+        // @Numeric marks a String-backed (dynamic) field whose values are numbers; a field
+        // whose Java type is already numeric needs no annotation to sort as a number — else
+        // an int like a relation count sorts lexically ("100" before "20").
+        if (field.isAnnotationPresent(Numeric.class)) {
+            return true;
+        }
+        Class<?> type = field.getType();
+        return type == int.class || type == long.class || type == short.class
+                || type == byte.class || type == double.class || type == float.class
+                || Number.class.isAssignableFrom(type);
     }
 
     private static final java.util.regex.Pattern LEADING_NUMBER =
