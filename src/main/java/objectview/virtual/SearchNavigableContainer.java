@@ -16,7 +16,7 @@ public interface SearchNavigableContainer extends VirtualizedContainer {
 
     JComponent revealSearchHit(
             Viewable item,
-            ViewableFieldPaths.FieldPath fieldPath,
+            ViewableFieldPaths.PathInfo fieldPath,
             List<String> queryTokens);
 
     void clearSearchHighlight();

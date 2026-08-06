@@ -1,13 +1,12 @@
 package objectview.render;
 
 import objectview.field.FieldProperties;
+import objectview.field.FieldPath;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Clickable header for a collapsible collection/map field — a ▶/▼ triangle and
@@ -32,7 +31,7 @@ public class CollectionHeader extends JComponent {
     private boolean hover = false;
 
     public CollectionHeader(String fieldName,
-                            List<String> fieldPath,
+                            FieldPath fieldPath,
                             int count,
                             boolean expanded,
                             Object key,
@@ -52,7 +51,7 @@ public class CollectionHeader extends JComponent {
                 : "Click to expand (" + count + " items)");
 
         // Keep the field searchable even when collapsed.
-        List<String> path = new ArrayList<>(fieldPath == null ? List.of() : fieldPath);
+        FieldPath path = fieldPath == null ? FieldPath.ROOT : fieldPath;
         putClientProperty(FieldProperties.FIELD_NAME_PROPERTY, this.fieldName);
         putClientProperty(FieldProperties.FIELD_PATH_PROPERTY, path);
 

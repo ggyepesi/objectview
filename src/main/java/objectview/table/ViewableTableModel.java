@@ -19,15 +19,15 @@ import java.util.function.Function;
 /** Data-only model: rows are Viewables, columns are configured field paths. */
 public final class ViewableTableModel extends AbstractTableModel {
     private final BiFunction<Viewable, ViewConfig,
-            List<ViewableFieldPaths.FieldPath>> pathResolver;
+            List<ViewableFieldPaths.PathInfo>> pathResolver;
     private List<Viewable> rows = new ArrayList<>();
-    private List<ViewableFieldPaths.FieldPath> columns = List.of();
+    private List<ViewableFieldPaths.PathInfo> columns = List.of();
     private Function<Viewable, ViewConfig> configResolver;
 
     public ViewableTableModel(
             List<? extends Viewable> rows,
             BiFunction<Viewable, ViewConfig,
-                    List<ViewableFieldPaths.FieldPath>> pathResolver) {
+                    List<ViewableFieldPaths.PathInfo>> pathResolver) {
         this.pathResolver = pathResolver;
         this.rows.addAll(rows == null ? List.of() : rows);
     }
@@ -56,11 +56,11 @@ public final class ViewableTableModel extends AbstractTableModel {
         return rows.get(index);
     }
 
-    public ViewableFieldPaths.FieldPath column(int index) {
+    public ViewableFieldPaths.PathInfo column(int index) {
         return columns.get(index);
     }
 
-    public int columnIndex(ViewableFieldPaths.FieldPath path) {
+    public int columnIndex(ViewableFieldPaths.PathInfo path) {
         if (path == null) return -1;
         for (int i = 0; i < columns.size(); i++) {
             if (columns.get(i).path().equals(path.path())) return i;
@@ -87,18 +87,18 @@ public final class ViewableTableModel extends AbstractTableModel {
     }
 
     private void rebuildColumns() {
-        Map<String, ViewableFieldPaths.FieldPath> union = new LinkedHashMap<>();
+        Map<String, ViewableFieldPaths.PathInfo> union = new LinkedHashMap<>();
         if (configResolver != null && pathResolver != null) {
             for (Viewable row : rows) {
                 ViewConfig config = configResolver.apply(row);
-                List<ViewableFieldPaths.FieldPath> paths = pathResolver.apply(row, config);
+                List<ViewableFieldPaths.PathInfo> paths = pathResolver.apply(row, config);
                 if (paths == null) continue;
-                for (ViewableFieldPaths.FieldPath path : paths) {
+                for (ViewableFieldPaths.PathInfo path : paths) {
                     if (path != null) union.putIfAbsent(path.dotted(), path);
                 }
             }
         }
-        List<ViewableFieldPaths.FieldPath> ordered = new ArrayList<>(union.values());
+        List<ViewableFieldPaths.PathInfo> ordered = new ArrayList<>(union.values());
         // The display field reads as the row's title, so it leads: move it to the first
         // column. (displayKey resolves the bound @DisplayField, last-wins if several.)
         if (!rows.isEmpty()) {

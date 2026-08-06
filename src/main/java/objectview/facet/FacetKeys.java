@@ -2,6 +2,7 @@ package objectview.facet;
 
 import objectview.Viewable;
 import objectview.ViewableAdapter;
+import objectview.field.FieldPath;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -14,7 +15,7 @@ final class FacetKeys {
 
     private FacetKeys() {}
 
-    static List<String> fromField(Viewable q, String fieldPath) {
+    static List<String> fromField(Viewable q, FieldPath fieldPath) {
         List<String> out = new ArrayList<>();
         for (Object leaf : resolve(q, fieldPath)) {
             out.addAll(keysOf(leaf));
@@ -23,7 +24,7 @@ final class FacetKeys {
     }
 
     /** The {@link Viewable} value(s) of a field — for reference facets. */
-    static List<Viewable> refsFromField(Viewable q, String fieldPath) {
+    static List<Viewable> refsFromField(Viewable q, FieldPath fieldPath) {
         List<Viewable> out = new ArrayList<>();
         for (Object leaf : resolve(q, fieldPath)) {
             out.addAll(refsOf(leaf));
@@ -37,10 +38,10 @@ final class FacetKeys {
      * language's name, and {@code nominee.name} the nominee's name. A single-segment
      * path returns that field's value(s), identical to a direct read.
      */
-    private static List<Object> resolve(Viewable q, String fieldPath) {
+    private static List<Object> resolve(Viewable q, FieldPath fieldPath) {
         List<Object> current = new ArrayList<>();
         current.add(q);
-        for (String segment : fieldPath.split("\\.")) {
+        for (String segment : fieldPath.segments()) {
             List<Object> next = new ArrayList<>();
             for (Object obj : current) {
                 addFlattened(next, readField(obj, segment));

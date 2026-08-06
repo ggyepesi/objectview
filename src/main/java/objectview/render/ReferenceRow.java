@@ -2,6 +2,7 @@ package objectview.render;
 
 import objectview.demo.CardFrame;
 import objectview.field.FieldProperties;
+import objectview.field.FieldPath;
 import objectview.Viewable;
 import objectview.viewconfig.ViewConfig;
 import org.slf4j.Logger;
@@ -10,7 +11,6 @@ import org.slf4j.LoggerFactory;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseEvent;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -45,7 +45,7 @@ public class ReferenceRow extends TextRow {
     private final boolean navigate;
 
     public ReferenceRow(String fieldName,
-                        List<String> fieldPath,
+                        FieldPath fieldPath,
                         Viewable target,
                         RenderContext renderContext,
                         ViewConfig openConfig,
@@ -56,7 +56,7 @@ public class ReferenceRow extends TextRow {
     }
 
     public ReferenceRow(String fieldName,
-                        List<String> fieldPath,
+                        FieldPath fieldPath,
                         Viewable target,
                         RenderContext renderContext,
                         ViewConfig openConfig,
@@ -64,7 +64,7 @@ public class ReferenceRow extends TextRow {
                         boolean expanded,
                         boolean navigate) {
         super(fieldName,
-                fieldPath == null ? List.of() : new ArrayList<>(fieldPath),
+                fieldPath == null ? FieldPath.ROOT : fieldPath,
                 List.of(name(target)));
         Card.RenderStats.referenceRows++;
 
@@ -82,18 +82,10 @@ public class ReferenceRow extends TextRow {
                 ? "Click to collapse · right-click for more"
                 : "Click to expand in place · right-click for more");
 
-        // The searchable value is the target's contract display field, so use its
-        // stable key to match the search model's leaf path.
-        List<String> searchPath = new ArrayList<>(
-                fieldPath == null ? List.of() : fieldPath);
-        String displayKey = objectview.field.ViewableContractFieldSet.displayKey(
-                objectview.field.FieldSet.of(target, renderContext == null
-                        ? null : renderContext.fieldSchema(target)));
-        if (searchPath.isEmpty()
-                || !displayKey.equals(searchPath.get(searchPath.size() - 1))) {
-            searchPath.add(displayKey);
-        }
-        putClientProperty(FieldProperties.FIELD_PATH_PROPERTY, searchPath);
+        // A reference row represents the configured reference field itself. Its
+        // display label is a value of that field, not an invented child segment.
+        putClientProperty(FieldProperties.FIELD_PATH_PROPERTY,
+                fieldPath == null ? FieldPath.ROOT : fieldPath);
     }
 
     @Override

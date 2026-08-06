@@ -12,7 +12,8 @@ class FieldAccessValuesTest {
         Parent parent = new Parent(List.of(new Child("A"), new Child("B")));
 
         assertEquals(List.of("A", "B"),
-                FieldAccess.getPathValues(parent, List.of("children", "name")));
+                FieldAccess.getPathValues(
+                        parent, FieldPath.of("children", "name")));
     }
 
     private static final class Parent extends ViewableAdapter {

@@ -75,11 +75,11 @@ public final class SearchableTableView extends JPanel {
     public JScrollPane scrollPane() { return scroll; }
     public SearchPanel search() { return search; }
 
-    private static List<ViewableFieldPaths.FieldPath> configuredPaths(
+    private static List<ViewableFieldPaths.PathInfo> configuredPaths(
             Viewable row, ViewConfig config, Viewable stableSample,
             FieldTypeSource root,
             List<SearchPanel.SubtypeConfig> subtypes) {
-        Map<String, ViewableFieldPaths.FieldPath> paths = new LinkedHashMap<>();
+        Map<String, ViewableFieldPaths.PathInfo> paths = new LinkedHashMap<>();
         if (root != null) {
             add(paths, ViewableFieldPaths.collectFromSchema(config, root, false));
             for (SearchPanel.SubtypeConfig subtype : subtypes) {
@@ -98,9 +98,9 @@ public final class SearchableTableView extends JPanel {
         return List.copyOf(paths.values());
     }
 
-    private static void add(Map<String, ViewableFieldPaths.FieldPath> target,
-                            List<ViewableFieldPaths.FieldPath> paths) {
-        for (ViewableFieldPaths.FieldPath path : paths) {
+    private static void add(Map<String, ViewableFieldPaths.PathInfo> target,
+                            List<ViewableFieldPaths.PathInfo> paths) {
+        for (ViewableFieldPaths.PathInfo path : paths) {
             target.putIfAbsent(path.dotted(), path);
         }
     }

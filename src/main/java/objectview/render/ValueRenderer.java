@@ -4,6 +4,7 @@ import objectview.utils.swing.GridBagUtils;
 import objectview.media.ImagePane;
 import objectview.media.MediaValue;
 import objectview.field.FieldProperties;
+import objectview.field.FieldPath;
 import objectview.Viewable;
 import objectview.viewconfig.ViewConfig;
 
@@ -19,7 +20,7 @@ public final class ValueRenderer {
 
     public static JComponent createFieldComponent(
             Set<Object> visited, Set<Object> ancestors, RenderContext renderContext,
-            String fieldName, List<String> fieldPath, Object value,
+            String fieldName, FieldPath fieldPath, Object value,
             ViewConfig config, boolean fill) {
         if (value == null) {
             return null;
@@ -83,7 +84,7 @@ public final class ValueRenderer {
         }
     }
 
-    private static JComponent imageComponent(String fieldName, List<String> fieldPath, ImagePane imagePane) {
+    private static JComponent imageComponent(String fieldName, FieldPath fieldPath, ImagePane imagePane) {
         JPanel panel = basePanel(fieldName, fieldPath, imagePane);
 
         panel.add(imagePane, GridBagUtils.gbc(0, 0, 1.0, 1.0, GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(2, 2, 2, 2)));
@@ -93,13 +94,13 @@ public final class ValueRenderer {
 
     private static JComponent viewableComponent(
             Set<Object> visited, Set<Object> ancestors, RenderContext renderContext,
-            String fieldName, List<String> fieldPath, Viewable q, ViewConfig config, boolean fill) {
+            String fieldName, FieldPath fieldPath, Viewable q, ViewConfig config, boolean fill) {
         return viewableComponent(visited, ancestors, renderContext, fieldName, fieldPath, q, config, fill, false);
     }
 
     private static JComponent viewableComponent(
             Set<Object> visited, Set<Object> ancestors, RenderContext renderContext,
-            String fieldName, List<String> fieldPath, Viewable q, ViewConfig config, boolean fill,
+            String fieldName, FieldPath fieldPath, Viewable q, ViewConfig config, boolean fill,
             boolean suppressTitle) {
         JPanel panel = basePanel(fieldName, fieldPath, q);
 
@@ -115,17 +116,17 @@ public final class ValueRenderer {
         return panel;
     }
 
-    private static JComponent simpleCollectionComponent(String fieldName, List<String> fieldPath, Collection<?> collection) {
+    private static JComponent simpleCollectionComponent(String fieldName, FieldPath fieldPath, Collection<?> collection) {
         List<String> lines = collection.stream().filter(Objects::nonNull).map(String::valueOf).filter(s -> !s.isBlank()).map(s -> "• " + s).collect(Collectors.toList());
 
         if (lines.isEmpty()) {
             return null;
         }
 
-        return new TextRow(fieldName, new ArrayList<>(fieldPath), lines);
+        return new TextRow(fieldName, fieldPath, lines);
     }
 
-    private static JComponent complexCollectionComponent(Set<Object> visited, Set<Object> ancestors, RenderContext renderContext, String fieldName, List<String> fieldPath, Collection<?> collection, ViewConfig config, boolean fill) {
+    private static JComponent complexCollectionComponent(Set<Object> visited, Set<Object> ancestors, RenderContext renderContext, String fieldName, FieldPath fieldPath, Collection<?> collection, ViewConfig config, boolean fill) {
         JPanel panel = basePanel(fieldName, fieldPath, collection);
 
         int row = 0;
@@ -143,7 +144,7 @@ public final class ValueRenderer {
         return row == 0 ? null : panel;
     }
 
-    private static JComponent mapComponent(Set<Object> visited, Set<Object> ancestors, RenderContext renderContext, String fieldName, List<String> fieldPath, Map<?, ?> map, ViewConfig config, boolean fill) {
+    private static JComponent mapComponent(Set<Object> visited, Set<Object> ancestors, RenderContext renderContext, String fieldName, FieldPath fieldPath, Map<?, ?> map, ViewConfig config, boolean fill) {
         JPanel panel = basePanel(fieldName, fieldPath, map);
 
         int row = 0;
@@ -170,17 +171,17 @@ public final class ValueRenderer {
         return row == 0 ? null : panel;
     }
 
-    private static JComponent simpleMapComponent(String fieldName, List<String> fieldPath, Map<?, ?> map) {
+    private static JComponent simpleMapComponent(String fieldName, FieldPath fieldPath, Map<?, ?> map) {
         String text = map.entrySet().stream().filter(e -> e.getKey() != null || e.getValue() != null).map(e -> e.getKey() + " -> " + e.getValue()).filter(s -> !s.isBlank()).collect(Collectors.joining(", "));
 
         if (text.isBlank()) {
             return null;
         }
 
-        return new TextRow(fieldName, new ArrayList<>(fieldPath), text);
+        return new TextRow(fieldName, fieldPath, text);
     }
 
-    private static JComponent createCollectionItemComponent(Set<Object> visited, Set<Object> ancestors, RenderContext renderContext, List<String> fieldPath, Object item, ViewConfig config, boolean fill) {
+    private static JComponent createCollectionItemComponent(Set<Object> visited, Set<Object> ancestors, RenderContext renderContext, FieldPath fieldPath, Object item, ViewConfig config, boolean fill) {
         if (item == null) {
             return null;
         }
@@ -263,7 +264,7 @@ public final class ValueRenderer {
         return leafComponent("", fieldPath, item);
     }
 
-    private static JComponent leafComponent(String fieldName, List<String> fieldPath, Object value) {
+    private static JComponent leafComponent(String fieldName, FieldPath fieldPath, Object value) {
         if (value == null) {
             return null;
         }
@@ -274,7 +275,7 @@ public final class ValueRenderer {
             return null;
         }
 
-        return new TextRow(fieldName, new ArrayList<>(fieldPath), value);
+        return new TextRow(fieldName, fieldPath, value);
     }
 
     private static boolean isSimpleCollection(Collection<?> collection) {
@@ -329,7 +330,7 @@ public final class ValueRenderer {
         return true;
     }
 
-    private static JPanel basePanel(String fieldName, List<String> fieldPath, Object value) {
+    private static JPanel basePanel(String fieldName, FieldPath fieldPath, Object value) {
         JPanel panel = new JPanel(new GridBagLayout());
         panel.setOpaque(false);
 
@@ -339,7 +340,7 @@ public final class ValueRenderer {
 
         panel.putClientProperty(FieldProperties.FIELD_NAME_PROPERTY, fieldName);
 
-        panel.putClientProperty(FieldProperties.FIELD_PATH_PROPERTY, new ArrayList<>(fieldPath));
+        panel.putClientProperty(FieldProperties.FIELD_PATH_PROPERTY, fieldPath);
 
         panel.putClientProperty(FieldProperties.FIELD_VALUE_PROPERTY, value);
 

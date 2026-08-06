@@ -17,8 +17,12 @@ public final class FieldAccess {
     private FieldAccess() {}
 
     public static Object getPath(Object root, String path) {
+        return getPath(root, FieldPath.parse(path));
+    }
+
+    public static Object getPath(Object root, FieldPath path) {
         Object current = root;
-        for (String part : split(path)) {
+        for (String part : path.segments()) {
             if (current == null) {
                 return null;
             }
@@ -43,11 +47,11 @@ public final class FieldAccess {
      * tabular cells: a nested path such as {@code languages.name} therefore yields
      * all language names, while a direct map/collection leaf remains intact.
      */
-    public static Object getPathValues(Object root, List<String> path) {
-        if (path == null || path.isEmpty()) {
+    public static Object getPathValues(Object root, FieldPath path) {
+        if (path == null || path.isRoot()) {
             return root;
         }
-        return getPathValues(root, path, 0);
+        return getPathValues(root, path.segments(), 0);
     }
 
     private static Object getPathValues(Object current, List<String> path, int index) {
@@ -89,8 +93,14 @@ public final class FieldAccess {
     }
 
     public static void setPath(Object root, String path, Object value) {
-        var parts = split(path);
-        writeField(owner(root, path), parts.get(parts.size() - 1), value);
+        setPath(root, FieldPath.parse(path), value);
+    }
+
+    public static void setPath(Object root, FieldPath path, Object value) {
+        if (path == null || path.isRoot()) {
+            throw new IllegalArgumentException("Empty field path");
+        }
+        writeField(owner(root, path), path.leaf(), value);
     }
 
     public static void addToCollection(Object root, String fieldName, Object value) {
@@ -179,8 +189,8 @@ public final class FieldAccess {
                 "No field " + obj.getClass().getName() + "." + name);
     }
 
-    private static Object owner(Object root, String path) {
-        List<String> parts = split(path);
+    private static Object owner(Object root, FieldPath path) {
+        List<String> parts = path.segments();
         Object current = root;
         for (int i = 0; i < parts.size() - 1; i++) {
             if (current == null) {
@@ -191,10 +201,4 @@ public final class FieldAccess {
         return current;
     }
 
-    private static List<String> split(String path) {
-        if (path == null || path.isBlank()) {
-            throw new IllegalArgumentException("Empty field path");
-        }
-        return Arrays.asList(path.split("\\."));
-    }
 }

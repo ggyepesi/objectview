@@ -1,6 +1,7 @@
 package objectview.viewconfig;
 
 import objectview.ViewableAdapter;
+import objectview.field.FieldPath;
 
 import java.lang.reflect.Field;
 import java.util.Objects;
@@ -21,7 +22,7 @@ public final class FieldRow {
     }
 
     private final Kind kind;
-    private final String path;
+    private final FieldPath path;
     private final String label;
     private final String configName;
     private final String typeLabel;
@@ -30,7 +31,7 @@ public final class FieldRow {
     private final NestedFieldSource nested;
 
     private FieldRow(Kind kind,
-                     String path,
+                     FieldPath path,
                      String label,
                      String configName,
                      String typeLabel,
@@ -52,7 +53,7 @@ public final class FieldRow {
                                      NestedFieldSource nested) {
         return new FieldRow(
                 Kind.FIELD,
-                field.getName(),
+                FieldPath.of(field.getName()),
                 field.getName(),
                 field.getName(),
                 typeLabel,
@@ -73,7 +74,7 @@ public final class FieldRow {
                                    NestedFieldSource nested) {
         return new FieldRow(
                 Kind.FIELD,
-                name,
+                FieldPath.of(name),
                 label,
                 name,
                 typeLabel,
@@ -83,7 +84,7 @@ public final class FieldRow {
     }
 
     public static FieldRow path(String label,
-                                String path,
+                                FieldPath path,
                                 int depth,
                                 boolean container,
                                 String typeLabel) {
@@ -101,7 +102,7 @@ public final class FieldRow {
     public static FieldRow minorBlock() {
         return new FieldRow(
                 Kind.MINOR_BLOCK,
-                "Minor fields",
+                FieldPath.of("Minor fields"),
                 "Minor fields",
                 "Minor fields",
                 "",
@@ -116,7 +117,7 @@ public final class FieldRow {
             String configName, String label, NestedFieldSource nested) {
         return new FieldRow(
                 Kind.CLASS,
-                configName,
+                FieldPath.of(configName),
                 label,
                 configName,
                 "",
@@ -131,7 +132,7 @@ public final class FieldRow {
      * {@code path} and {@code depth}. A row source emits a child with its own short
      * name and depth 0; the editor reparents it as it expands.
      */
-    public FieldRow at(String fullPath, int depth) {
+    public FieldRow at(FieldPath fullPath, int depth) {
         return new FieldRow(
                 kind, fullPath, label, configName, typeLabel, depth, field, nested);
     }
@@ -140,7 +141,7 @@ public final class FieldRow {
         return kind;
     }
 
-    public String path() {
+    public FieldPath path() {
         return path;
     }
 
@@ -200,6 +201,6 @@ public final class FieldRow {
 
     @Override
     public String toString() {
-        return path;
+        return path.dotted();
     }
 }

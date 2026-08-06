@@ -1,6 +1,7 @@
 package objectview.render;
 
 import objectview.field.FieldProperties;
+import objectview.field.FieldPath;
 import objectview.text.TextSelectable;
 import objectview.text.TextSelection;
 import objectview.text.TextSelectionManager;
@@ -44,7 +45,7 @@ public class TextRow extends JComponent implements TextSelectable {
     }
 
     private final String fieldName;
-    private final List<String> fieldPath;
+    private final FieldPath fieldPath;
     private final List<String> lines;
     private List<String> highlightTokens = List.of();
 
@@ -55,7 +56,7 @@ public class TextRow extends JComponent implements TextSelectable {
     private List<PaintLine> cachedPaintLines = new ArrayList<>();
 
     public TextRow(String fieldName,
-                   List<String> fieldPath,
+                   FieldPath fieldPath,
                    Object rawValue) {
         this(fieldName, fieldPath, rawValue == null
                 ? List.of()
@@ -63,14 +64,12 @@ public class TextRow extends JComponent implements TextSelectable {
     }
 
     public TextRow(String fieldName,
-                   List<String> fieldPath,
+                   FieldPath fieldPath,
                    List<String> lines) {
         Card.RenderStats.textRows++;
 
         this.fieldName = fieldName == null ? "" : fieldName;
-        this.fieldPath = fieldPath == null
-                ? List.of()
-                : new ArrayList<>(fieldPath);
+        this.fieldPath = fieldPath == null ? FieldPath.ROOT : fieldPath;
         this.lines = lines == null ? List.of() : new ArrayList<>(lines);
 
         setOpaque(false);
@@ -297,7 +296,7 @@ public class TextRow extends JComponent implements TextSelectable {
     }
 
     private String pathText() {
-        return String.join(".", fieldPath);
+        return fieldPath.dotted();
     }
 
     private List<String> wrappedLines(FontMetrics fm, int valueWidth) {

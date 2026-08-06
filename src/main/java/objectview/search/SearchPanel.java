@@ -5,6 +5,7 @@ import static objectview.field.FieldProperties.FIELD_PATH_PROPERTY;
 import static objectview.field.FieldProperties.FIELD_VALUE_PROPERTY;
 import objectview.*;
 import objectview.field.ViewableFieldPaths;
+import objectview.field.FieldPath;
 
 import objectview.utils.swing.GridBagUtils;
 import objectview.media.ImagePane;
@@ -300,7 +301,7 @@ public class SearchPanel extends JPanel
             return;
         }
 
-        List<ViewableFieldPaths.FieldPath> sortPaths =
+        List<ViewableFieldPaths.PathInfo> sortPaths =
                 configuredPaths(sortEditor, subtypeSortEditors);
 
         if (sortPaths.isEmpty()) {
@@ -687,7 +688,15 @@ public class SearchPanel extends JPanel
 
             @Override public java.util.List<String> fieldNames() {
                 java.util.List<String> names = new java.util.ArrayList<>(fields);
-                if (!fields.contains(objectview.field.ViewableContractFieldSet.DISPLAY_KEY)) {
+                // Same rule as every other field enumerator: offer the synthetic display
+                // field ONLY when no real field is bound to DISPLAY (@DisplayField).
+                boolean hasDisplay = source != null && fields.stream().anyMatch(n -> {
+                    FieldTypeSource.FieldTypeInfo info = source.field(n);
+                    return info != null
+                            && info.role() == objectview.field.FieldRole.DISPLAY;
+                });
+                if (!hasDisplay
+                        && !fields.contains(objectview.field.ViewableContractFieldSet.DISPLAY_KEY)) {
                     names.add(objectview.field.ViewableContractFieldSet.DISPLAY_KEY);
                 }
                 return java.util.List.copyOf(names);
@@ -760,10 +769,10 @@ public class SearchPanel extends JPanel
 
     /** The single field-path boundary used by search, sorting and highlighting.
      * Schema-backed domains never inspect an instance to discover paths. */
-    private List<ViewableFieldPaths.FieldPath> configuredPaths(
+    private List<ViewableFieldPaths.PathInfo> configuredPaths(
             ViewConfigEditor baseEditor,
             java.util.Map<String, ViewConfigEditor> subtypeEditors) {
-        List<ViewableFieldPaths.FieldPath> paths = new ArrayList<>();
+        List<ViewableFieldPaths.PathInfo> paths = new ArrayList<>();
         if (rootFieldTypes != null) {
             paths.addAll(ViewableFieldPaths.collectFromSchema(
                     baseEditor.getConfig(), rootFieldTypes, true));
@@ -787,9 +796,9 @@ public class SearchPanel extends JPanel
                     : ViewableFieldPaths.collectFromSample(fieldPathSample, config,
                             ViewableFieldPaths.NOT_MEDIA_FIELDS));
         }
-        java.util.LinkedHashMap<String, ViewableFieldPaths.FieldPath> unique =
+        java.util.LinkedHashMap<String, ViewableFieldPaths.PathInfo> unique =
                 new java.util.LinkedHashMap<>();
-        for (ViewableFieldPaths.FieldPath path : paths) {
+        for (ViewableFieldPaths.PathInfo path : paths) {
             unique.putIfAbsent(path.dotted(), path);
         }
         return List.copyOf(unique.values());
@@ -1034,13 +1043,13 @@ public class SearchPanel extends JPanel
             Map<String, HitGroup> groups,
             List<String> queryTokens) {
 
-        List<ViewableFieldPaths.FieldPath> paths =
+        List<ViewableFieldPaths.PathInfo> paths =
                 configuredPaths(searchEditor, subtypeSearchEditors);
 
-        Map<String, ViewableFieldPaths.FieldPath> pathByTitle =
+        Map<String, ViewableFieldPaths.PathInfo> pathByTitle =
                 new LinkedHashMap<>();
 
-        for (ViewableFieldPaths.FieldPath fp : paths) {
+        for (ViewableFieldPaths.PathInfo fp : paths) {
             pathByTitle.put(fp.title(), fp);
         }
 
@@ -1054,7 +1063,7 @@ public class SearchPanel extends JPanel
 
         for (Map.Entry<String, List<Card>> e
                 : matchesByField.entrySet()) {
-            ViewableFieldPaths.FieldPath fp = pathByTitle.get(e.getKey());
+            ViewableFieldPaths.PathInfo fp = pathByTitle.get(e.getKey());
             if (fp == null) {
                 continue;
             }
@@ -1071,7 +1080,7 @@ public class SearchPanel extends JPanel
         for (Map.Entry<String, List<Card>> e
                 : matchesByField.entrySet()) {
 
-            ViewableFieldPaths.FieldPath fp =
+            ViewableFieldPaths.PathInfo fp =
                     pathByTitle.get(e.getKey());
 
             if (fp == null) {
@@ -1169,7 +1178,7 @@ public class SearchPanel extends JPanel
 
     private List<JComponent> collectMatchingFieldRows(
             Component root,
-            List<String> selectedPath,
+            FieldPath selectedPath,
             List<String> queryTokens) {
 
         List<JComponent> hits =
@@ -1186,7 +1195,7 @@ public class SearchPanel extends JPanel
 
     private void collectMatchingFieldRows(
             Component root,
-            List<String> selectedPath,
+            FieldPath selectedPath,
             List<String> queryTokens,
             List<JComponent> hits) {
 
@@ -1205,8 +1214,8 @@ public class SearchPanel extends JPanel
             Object val =
                     jc.getClientProperty(FIELD_VALUE_PROPERTY);
 
-            if (pathObj instanceof List<?> rowPath
-                    && samePath(rowPath, selectedPath)
+            if (pathObj instanceof FieldPath rowPath
+                    && rowPath.equals(selectedPath)
                     && matchesWithTokens(val, queryTokens)) {
 
                 replaceAncestorWithDescendantIfNeeded(jc, hits);
@@ -1469,7 +1478,7 @@ public class SearchPanel extends JPanel
 
     private void highlightTextRecursively(
             Component root,
-            List<String> selectedPath,
+            FieldPath selectedPath,
             List<String> queryTokens) {
 
         if (root instanceof TextBlock block) {
@@ -1486,8 +1495,8 @@ public class SearchPanel extends JPanel
                     jc.getClientProperty(FIELD_PATH_PROPERTY);
 
             boolean isSelectedField =
-                    pathObj instanceof List<?> rowPath
-                            && samePath(rowPath, selectedPath);
+                    pathObj instanceof FieldPath rowPath
+                            && rowPath.equals(selectedPath);
 
             if (isSelectedField) {
                 highlightLabelsUnder(jc, queryTokens);
@@ -1524,23 +1533,6 @@ public class SearchPanel extends JPanel
                 highlightLabelsUnder(child, queryTokens);
             }
         }
-    }
-
-    private boolean samePath(
-            List<?> a,
-            List<String> b) {
-
-        if (a == null || b == null || a.size() != b.size()) {
-            return false;
-        }
-
-        for (int i = 0; i < a.size(); i++) {
-            if (!Objects.equals(String.valueOf(a.get(i)), b.get(i))) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     private void highlightLabelText(
@@ -1981,10 +1973,10 @@ public class SearchPanel extends JPanel
         virtualHits.clear();
         matchesByField.values().forEach(virtualHits::addAll);
 
-        Map<String, ViewableFieldPaths.FieldPath> pathByTitle =
+        Map<String, ViewableFieldPaths.PathInfo> pathByTitle =
                 new LinkedHashMap<>();
 
-        for (ViewableFieldPaths.FieldPath fp
+        for (ViewableFieldPaths.PathInfo fp
                 : configuredPaths(searchEditor, subtypeSearchEditors)) {
 
             pathByTitle.put(fp.title(), fp);
@@ -2130,14 +2122,14 @@ public class SearchPanel extends JPanel
     private static class HitGroupQ {
         final String title;
         final List<Viewable> hits = new ArrayList<>();
-        final ViewableFieldPaths.FieldPath fieldPath;
+        final ViewableFieldPaths.PathInfo fieldPath;
         final List<String> queryTokens;
         int index = 0;
         JLabel label;
 
         HitGroupQ(
                 String title,
-                ViewableFieldPaths.FieldPath fieldPath,
+                ViewableFieldPaths.PathInfo fieldPath,
                 List<String> queryTokens) {
             this.title = title;
             this.fieldPath = fieldPath;

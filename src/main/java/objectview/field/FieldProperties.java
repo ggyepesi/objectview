@@ -11,7 +11,7 @@ package objectview.field;
  */
 public final class FieldProperties {
 
-    /** Client-property key: the field's dotted path (a {@code List<String>}). */
+    /** Client-property key: the field's canonical {@link FieldPath}. */
     public static final String FIELD_PATH_PROPERTY = "objectview.fieldPath";
 
     /** Client-property key: the field's display name. */

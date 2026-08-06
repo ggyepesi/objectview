@@ -22,7 +22,7 @@ class ViewableFieldPathsTest {
         config.setAllFields(false);
         config.addField("tags", ViewConfig.leaf());
 
-        List<ViewableFieldPaths.FieldPath> paths =
+        List<ViewableFieldPaths.PathInfo> paths =
                 ViewableFieldPaths.collect(config, ViewableFieldPaths.NOT_MEDIA_FIELDS);
 
         assertEquals(Set.of("tags"), pathStrings(paths));
@@ -38,14 +38,14 @@ class ViewableFieldPathsTest {
         config.setAllFields(false);
         config.addField("children", childConfig);
 
-        List<ViewableFieldPaths.FieldPath> paths =
+        List<ViewableFieldPaths.PathInfo> paths =
                 ViewableFieldPaths.collect(config, ViewableFieldPaths.NOT_MEDIA_FIELDS);
 
         assertEquals(Set.of("children.name"), pathStrings(paths));
     }
 
     @Test
-    void collectFromSampleEmitsNameForAnUnconfiguredReferenceChild() {
+    void collectFromSampleKeepsTheConfiguredReferencePath() {
         TestChild child = new TestChild();
         child.name = "Meryl";
         child.code = "42";
@@ -53,8 +53,8 @@ class ViewableFieldPathsTest {
         card.name = "nom";
         card.children = List.of(child);
 
-        // `children` is selected but with NO child selection -> only its display name
-        // is a searchable path, not the child's other (unconfigured) fields.
+        // `children` is selected with no child selection: its Viewable label is the
+        // searchable value, but the path remains exactly the configured reference.
         ViewConfig config = ViewConfig.of(TestCard.class);
         config.setAllFields(false);
         config.addField("children", ViewConfig.leaf());
@@ -62,7 +62,7 @@ class ViewableFieldPathsTest {
         Set<String> paths = pathStrings(ViewableFieldPaths.collectFromSample(
                 card, config, ViewableFieldPaths.NOT_MEDIA_FIELDS));
 
-        assertEquals(Set.of("children." + ViewableContractFieldSet.DISPLAY_KEY), paths);
+        assertEquals(Set.of("children"), paths);
     }
 
     @Test
@@ -90,7 +90,7 @@ class ViewableFieldPathsTest {
     }
 
     @Test
-    void collapsedReferenceUsesItsBoundDisplayField() {
+    void collapsedReferenceDoesNotInventADisplayChildPath() {
         DisplayChild child = new DisplayChild("Meryl");
         DisplayParent parent = new DisplayParent(child);
         ViewConfig config = ViewConfig.of(DisplayParent.class);
@@ -100,7 +100,7 @@ class ViewableFieldPathsTest {
         Set<String> paths = pathStrings(ViewableFieldPaths.collectFromSample(
                 parent, config, ViewableFieldPaths.NOT_MEDIA_FIELDS));
 
-        assertEquals(Set.of("child.label"), paths);
+        assertEquals(Set.of("child"), paths);
     }
 
     @Test
@@ -110,7 +110,7 @@ class ViewableFieldPathsTest {
         config.addField("name", ViewConfig.leaf());
         config.addField("image", ViewConfig.leaf());
 
-        List<ViewableFieldPaths.FieldPath> paths =
+        List<ViewableFieldPaths.PathInfo> paths =
                 ViewableFieldPaths.collect(config, ViewableFieldPaths.NOT_MEDIA_FIELDS);
 
         assertEquals(Set.of("name"), pathStrings(paths));
@@ -122,15 +122,15 @@ class ViewableFieldPathsTest {
         config.setAllFields(false);
         config.addField("name", ViewConfig.leaf());
 
-        List<ViewableFieldPaths.FieldPath> paths =
+        List<ViewableFieldPaths.PathInfo> paths =
                 ViewableFieldPaths.collect(config, ViewableFieldPaths.NOT_MEDIA_FIELDS);
 
         assertEquals(Set.of("name"), pathStrings(paths));
     }
 
-    private Set<String> pathStrings(List<ViewableFieldPaths.FieldPath> paths) {
+    private Set<String> pathStrings(List<ViewableFieldPaths.PathInfo> paths) {
         return paths.stream()
-                .map(p -> String.join(".", p.path()))
+                .map(p -> p.path().dotted())
                 .collect(Collectors.toSet());
     }
 
@@ -212,19 +212,22 @@ class ViewableFieldPathsTest {
 
     @Test
     void dedupByPathKeepsFirstOfEachDistinctPath() {
-        ViewableFieldPaths.FieldPath name =
-                new ViewableFieldPaths.FieldPath("name", List.of("name"), null);
-        ViewableFieldPaths.FieldPath nameAgain =
-                new ViewableFieldPaths.FieldPath("name (dup)", List.of("name"), null);
-        ViewableFieldPaths.FieldPath code =
-                new ViewableFieldPaths.FieldPath("code", List.of("code"), null);
+        ViewableFieldPaths.PathInfo name =
+                new ViewableFieldPaths.PathInfo(
+                        "name", FieldPath.of("name"), null);
+        ViewableFieldPaths.PathInfo nameAgain =
+                new ViewableFieldPaths.PathInfo(
+                        "name (dup)", FieldPath.of("name"), null);
+        ViewableFieldPaths.PathInfo code =
+                new ViewableFieldPaths.PathInfo(
+                        "code", FieldPath.of("code"), null);
 
-        List<ViewableFieldPaths.FieldPath> out =
+        List<ViewableFieldPaths.PathInfo> out =
                 ViewableFieldPaths.dedupByPath(List.of(name, nameAgain, code));
 
         assertEquals(2, out.size());
         assertSame(name, out.get(0), "first occurrence of the duplicated path is kept");
-        assertEquals(List.of("code"), out.get(1).path());
+        assertEquals(FieldPath.of("code"), out.get(1).path());
     }
 
     @Test
@@ -234,19 +237,19 @@ class ViewableFieldPathsTest {
         // a field, so it never appears.
         ViewConfig config = ViewConfig.of(EntityCard.class);
 
-        List<ViewableFieldPaths.FieldPath> paths = ViewableFieldPaths.collect(
+        List<ViewableFieldPaths.PathInfo> paths = ViewableFieldPaths.collect(
                 config, ViewableFieldPaths.NOT_MEDIA_FIELDS);
 
-        List<List<String>> allPaths = paths.stream()
-                .map(ViewableFieldPaths.FieldPath::path)
+        List<FieldPath> allPaths = paths.stream()
+                .map(ViewableFieldPaths.PathInfo::path)
                 .collect(Collectors.toList());
 
         assertEquals(allPaths.stream().distinct().count(), allPaths.size(),
                 "no duplicate paths: " + allPaths);
         assertEquals(1, allPaths.stream().filter(p -> p.equals(
-                List.of(ViewableContractFieldSet.DISPLAY_KEY))).count());
+                FieldPath.of(ViewableContractFieldSet.DISPLAY_KEY))).count());
         assertEquals(0, allPaths.stream().filter(p -> p.equals(
-                List.of(ViewableContractFieldSet.IDENTITY_KEY))).count());
+                FieldPath.of(ViewableContractFieldSet.IDENTITY_KEY))).count());
     }
 
     @Test

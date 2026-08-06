@@ -51,7 +51,7 @@ public final class ViewableTable extends JTable
     public ViewableTable(
             List<? extends Viewable> rows,
             BiFunction<Viewable, ViewConfig,
-                    List<ViewableFieldPaths.FieldPath>> pathResolver,
+                    List<ViewableFieldPaths.PathInfo>> pathResolver,
             Consumer<Object> selectionListener) {
         super(new ViewableTableModel(rows, pathResolver));
         this.viewableModel = (ViewableTableModel) getModel();
@@ -105,7 +105,7 @@ public final class ViewableTable extends JTable
     @Override
     public javax.swing.JComponent revealSearchHit(
             Viewable item,
-            ViewableFieldPaths.FieldPath fieldPath,
+            ViewableFieldPaths.PathInfo fieldPath,
             List<String> queryTokens) {
         int row = identityRow(item);
         int modelColumn = viewableModel.columnIndex(fieldPath);

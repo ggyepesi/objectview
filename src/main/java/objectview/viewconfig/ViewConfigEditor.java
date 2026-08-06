@@ -3,6 +3,7 @@ package objectview.viewconfig;
 import objectview.Viewable;
 import objectview.ViewableAdapter;
 import objectview.field.DynamicFields;
+import objectview.field.FieldPath;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -45,7 +46,7 @@ public class ViewConfigEditor extends JPanel {
     // On for a single-select ConfigFieldRowSource table (pick-one / coverage); the
     // multi-check config editors keep the Expand dialog until stage 2.
     private boolean treeMode;
-    private final Set<String> expandedPaths = new java.util.HashSet<>();
+    private final Set<FieldPath> expandedPaths = new java.util.HashSet<>();
     // The whole discovered tree; `rows` is the currently VISIBLE subset of it.
     private final List<RowState> allRows = new ArrayList<>();
     private static final int MAX_TREE_DEPTH = 6;
@@ -311,9 +312,9 @@ public class ViewConfigEditor extends JPanel {
     /**
      * Replaces the row source with an explicit dotted-path source.
      */
-    public void setPathRows(List<String> paths,
+    public void setPathRows(List<FieldPath> paths,
                             Set<String> hiddenTop,
-                            Function<String, String> typeLabelForPath) {
+                            Function<FieldPath, String> typeLabelForPath) {
         rowSource = new PathFieldRowSource(
                 paths,
                 hiddenTop,
@@ -403,13 +404,13 @@ public class ViewConfigEditor extends JPanel {
      * Rebuilds immutable row descriptors while preserving mutable state by path.
      */
     private void rebuildRows(boolean preserveState) {
-        Map<String, RowSnapshot> old = preserveState
+        Map<FieldPath, RowSnapshot> old = preserveState
                 ? snapshotRows()
                 : Map.of();
 
         if (treeMode) {
             allRows.clear();
-            buildTree("", 0, rowContext(), new java.util.HashSet<>());
+            buildTree(FieldPath.ROOT, 0, rowContext(), new java.util.HashSet<>());
             for (RowState state : allRows) {
                 RowSnapshot snapshot = old.get(state.row.path());
                 if (snapshot != null) {
@@ -445,7 +446,7 @@ public class ViewConfigEditor extends JPanel {
     /** Discovers the whole tree into {@link #allRows}: top-level rows from the source,
      *  then each reference's children (re-pathed under it) recursively, bounded by a
      *  depth cap and a cycle guard (a nested type already on the chain stops). */
-    private void buildTree(String parentPath, int depth,
+    private void buildTree(FieldPath parentPath, int depth,
                            FieldRowContext context, Set<String> chain) {
         for (FieldRow raw : rowSource.rows(context)) {
             if (raw.isMinorBlock()) {
@@ -460,9 +461,9 @@ public class ViewConfigEditor extends JPanel {
             if (!raw.isField() && !raw.isClassBranch()) {
                 continue;   // no synthesized containers in a config-source tree
             }
-            String full = parentPath.isEmpty()
+            FieldPath full = parentPath.isRoot()
                     ? raw.path()
-                    : parentPath + "." + raw.path();
+                    : parentPath.append(raw.path());
             FieldRow placed = raw.at(full, depth);
             RowState state = new RowState(placed);
             state.use = !placed.isClassBranch() && checkedInSource(placed);
@@ -512,20 +513,20 @@ public class ViewConfigEditor extends JPanel {
      *  walking nested configs down its full path (so an existing/saved config restores
      *  checked state at every level). */
     private boolean checkedInSource(FieldRow row) {
-        String[] segments = row.path().split("\\.");
+        List<String> segments = row.path().segments();
         ViewConfig config = sourceConfig;
-        for (int i = 0; i < segments.length - 1; i++) {
-            ViewConfig child = config.getFieldConfig(segments[i]);
+        for (int i = 0; i < segments.size() - 1; i++) {
+            ViewConfig child = config.getFieldConfig(segments.get(i));
             if (child == null) {
                 return config.isAllFields();
             }
             config = child;
         }
-        return config.showsFieldByName(segments[segments.length - 1]);
+        return config.showsFieldByName(segments.get(segments.size() - 1));
     }
 
     private FieldRowContext childContext(
-            NestedFieldSource nested, String fullPath, boolean classBranch) {
+            NestedFieldSource nested, FieldPath fullPath, boolean classBranch) {
         ViewConfig configured = sourceConfigAt(fullPath);
         // A subtype branch is the SAME object with extra fields, so its inherited
         // contract fields (Name/identity) already show at the base — hide them here so
@@ -552,15 +553,16 @@ public class ViewConfigEditor extends JPanel {
      *  ViewConfig serialization, but application operations need the owning class and the
      *  plain field path. Keeping that translation here prevents clients from depending on
      *  the private key syntax. */
-    public record ResolvedFieldPath(String owner, String path) { }
+    public record ResolvedFieldPath(String owner, FieldPath path) { }
 
-    public static ResolvedFieldPath resolveFieldPath(String baseOwner, String editorPath) {
-        if (baseOwner == null || editorPath == null || editorPath.isBlank()) {
+    public static ResolvedFieldPath resolveFieldPath(
+            String baseOwner, FieldPath editorPath) {
+        if (baseOwner == null || editorPath == null || editorPath.isRoot()) {
             return null;
         }
         String owner = baseOwner;
         java.util.List<String> fields = new java.util.ArrayList<>();
-        for (String segment : editorPath.split("\\.")) {
+        for (String segment : editorPath.segments()) {
             if (segment.startsWith(CLASS_BRANCH_PREFIX)
                     && segment.length() > CLASS_BRANCH_PREFIX.length()) {
                 owner = segment.substring(CLASS_BRANCH_PREFIX.length());
@@ -569,7 +571,7 @@ public class ViewConfigEditor extends JPanel {
             }
         }
         return fields.isEmpty() ? null
-                : new ResolvedFieldPath(owner, String.join(".", fields));
+                : new ResolvedFieldPath(owner, new FieldPath(fields));
     }
 
     /** Delegates ordinary field discovery, then appends direct subtype children whose
@@ -616,27 +618,25 @@ public class ViewConfigEditor extends JPanel {
     }
 
     private boolean isVisible(RowState state) {
-        String path = state.row.path();
-        int dot = path.lastIndexOf('.');
-        while (dot >= 0) {
-            String ancestor = path.substring(0, dot);
+        FieldPath ancestor = state.row.path().parent();
+        while (!ancestor.isRoot()) {
             if (!expandedPaths.contains(ancestor)) {
                 return false;
             }
-            dot = ancestor.lastIndexOf('.');
+            ancestor = ancestor.parent();
         }
         return true;
     }
 
-    private void toggleExpand(String path) {
+    private void toggleExpand(FieldPath path) {
         if (!expandedPaths.remove(path)) {
             expandedPaths.add(path);
         }
         rebuildVisible();
     }
 
-    private Map<String, RowSnapshot> snapshotRows() {
-        Map<String, RowSnapshot> result =
+    private Map<FieldPath, RowSnapshot> snapshotRows() {
+        Map<FieldPath, RowSnapshot> result =
                 new LinkedHashMap<>();
 
         for (RowState state : (treeMode ? allRows : rows)) {
@@ -657,10 +657,10 @@ public class ViewConfigEditor extends JPanel {
         if (row.isField()) {
             state.use = row.field() != null
                     ? sourceConfig.showsField(row.field())
-                    : sourceConfig.showsFieldByName(row.path());
+                    : sourceConfig.showsFieldByName(row.path().leaf());
 
             ViewConfig selected =
-                    sourceConfig.getFieldConfig(row.path());
+                    sourceConfig.getFieldConfig(row.path().leaf());
             state.customConfigured =
                     selected != null
                             && row.nested() != null
@@ -678,7 +678,7 @@ public class ViewConfigEditor extends JPanel {
 
     // ---- public selection/config API --------------------------------------
 
-    public String selectedPath() {
+    public FieldPath selectedPath() {
         int viewRow = table.getSelectedRow();
         if (viewRow < 0) {
             return null;
@@ -703,7 +703,7 @@ public class ViewConfigEditor extends JPanel {
         return state.row.isField() ? state.row : null;
     }
 
-    public void setSelectedPath(String dottedPath) {
+    public void setSelectedPath(FieldPath dottedPath) {
         if (dottedPath == null) {
             table.clearSelection();
             return;
@@ -712,14 +712,12 @@ public class ViewConfigEditor extends JPanel {
         // In the tree, the target may be under collapsed ancestors — open them first.
         if (treeMode) {
             boolean changed = false;
-            String path = dottedPath;
-            int dot = path.lastIndexOf('.');
-            while (dot >= 0) {
-                String ancestor = path.substring(0, dot);
+            FieldPath ancestor = dottedPath.parent();
+            while (!ancestor.isRoot()) {
                 if (expandedPaths.add(ancestor)) {
                     changed = true;
                 }
-                dot = ancestor.lastIndexOf('.');
+                ancestor = ancestor.parent();
             }
             if (changed) {
                 rebuildVisible();
@@ -752,20 +750,20 @@ public class ViewConfigEditor extends JPanel {
         table.clearSelection();
     }
 
-    public List<String> selectedFieldPaths() {
-        List<String> result = new ArrayList<>();
-        collectSelected("", result);
+    public List<FieldPath> selectedFieldPaths() {
+        List<FieldPath> result = new ArrayList<>();
+        collectSelected(FieldPath.ROOT, result);
         return result;
     }
 
-    private void collectSelected(String prefix,
-                                 List<String> result) {
+    private void collectSelected(FieldPath prefix,
+                                 List<FieldPath> result) {
         if (treeMode) {
             for (RowState state : allRows) {
                 if (state.row.isField() && state.use) {
-                    result.add(prefix.isEmpty()
+                    result.add(prefix.isRoot()
                             ? state.row.path()
-                            : prefix + "." + state.row.path());
+                            : prefix.append(state.row.path()));
                 }
             }
             return;
@@ -775,9 +773,9 @@ public class ViewConfigEditor extends JPanel {
                 continue;
             }
 
-            String path = prefix.isEmpty()
+            FieldPath path = prefix.isRoot()
                     ? state.row.path()
-                    : prefix + "." + state.row.path();
+                    : prefix.append(state.row.path());
 
             if (state.childEditor != null) {
                 state.childEditor.collectSelected(
@@ -812,12 +810,12 @@ public class ViewConfigEditor extends JPanel {
                     && result.isAllMinorFields()
                     && row.isMinor()
                     && sourceConfig.getFieldConfig(
-                            row.path()) == null) {
+                            row.path().leaf()) == null) {
                 continue;
             }
 
             result.addField(
-                    row.path(),
+                    row.path().leaf(),
                     childConfigFor(state));
         }
 
@@ -978,7 +976,7 @@ public class ViewConfigEditor extends JPanel {
             ViewConfig cfg,
             boolean use,
             Class<? extends Viewable> type,
-            String fullPath,
+            FieldPath fullPath,
             RowState state,
             ViewConfig explicit,
             boolean classBranch) {
@@ -988,7 +986,7 @@ public class ViewConfigEditor extends JPanel {
      *  a live nested editor wins (bug: was dropped), else the saved config at this path
      *  in {@code sourceConfig} — returned even when EMPTY so an explicit empty survives
      *  the round-trip. {@code null} means "no explicit config" (a brand-new field). */
-    private ViewConfig explicitConfigFor(RowState state, String fullPath) {
+    private ViewConfig explicitConfigFor(RowState state, FieldPath fullPath) {
         if (state != null && state.childEditor != null) {
             return state.childEditor.getConfig();
         }
@@ -997,9 +995,9 @@ public class ViewConfigEditor extends JPanel {
 
     /** Walk {@code sourceConfig} down a dotted path to the field config at its leaf, or
      *  {@code null} if no config is declared at any segment. */
-    private ViewConfig sourceConfigAt(String dottedPath) {
+    private ViewConfig sourceConfigAt(FieldPath path) {
         ViewConfig cfg = sourceConfig;
-        for (String seg : dottedPath.split("\\.")) {
+        for (String seg : path.segments()) {
             if (cfg == null) {
                 return null;
             }
@@ -1015,7 +1013,7 @@ public class ViewConfigEditor extends JPanel {
 
         ViewConfig existing =
                 sourceConfig.getFieldConfig(
-                        state.row.path());
+                        state.row.path().leaf());
 
         if (state.customConfigured && existing != null) {
             return existing.copy();
@@ -1267,12 +1265,7 @@ public class ViewConfigEditor extends JPanel {
             return false;
         }
         return !treeMode
-                || parentPath(s.path()).equals(parentPath(t.path()));
-    }
-
-    private static String parentPath(String path) {
-        int dot = path.lastIndexOf('.');
-        return dot < 0 ? "" : path.substring(0, dot);
+                || s.path().parent().equals(t.path().parent());
     }
 
     private void openMinorEditor(RowState state) {
@@ -1343,7 +1336,7 @@ public class ViewConfigEditor extends JPanel {
 
         if (state.childEditor == null) {
             ViewConfig childConfig =
-                    sourceConfig.getFieldConfig(row.path());
+                    sourceConfigAt(row.path());
 
             if (childConfig == null
                     || childConfig.getCls() == null) {

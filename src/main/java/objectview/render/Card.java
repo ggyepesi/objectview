@@ -8,6 +8,7 @@ import objectview.media.ImageBlurrer;
 import objectview.media.ImagePane;
 import objectview.media.MediaValue;
 import objectview.field.FieldKind;
+import objectview.field.FieldPath;
 import objectview.field.FieldRef;
 import objectview.field.FieldSet;
 import objectview.field.FieldProperties;
@@ -173,7 +174,7 @@ public class Card extends JPanel {
     private final RenderContext renderContext;
     private boolean renderedConfiguredContent = false;
 
-    private final List<String> path;
+    private final FieldPath path;
     private int firstFieldRow = 0;
 
     // When true, this panel skips its own title header because the name is
@@ -191,7 +192,7 @@ public class Card extends JPanel {
                 ViewConfig config,
                 boolean fill) {
         this(identitySetOf(), identitySetOf(), new RenderContext(),
-                true, viewable, config, fill, new ArrayList<>(), null, null);
+                true, viewable, config, fill, FieldPath.ROOT, null, null);
     }
 
     // Root render whose own title is suppressed -- e.g. an "Open in window"
@@ -201,7 +202,7 @@ public class Card extends JPanel {
                 boolean fill,
                 boolean suppressTitle) {
         this(identitySetOf(), identitySetOf(), new RenderContext(),
-                true, viewable, config, fill, new ArrayList<>(), null, null, suppressTitle);
+                true, viewable, config, fill, FieldPath.ROOT, null, null, suppressTitle);
     }
 
     public Card(Viewable viewable,
@@ -209,7 +210,7 @@ public class Card extends JPanel {
                 Collection<? extends Viewable> topLevel,
                 boolean fill) {
         this(identitySetOf(), identitySetOf(), new RenderContext(topLevel),
-                true, viewable, config, fill, new ArrayList<>(), null, null);
+                true, viewable, config, fill, FieldPath.ROOT, null, null);
     }
 
     public Card(Viewable viewable,
@@ -217,7 +218,7 @@ public class Card extends JPanel {
                 RenderContext renderContext,
                 boolean fill) {
         this(identitySetOf(), identitySetOf(), renderContext,
-                true, viewable, config, fill, new ArrayList<>(),
+                true, viewable, config, fill, FieldPath.ROOT,
              null, null);
     }
 
@@ -228,7 +229,7 @@ public class Card extends JPanel {
                 Viewable viewable,
                 ViewConfig config,
                 boolean fill,
-                List<String> path) {
+                FieldPath path) {
         this(visited, ancestors, renderContext, rootRender,
                 viewable, config, fill, path, null, null);
     }
@@ -238,7 +239,7 @@ public class Card extends JPanel {
                 boolean fill,
                 JComponent compiledView) {
         this(identitySetOf(), identitySetOf(), new RenderContext(),
-                true, viewable, config, fill, new ArrayList<>(),
+                true, viewable, config, fill, FieldPath.ROOT,
              null, compiledView);
     }
 
@@ -274,7 +275,7 @@ public class Card extends JPanel {
                 Viewable viewable,
                 ViewConfig config,
                 boolean fill,
-                List<String> path,
+                FieldPath path,
                 List<Viewable> objectPath,
                 JComponent compiledView) {
         this(visited, ancestors, renderContext, rootRender, viewable, config,
@@ -288,7 +289,7 @@ public class Card extends JPanel {
                 Viewable viewable,
                 ViewConfig config,
                 boolean fill,
-                List<String> path,
+                FieldPath path,
                 List<Viewable> objectPath,
                 JComponent compiledView,
                 boolean suppressTitle) {
@@ -312,7 +313,7 @@ public class Card extends JPanel {
                 ? new RenderContext()
                 : renderContext;
         this.fill = fill;
-        this.path = path == null ? new ArrayList<>() : new ArrayList<>(path);
+        this.path = path == null ? FieldPath.ROOT : path;
 
         this.config = config == null
                 ? ViewConfig.of(viewable == null ? null : viewable.getClass())
@@ -491,7 +492,7 @@ public class Card extends JPanel {
                 displayFieldKey(viewable));
         titleLabel.putClientProperty(FieldProperties.FIELD_VALUE_PROPERTY, title);
         titleLabel.putClientProperty(FieldProperties.FIELD_PATH_PROPERTY,
-                List.of(displayFieldKey(viewable)));
+                path.append(displayFieldKey(viewable)));
 
         if (renderContext.selectionEnabled()) {
             titleLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -554,7 +555,7 @@ public class Card extends JPanel {
                 displayFieldKey(q));
         titleLabel.putClientProperty(FieldProperties.FIELD_VALUE_PROPERTY, title);
         titleLabel.putClientProperty(FieldProperties.FIELD_PATH_PROPERTY,
-                List.of(displayFieldKey(q)));
+                path.append(displayFieldKey(q)));
 
         // A view can enable single-selection (e.g. curation, to pick the instance
         // to fill): a single click on the card's name selects it — the render
@@ -678,8 +679,7 @@ public class Card extends JPanel {
                 continue;
             }
 
-            List<String> fieldPath = new ArrayList<>(path);
-            fieldPath.add(name);
+            FieldPath fieldPath = path.append(name);
 
             // A boolean flag reads as a badge, not "won: true": render nothing
             // when false, and just the humanized field name when true.
@@ -713,7 +713,7 @@ public class Card extends JPanel {
         // card height in one zero-paint filler, instead of letting GridBag
         // centre the content (which left a variable gap). Nested panels are
         // content-sized, so they don't need it.
-        if (path.isEmpty()) {
+        if (path.isRoot()) {
             add(Box.createGlue(), GridBagUtils.gbc(
                     0, row + 1, 1.0, 1.0,
                     GridBagConstraints.NORTHWEST,
@@ -749,21 +749,33 @@ public class Card extends JPanel {
         }
 
         String fieldName = field.name();
-        List<String> fieldPath = new ArrayList<>(path);
-        fieldPath.add(fieldName);
+        FieldPath fieldPath = path.append(fieldName);
 
         boolean isCollectionOrMap =
                 value instanceof Collection<?> || value instanceof Map<?, ?>;
+
+        // The child configuration belongs to this field path.  It must travel
+        // with a nested value instead of being rediscovered from the target's
+        // Java class: several logical dynamic types can share one adapter class
+        // (for example State and Language snapshot objects).
+        ViewConfig fieldCfg = config.getFieldConfig(fieldName);
+
+        if (fieldCfg == null) {
+            fieldCfg = defaultConfigForValue(value);
+        }
 
         if (field.annotatedReference()) {
             if (isCollectionOrMap) {
                 // The header labels the field; build the items borderless.
                 Object v = value;
+                ViewConfig cfg = fieldCfg;
                 return addCollapsibleCollection(fieldName, fieldPath, value, row,
-                        () -> createReferenceFieldComponent("", fieldPath, v));
+                        () -> createReferenceFieldComponent(
+                                "", fieldPath, v, cfg));
             }
             JComponent comp =
-                    createReferenceFieldComponent(fieldName, fieldPath, value);
+                    createReferenceFieldComponent(
+                            fieldName, fieldPath, value, fieldCfg);
 
             if (comp != null) {
                 addSingle(comp, row++);
@@ -777,7 +789,8 @@ public class Card extends JPanel {
         // SPARQL, child steps) hides behind a collapsed header.
         if (field.inline()) {
             JComponent comp =
-                    createInlineFieldComponent(fieldName, fieldPath, value);
+                    createInlineFieldComponent(
+                            fieldName, fieldPath, value, fieldCfg);
 
             if (comp != null) {
                 addSingle(comp, row++);
@@ -797,7 +810,8 @@ public class Card extends JPanel {
         // A bare (non-annotated) single Viewable is a collapsible chip too,
         // matching collection members -- see the class doc.
         if (value instanceof Viewable q) {
-            JComponent comp = collapsibleReference(fieldName, fieldPath, q);
+            JComponent comp = collapsibleReference(
+                    fieldName, fieldPath, q, false, fieldCfg);
 
             if (comp != null) {
                 addSingle(comp, row++);
@@ -809,12 +823,6 @@ public class Card extends JPanel {
         // Quiz query panels: show the answer-hiding (masked/blurred) image.
         if (value instanceof ImagePane ip && config.isBlurImages() && viewable != null) {
             value = blurForQuiz(ip);
-        }
-
-        ViewConfig fieldCfg = config.getFieldConfig(fieldName);
-
-        if (fieldCfg == null) {
-            fieldCfg = defaultConfigForValue(value);
         }
 
         // A complex collection/map (simple ones already folded into a text
@@ -854,7 +862,7 @@ public class Card extends JPanel {
     // list stays cheap.
     private int addCollapsibleCollection(
             String fieldName,
-            List<String> fieldPath,
+            FieldPath fieldPath,
             Object value,
             int row,
             java.util.function.Supplier<JComponent> body) {
@@ -904,11 +912,13 @@ public class Card extends JPanel {
 
     private JComponent createReferenceFieldComponent(
             String fieldName,
-            List<String> fieldPath,
-            Object value
+            FieldPath fieldPath,
+            Object value,
+            ViewConfig nestedConfig
                                                     ) {
         if (value instanceof Viewable q) {
-            return collapsibleReference(fieldName, fieldPath, q);
+            return collapsibleReference(
+                    fieldName, fieldPath, q, false, nestedConfig);
         }
 
         JPanel panel = new JPanel(new GridBagLayout());
@@ -922,13 +932,15 @@ public class Card extends JPanel {
         if (value instanceof Collection<?> collection) {
             for (Object item : collection) {
                 if (item instanceof Viewable q) {
-                    addReferenceToPanel(panel, "", q, fieldPath, row++);
+                    addReferenceToPanel(
+                            panel, "", q, fieldPath, nestedConfig, row++);
                 }
             }
         } else if (value instanceof Map<?, ?> map) {
             for (Object item : map.values()) {
                 if (item instanceof Viewable q) {
-                    addReferenceToPanel(panel, "", q, fieldPath, row++);
+                    addReferenceToPanel(
+                            panel, "", q, fieldPath, nestedConfig, row++);
                 }
             }
         }
@@ -942,11 +954,12 @@ public class Card extends JPanel {
     // that rely on the reference default are never expanded here.
     private JComponent createInlineFieldComponent(
             String fieldName,
-            List<String> fieldPath,
-            Object value) {
+            FieldPath fieldPath,
+            Object value,
+            ViewConfig nestedConfig) {
 
         if (value instanceof Viewable q) {
-            return inlineViewable(q, fieldPath);
+            return inlineViewable(q, fieldPath, nestedConfig, false);
         }
 
         Collection<?> items =
@@ -973,7 +986,8 @@ public class Card extends JPanel {
             // step's content. Expand state is keyed by the target identity, so each
             // chip toggles independently. (A single inline Viewable — handled above —
             // still expands in place.)
-            JComponent nested = collapsibleReference("", fieldPath, q);
+            JComponent nested = collapsibleReference(
+                    "", fieldPath, q, false, nestedConfig);
 
             if (nested != null) {
                 panel.add(
@@ -990,13 +1004,17 @@ public class Card extends JPanel {
         return row == 0 ? null : panel;
     }
 
-    private JComponent inlineViewable(Viewable q, List<String> fieldPath) {
-        return inlineViewable(q, fieldPath, false);
+    private JComponent inlineViewable(Viewable q, FieldPath fieldPath) {
+        return inlineViewable(q, fieldPath, configForNested(q), false);
     }
 
     // suppressTitle: the name is already shown above (the chip that expanded
     // into this body, or a same-named wrapper), so don't repeat it as a title.
-    private JComponent inlineViewable(Viewable q, List<String> fieldPath, boolean suppressTitle) {
+    private JComponent inlineViewable(
+            Viewable q,
+            FieldPath fieldPath,
+            ViewConfig nestedConfig,
+            boolean suppressTitle) {
         Card nested =
                 new Card(
                         copyVisited(),
@@ -1004,7 +1022,7 @@ public class Card extends JPanel {
                         renderContext,
                         false,
                         q,
-                        configForNested(q),
+                        nestedConfig,
                         fill,
                         fieldPath,
                         null,
@@ -1018,10 +1036,12 @@ public class Card extends JPanel {
             JPanel panel,
             String fieldName,
             Viewable q,
-            List<String> fieldPath,
+            FieldPath fieldPath,
+            ViewConfig nestedConfig,
             int row
     ) {
-        panel.add(collapsibleReference(fieldName, fieldPath, q),
+        panel.add(collapsibleReference(
+                        fieldName, fieldPath, q, false, nestedConfig),
                 GridBagUtils.gbc(
                         0, row,
                         1.0, 0.0,
@@ -1037,9 +1057,10 @@ public class Card extends JPanel {
     // one level opens per click -- safe even for broad/cyclic graphs.
     private JComponent collapsibleReference(
             String fieldName,
-            List<String> fieldPath,
+            FieldPath fieldPath,
             Viewable target) {
-        return collapsibleReference(fieldName, fieldPath, target, false);
+        return collapsibleReference(
+                fieldName, fieldPath, target, false, configForNested(target));
     }
 
     // As above, but {@code defaultExpanded} seeds the initial state when the user
@@ -1048,9 +1069,22 @@ public class Card extends JPanel {
     // collapsible chip rather than a fixed inline panel.
     private JComponent collapsibleReference(
             String fieldName,
-            List<String> fieldPath,
+            FieldPath fieldPath,
             Viewable target,
             boolean defaultExpanded) {
+        return collapsibleReference(fieldName, fieldPath, target,
+                defaultExpanded, configForNested(target));
+    }
+
+    private JComponent collapsibleReference(
+            String fieldName,
+            FieldPath fieldPath,
+            Viewable target,
+            boolean defaultExpanded,
+            ViewConfig nestedConfig) {
+
+        ViewConfig targetConfig = nestedConfig == null
+                ? configForNested(target) : nestedConfig;
 
         // A reference to something that is itself a top-level card in this view
         // is a navigation link (jump to that card) rather than an expand-in-place
@@ -1061,7 +1095,7 @@ public class Card extends JPanel {
                     fieldPath,
                     target,
                     renderContext,
-                    configForNested(target),
+                    targetConfig,
                     objectPathTitle(target),
                     false,
                     true);
@@ -1076,7 +1110,7 @@ public class Card extends JPanel {
                         fieldPath,
                         target,
                         renderContext,
-                        configForNested(target),
+                        targetConfig,
                         objectPathTitle(target),
                         exp);
 
@@ -1095,7 +1129,8 @@ public class Card extends JPanel {
 
         // The chip directly above already shows the target's name, so the
         // expanded body must not repeat it as its own title header.
-        JComponent inline = inlineViewable(target, fieldPath, true);
+        JComponent inline = inlineViewable(
+                target, fieldPath, targetConfig, true);
 
         if (inline != null) {
             wrap.add(inline, GridBagUtils.gbc(
@@ -1110,7 +1145,7 @@ public class Card extends JPanel {
 
     private TextBlock.Row textBlockRow(
             String fieldName,
-            List<String> fieldPath,
+            FieldPath fieldPath,
             Object value) {
 
         List<String> lines = new ArrayList<>();
@@ -1131,7 +1166,7 @@ public class Card extends JPanel {
 
         return new TextBlock.Row(
                 fieldName,
-                new ArrayList<>(fieldPath),
+                fieldPath,
                 value,
                 lines);
     }
@@ -1420,14 +1455,14 @@ public class Card extends JPanel {
      * currently-collapsed collections; returns true if anything changed, so the
      * caller can {@link #refresh()} once. Does not itself refresh.
      */
-    public boolean expandCollectionsOnPath(List<String> searchPath) {
-        if (searchPath == null || searchPath.isEmpty() || viewable == null) {
+    public boolean expandCollectionsOnPath(FieldPath searchPath) {
+        if (searchPath == null || searchPath.isRoot() || viewable == null) {
             return false;
         }
         return expandCollectionsAlong(viewable, searchPath, 0);
     }
 
-    private boolean expandCollectionsAlong(Object obj, List<String> path, int idx) {
+    private boolean expandCollectionsAlong(Object obj, FieldPath path, int idx) {
         if (obj == null || idx > path.size()) {
             return false;
         }
@@ -1462,7 +1497,7 @@ public class Card extends JPanel {
             return changed;
         }
 
-        String part = path.get(idx);
+        String part = path.segments().get(idx);
         if (obj instanceof Viewable q) {
             FieldSet fields = FieldSet.of(q);
             if (!fields.has(part)) return changed;

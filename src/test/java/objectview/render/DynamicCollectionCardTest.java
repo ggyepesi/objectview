@@ -2,7 +2,11 @@ package objectview.render;
 
 import objectview.ViewableAdapter;
 import objectview.field.DynamicFields;
+import objectview.field.FieldKind;
+import objectview.field.FieldPath;
 import objectview.field.FieldProperties;
+import objectview.field.FieldRef;
+import objectview.field.FieldSchema;
 import objectview.viewconfig.ViewConfig;
 import org.junit.jupiter.api.Test;
 
@@ -51,6 +55,45 @@ class DynamicCollectionCardTest {
     }
 
     @Test
+    void referenceUsesItsFieldConfigWhenLogicalTypesShareOneAdapterClass()
+            throws Exception {
+        DynamicThing language = new DynamicThing("French");
+        language.values.put("nativeName", "français");
+        language.schema = () -> List.of(FieldRef.described(
+                "nativeName", FieldKind.TEXT, FieldKind.TEXT, "String",
+                false, false, null, false, false,
+                false, false, "", false));
+
+        DynamicThing state = new DynamicThing("France");
+        List<DynamicThing> languages = List.of(language);
+        state.values.put("languages", languages);
+        state.schema = () -> List.of(FieldRef.described(
+                "languages", FieldKind.COLLECTION, FieldKind.REFERENCE,
+                "List<Language>", true, true, "Language", false, false,
+                false, false, "", true));
+
+        ViewConfig languageConfig = ViewConfig.leaf();
+        languageConfig.addField("nativeName", ViewConfig.leaf());
+        ViewConfig stateConfig = ViewConfig.leaf();
+        stateConfig.addField("languages", languageConfig);
+
+        RenderContext context = new RenderContext();
+        // This is the important snapshot condition: State and Language have
+        // different logical schemas but the same runtime adapter class.
+        context.putClassConfig(DynamicThing.class, stateConfig);
+        context.setCollectionExpanded(languages, true);
+        context.setExpanded(language, true);
+
+        Card[] card = new Card[1];
+        javax.swing.SwingUtilities.invokeAndWait(() ->
+                card[0] = new Card(state, stateConfig, context, false));
+
+        assertNotNull(find(card[0], TextBlock.class),
+                "the language field config must not be replaced by the "
+                        + "state config merely because both use one adapter class");
+    }
+
+    @Test
     void referenceRowsUseTheTargetsQualifiedReferenceLabel() {
         DynamicThing target = new DynamicThing("Vienna") {
             @Override public String getReferenceLabel() {
@@ -59,7 +102,7 @@ class DynamicCollectionCardTest {
         };
 
         ReferenceRow row = new ReferenceRow(
-                "groups", List.of("groups"), target,
+                "groups", FieldPath.of("groups"), target,
                 new RenderContext(), ViewConfig.all(DynamicThing.class),
                 "Vienna", false);
 
@@ -98,6 +141,7 @@ class DynamicCollectionCardTest {
             extends ViewableAdapter implements DynamicFields {
         private final Map<String, Object> values = new LinkedHashMap<>();
         private final String id;
+        private FieldSchema schema;
 
         private DynamicThing() {
             this("dynamic");
@@ -109,6 +153,10 @@ class DynamicCollectionCardTest {
 
         @Override public Map<String, Object> dynamicFieldValues() {
             return values;
+        }
+
+        @Override public FieldSchema dynamicFieldSchema() {
+            return schema;
         }
 
         @Override public String getIdentifier() {

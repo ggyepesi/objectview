@@ -47,7 +47,7 @@ class SearchableTableViewTest {
                 .build();
         ViewableTable table = tableView.table();
         int tags = modelColumn(table, "tags");
-        ViewableFieldPaths.FieldPath path = table.viewableModel().column(tags);
+        ViewableFieldPaths.PathInfo path = table.viewableModel().column(tags);
         table.moveColumn(table.convertColumnIndexToView(tags), 0);
 
         table.revealSearchHit(item, path, List.of("beta"));
@@ -78,7 +78,7 @@ class SearchableTableViewTest {
         ViewConfig config = ViewConfig.of(Item.class);
         config.setAllFields(false);
         config.addField("facts", ViewConfig.leaf());
-        List<ViewableFieldPaths.FieldPath> paths =
+        List<ViewableFieldPaths.PathInfo> paths =
                 ViewableFieldPaths.collectFromSample(
                         item, config, ViewableFieldPaths.ALL_FIELDS);
 

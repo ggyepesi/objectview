@@ -20,25 +20,10 @@ import java.util.Set;
 public final class ViewableFieldPaths {
     private ViewableFieldPaths() {}
 
-    public record FieldPath(String title, List<String> path, Field leafField) {
-
-        /** The dotted access path, e.g. {@code nominee.name}. */
-        public String dotted() {
-            return String.join(".", path);
-        }
-
-        /** The last segment (the leaf field name). */
-        public String leaf() {
-            return path.isEmpty() ? "" : path.get(path.size() - 1);
-        }
-
-        /** A FieldPath from a dotted string (no reflection {@link Field}). */
-        public static FieldPath of(String dotted) {
-            List<String> segments = dotted == null || dotted.isBlank()
-                    ? List.of()
-                    : List.of(dotted.split("\\."));
-            return new FieldPath(dotted == null ? "" : dotted, segments, null);
-        }
+    /** Presentation/metadata attached to one canonical access path. */
+    public record PathInfo(String title, FieldPath path, Field leafField) {
+        public String dotted() { return path.dotted(); }
+        public String leaf() { return path.leaf(); }
     }
 
     public interface FieldFilter {
@@ -55,13 +40,13 @@ public final class ViewableFieldPaths {
             field -> field != null
                     && objectview.field.FieldKind.ofClass(field.getType()) != FieldKind.MEDIA;
 
-    public static List<FieldPath> collect(ViewConfig config) {
+    public static List<PathInfo> collect(ViewConfig config) {
         return collect(config, NOT_MEDIA_FIELDS);
     }
 
-    public static List<FieldPath> collect(ViewConfig config,
+    public static List<PathInfo> collect(ViewConfig config,
                                           FieldFilter filter) {
-        List<FieldPath> out = new ArrayList<>();
+        List<PathInfo> out = new ArrayList<>();
 
         if (config == null || config.getCls() == null) {
             return out;
@@ -74,7 +59,7 @@ public final class ViewableFieldPaths {
         collect(
                 config,
                 config.getCls(),
-                new ArrayList<>(),
+                FieldPath.ROOT,
                 "",
                 filter == null ? ALL_FIELDS : filter,
                 out);
@@ -94,19 +79,19 @@ public final class ViewableFieldPaths {
      * so null/empty fields and dynamic/reflected representations yield the same
      * stable paths.
      */
-    public static List<FieldPath> collectFromSchema(
+    public static List<PathInfo> collectFromSchema(
             ViewConfig config, FieldTypeSource schema, boolean excludeMedia) {
-        List<FieldPath> out = new ArrayList<>();
+        List<PathInfo> out = new ArrayList<>();
         if (config == null || schema == null) return out;
-        collectSchema(config, schema, new ArrayList<>(), "", excludeMedia,
+        collectSchema(config, schema, FieldPath.ROOT, "", excludeMedia,
                 new LinkedHashSet<>(), out);
         return dedupByPath(out);
     }
 
     private static void collectSchema(
-            ViewConfig config, FieldTypeSource schema, List<String> prefix,
+            ViewConfig config, FieldTypeSource schema, FieldPath prefix,
             String titlePrefix, boolean excludeMedia,
-            Set<FieldTypeSource> branch, List<FieldPath> out) {
+            Set<FieldTypeSource> branch, List<PathInfo> out) {
         if (config == null || schema == null || !branch.add(schema)) return;
         try {
             LinkedHashSet<String> names = new LinkedHashSet<>(config.getFields().keySet());
@@ -121,8 +106,7 @@ public final class ViewableFieldPaths {
                         && (info.kind() == FieldKind.MEDIA
                         || info.valueKind() == FieldKind.MEDIA)) continue;
 
-                List<String> path = new ArrayList<>(prefix);
-                path.add(name);
+                FieldPath path = prefix.append(name);
                 String label = info.label() == null || info.label().isBlank()
                         ? name : info.label();
                 String title = titlePrefix.isEmpty() ? label : titlePrefix + "." + label;
@@ -133,13 +117,11 @@ public final class ViewableFieldPaths {
                     collectSchema(child, info.nested(), path, title, excludeMedia,
                             branch, out);
                 } else if (info.nested() != null) {
-                    String displayKey = schemaDisplayKey(info.nested());
-                    List<String> displayPath = new ArrayList<>(path);
-                    displayPath.add(displayKey);
-                    out.add(new FieldPath(title + "." + ViewableContractFieldSet.label(
-                            displayKey), displayPath, null));
+                    // The configured reference is this path. Its display label is
+                    // the searchable value of the reference, not an invented child.
+                    out.add(new PathInfo(title, path, null));
                 } else {
-                    out.add(new FieldPath(title, path, null));
+                    out.add(new PathInfo(title, path, null));
                 }
             }
         } finally {
@@ -155,10 +137,10 @@ public final class ViewableFieldPaths {
      * The sample is still used to discover map-backed dynamic fields. Declared
      * fields retain their reflection {@link Field}, annotations and field filter.
      */
-    public static List<FieldPath> collectFromSample(Viewable sample,
+    public static List<PathInfo> collectFromSample(Viewable sample,
                                                     ViewConfig config,
                                                     FieldFilter filter) {
-        List<FieldPath> out = new ArrayList<>();
+        List<PathInfo> out = new ArrayList<>();
 
         if (sample == null || config == null) {
             return out;
@@ -167,7 +149,7 @@ public final class ViewableFieldPaths {
         collectConfiguredSample(
                 sample,
                 config,
-                new ArrayList<>(),
+                FieldPath.ROOT,
                 "",
                 filter == null ? ALL_FIELDS : filter,
                 java.util.Collections.newSetFromMap(
@@ -179,11 +161,11 @@ public final class ViewableFieldPaths {
 
     private static void collectConfiguredSample(Viewable obj,
                                                 ViewConfig config,
-                                                List<String> prefix,
+                                                FieldPath prefix,
                                                 String titlePrefix,
                                                 FieldFilter filter,
                                                 Set<Object> branch,
-                                                List<FieldPath> out) {
+                                                List<PathInfo> out) {
         if (obj == null || config == null || !branch.add(obj)) {
             return;
         }
@@ -252,11 +234,11 @@ public final class ViewableFieldPaths {
                                                  FieldSet set,
                                                  String name,
                                                  ViewConfig childConfig,
-                                                 List<String> prefix,
+                                                 FieldPath prefix,
                                                  String titlePrefix,
                                                  FieldFilter filter,
                                                  Set<Object> branch,
-                                                 List<FieldPath> out) {
+                                                 List<PathInfo> out) {
         Field leaf =
                 ViewableAdapter.getField(owner.getClass(), name);
 
@@ -271,8 +253,7 @@ public final class ViewableFieldPaths {
                 ? set.read(name)
                 : null;
 
-        List<String> path = new ArrayList<>(prefix);
-        path.add(name);
+        FieldPath path = prefix.append(name);
 
         String title = titlePrefix.isEmpty()
                 ? label
@@ -281,7 +262,7 @@ public final class ViewableFieldPaths {
         Viewable child = firstViewable(value);
 
         if (child == null) {
-            out.add(new FieldPath(title, path, leaf));
+            out.add(new PathInfo(title, path, leaf));
             return;
         }
 
@@ -300,15 +281,7 @@ public final class ViewableFieldPaths {
                     branch,
                     out);
         } else {
-            String displayKey = ViewableContractFieldSet.displayKey(FieldSet.of(child));
-            List<String> namePath = new ArrayList<>(path);
-            namePath.add(displayKey);
-
-            out.add(new FieldPath(
-                    title + "." + ViewableContractFieldSet.label(
-                            displayKey),
-                    namePath,
-                    leaf));
+            out.add(new PathInfo(title, path, leaf));
         }
     }
 
@@ -321,10 +294,10 @@ public final class ViewableFieldPaths {
      * occurrence wins, so the canonical/identity entry (emitted first) is the one
      * kept. See docs/canonicalization-model.md.
      */
-    static List<FieldPath> dedupByPath(List<FieldPath> paths) {
-        List<FieldPath> out = new ArrayList<>();
-        Set<List<String>> seen = new LinkedHashSet<>();
-        for (FieldPath p : paths) {
+    static List<PathInfo> dedupByPath(List<PathInfo> paths) {
+        List<PathInfo> out = new ArrayList<>();
+        Set<FieldPath> seen = new LinkedHashSet<>();
+        for (PathInfo p : paths) {
             if (p != null && seen.add(p.path())) {
                 out.add(p);
             }
@@ -343,20 +316,20 @@ public final class ViewableFieldPaths {
      * falls back to its declared fields. Branch-cycle-safe. This makes the nested,
      * typed field model work over dynamic domains, not just reflected ones.
      */
-    public static List<FieldPath> collectFromSample(Viewable sample, FieldFilter filter) {
-        List<FieldPath> out = new ArrayList<>();
+    public static List<PathInfo> collectFromSample(Viewable sample, FieldFilter filter) {
+        List<PathInfo> out = new ArrayList<>();
         if (sample == null) {
             return out;
         }
-        collectSample(sample, new ArrayList<>(), "",
+        collectSample(sample, FieldPath.ROOT, "",
                 filter == null ? ALL_FIELDS : filter,
                 java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()),
                 out);
         return dedupByPath(out);
     }
 
-    private static void collectSample(Viewable obj, List<String> prefix, String titlePrefix,
-                                      FieldFilter filter, Set<Object> branch, List<FieldPath> out) {
+    private static void collectSample(Viewable obj, FieldPath prefix, String titlePrefix,
+                                      FieldFilter filter, Set<Object> branch, List<PathInfo> out) {
         if (obj == null || !branch.add(obj)) {
             return;
         }
@@ -381,21 +354,19 @@ public final class ViewableFieldPaths {
     }
 
     private static void addSampleField(String name, String label, Object value, Field leaf,
-                                       List<String> prefix, String titlePrefix,
-                                       FieldFilter filter, Set<Object> branch, List<FieldPath> out) {
-        List<String> path = new ArrayList<>(prefix);
-        path.add(name);
+                                       FieldPath prefix, String titlePrefix,
+                                       FieldFilter filter, Set<Object> branch, List<PathInfo> out) {
+        FieldPath path = prefix.append(name);
         String title = titlePrefix.isEmpty() ? label : titlePrefix + "." + label;
 
         Viewable child = firstViewable(value);
         if (child != null) {
             // A reference: offer the reference ITSELF (for invert / group-by-
             // reference), its display name, and (bounded) its nested fields.
-            out.add(new FieldPath(title, path, leaf));
+            out.add(new PathInfo(title, path, leaf));
             String displayKey = ViewableContractFieldSet.displayKey(FieldSet.of(child));
-            List<String> namePath = new ArrayList<>(path);
-            namePath.add(displayKey);
-            out.add(new FieldPath(
+            FieldPath namePath = path.append(displayKey);
+            out.add(new PathInfo(
                     title + "." + ViewableContractFieldSet.label(
                             displayKey),
                     namePath, leaf));
@@ -403,7 +374,7 @@ public final class ViewableFieldPaths {
                 collectSample(child, path, title, filter, branch, out);
             }
         } else {
-            out.add(new FieldPath(title, path, leaf));
+            out.add(new PathInfo(title, path, leaf));
         }
     }
 
@@ -426,10 +397,10 @@ public final class ViewableFieldPaths {
 
     private static void collect(ViewConfig config,
                                 Class<?> cls,
-                                List<String> prefix,
+                                FieldPath prefix,
                                 String titlePrefix,
                                 FieldFilter filter,
-                                List<FieldPath> out) {
+                                List<PathInfo> out) {
         if (config == null || cls == null || !Viewable.class.isAssignableFrom(cls)) {
             return;
         }
@@ -488,17 +459,16 @@ public final class ViewableFieldPaths {
     // recurses the same way (the nested class is unknown at collect time).
     private static void addDynamicPath(String fieldName,
                                        ViewConfig childConfig,
-                                       List<String> prefix,
+                                       FieldPath prefix,
                                        String titlePrefix,
-                                       List<FieldPath> out) {
-        List<String> path = new ArrayList<>(prefix);
-        path.add(fieldName);
+                                       List<PathInfo> out) {
+        FieldPath path = prefix.append(fieldName);
         String title = titlePrefix.isEmpty()
                 ? ViewableContractFieldSet.label(fieldName)
                 : titlePrefix + "." + ViewableContractFieldSet.label(fieldName);
 
         if (childConfig == null || childConfig.getFields().isEmpty()) {
-            out.add(new FieldPath(title, path, null));
+            out.add(new PathInfo(title, path, null));
             return;
         }
         for (Map.Entry<String, ViewConfig> e
@@ -508,21 +478,23 @@ public final class ViewableFieldPaths {
     }
 
     private static void ensureContractFields(
-            List<FieldPath> out, Class<? extends Viewable> type) {
+            List<PathInfo> out, Class<? extends Viewable> type) {
         if (!ViewableContractFieldSet.DISPLAY_KEY.equals(
                 ViewableContractFieldSet.displayKey(type))) {
             return;
         }
         for (FieldRef field : ViewableContractFieldSet.fieldRefs()) {
             if (!hasRootPath(out, field.name())) {
-                out.add(new FieldPath(field.label(), List.of(field.name()), null));
+                out.add(new PathInfo(
+                        field.label(), FieldPath.of(field.name()), null));
             }
         }
     }
 
-    private static boolean hasRootPath(List<FieldPath> out, String name) {
-        for (FieldPath p : out) {
-            if (p.path().size() == 1 && name.equals(p.path().get(0))) {
+    private static boolean hasRootPath(List<PathInfo> out, String name) {
+        for (PathInfo p : out) {
+            if (p.path().size() == 1
+                    && name.equals(p.path().segments().get(0))) {
                 return true;
             }
         }
@@ -531,17 +503,16 @@ public final class ViewableFieldPaths {
 
     private static void collectField(Field field,
                                      ViewConfig childConfig,
-                                     List<String> prefix,
+                                     FieldPath prefix,
                                      String titlePrefix,
                                      FieldFilter filter,
-                                     List<FieldPath> out) {
+                                     List<PathInfo> out) {
         if (field == null || !filter.accept(field)) {
             return;
         }
         String fieldName = field.getName();
 
-        List<String> path = new ArrayList<>(prefix);
-        path.add(fieldName);
+        FieldPath path = prefix.append(fieldName);
 
         String title = titlePrefix.isEmpty()
                 ? fieldName
@@ -568,10 +539,9 @@ public final class ViewableFieldPaths {
             } else {
                 String displayKey = ViewableContractFieldSet.displayKey(
                         asViewableClass(nested));
-                List<String> namePath = new ArrayList<>(path);
-                namePath.add(displayKey);
+                FieldPath namePath = path.append(displayKey);
 
-                out.add(new FieldPath(
+                out.add(new PathInfo(
                         title + "." + ViewableContractFieldSet.label(
                                 displayKey),
                         namePath,
@@ -581,27 +551,12 @@ public final class ViewableFieldPaths {
             return;
         }
 
-        out.add(new FieldPath(title, path, field));
+        out.add(new PathInfo(title, path, field));
     }
 
     @SuppressWarnings("unchecked")
     private static Class<? extends Viewable> asViewableClass(Class<?> cls) {
         return (Class<? extends Viewable>) cls;
-    }
-
-    private static String schemaDisplayKey(FieldTypeSource schema) {
-        if (schema != null) {
-            String found = null;
-            for (String name : schema.fieldNames()) {
-                FieldTypeSource.FieldTypeInfo info = schema.field(name);
-                if (info == null || info.role() != FieldRole.DISPLAY) continue;
-                // More than one DISPLAY is a small user error, not a crash: the last
-                // declared wins (deterministic; a later annotation overrides an earlier).
-                found = name;
-            }
-            if (found != null) return found;
-        }
-        return ViewableContractFieldSet.DISPLAY_KEY;
     }
 
     @SuppressWarnings("unchecked")

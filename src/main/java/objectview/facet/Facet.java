@@ -1,6 +1,7 @@
 package objectview.facet;
 
 import objectview.Viewable;
+import objectview.field.FieldPath;
 
 import java.util.Collection;
 import java.util.List;
@@ -33,12 +34,17 @@ public record Facet<T extends Viewable>(
 
     /** Facet by a field, labelled by the field name. */
     public static <T extends Viewable> Facet<T> field(String fieldName) {
-        return field(fieldName, fieldName);
+        return field(FieldPath.parse(fieldName), fieldName);
     }
 
     /** Facet by a (value) field, with a display label. */
     public static <T extends Viewable> Facet<T> field(String fieldName, String label) {
-        return new Facet<>(label, q -> values(FacetKeys.fromField(q, fieldName)));
+        return field(FieldPath.parse(fieldName), label);
+    }
+
+    public static <T extends Viewable> Facet<T> field(
+            FieldPath fieldPath, String label) {
+        return new Facet<>(label, q -> values(FacetKeys.fromField(q, fieldPath)));
     }
 
     /** A derived facet: value keys computed from the member (e.g. a predicate). */
@@ -51,8 +57,9 @@ public record Facet<T extends Viewable>(
      *  collapsed. */
     public static <T extends Viewable> Facet<T> mapped(
             String label, String fieldName, Function<String, String> map) {
+        FieldPath fieldPath = FieldPath.parse(fieldName);
         return new Facet<>(label, q -> values(
-                FacetKeys.fromField(q, fieldName).stream()
+                FacetKeys.fromField(q, fieldPath).stream()
                         .map(map)
                         .filter(s -> s != null && !s.isBlank())
                         .distinct()
@@ -67,8 +74,9 @@ public record Facet<T extends Viewable>(
     /** Facet by a field whose value(s) are {@link Viewable} references — the member is
      *  bucketed under each referenced entity, and the bucket carries that entity. */
     public static <T extends Viewable> Facet<T> reference(String fieldName, String label) {
+        FieldPath fieldPath = FieldPath.parse(fieldName);
         return new Facet<>(label, q ->
-                FacetKeys.refsFromField(q, fieldName).stream()
+                FacetKeys.refsFromField(q, fieldPath).stream()
                         .map(FacetKey::of)
                         .filter(k -> k != null && k.isUsable())
                         .toList());
@@ -77,8 +85,9 @@ public record Facet<T extends Viewable>(
     /** Two-bucket facet by whether a field is PRESENT on the member (present / missing),
      *  surfacing an EXPECTED field's coverage gap. */
     public static <T extends Viewable> Facet<T> presence(String fieldName, String label) {
+        FieldPath fieldPath = FieldPath.parse(fieldName);
         return new Facet<>(label, q -> values(List.of(
-                FacetKeys.fromField(q, fieldName).stream()
+                FacetKeys.fromField(q, fieldPath).stream()
                         .anyMatch(s -> s != null && !s.isBlank())
                         ? "present" : "missing")));
     }

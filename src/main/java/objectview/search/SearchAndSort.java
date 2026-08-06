@@ -2,6 +2,7 @@ package objectview.search;
 
 import objectview.Viewable;
 import objectview.field.ViewableFieldPaths;
+import objectview.field.FieldPath;
 
 import objectview.annotations.Numeric;
 import objectview.render.Card;
@@ -33,7 +34,7 @@ public class SearchAndSort {
 
     public void rebuildSearchIndex(
             JComponent targetPanel,
-            List<ViewableFieldPaths.FieldPath> paths) {
+            List<ViewableFieldPaths.PathInfo> paths) {
 
         searchIndex.clear();
 
@@ -49,7 +50,7 @@ public class SearchAndSort {
             Map<String, String> fieldTextByTitle =
                     new LinkedHashMap<>();
 
-            for (ViewableFieldPaths.FieldPath fp : paths) {
+            for (ViewableFieldPaths.PathInfo fp : paths) {
                 Object value =
                         extractValue(qp.getViewable(), fp.path());
 
@@ -97,7 +98,7 @@ public class SearchAndSort {
     public Map<String, List<objectview.Viewable>> searchViewables(
             List<objectview.Viewable> viewables,
             List<String> queryTokens,
-            List<ViewableFieldPaths.FieldPath> paths) {
+            List<ViewableFieldPaths.PathInfo> paths) {
 
         Map<String, List<objectview.Viewable>> out =
                 new LinkedHashMap<>();
@@ -110,7 +111,7 @@ public class SearchAndSort {
             return out;
         }
 
-        for (ViewableFieldPaths.FieldPath fp : paths) {
+        for (ViewableFieldPaths.PathInfo fp : paths) {
             List<objectview.Viewable> hits = null;
 
             for (objectview.Viewable q : viewables) {
@@ -139,7 +140,7 @@ public class SearchAndSort {
 
     public List<Card> sortPanels(
             List<Card> panels,
-            List<ViewableFieldPaths.FieldPath> sortPaths) {
+            List<ViewableFieldPaths.PathInfo> sortPaths) {
 
         List<PanelSortKey> keyed =
                 new ArrayList<>();
@@ -164,12 +165,12 @@ public class SearchAndSort {
 
     private String buildSortKey(
             Card panel,
-            List<ViewableFieldPaths.FieldPath> paths) {
+            List<ViewableFieldPaths.PathInfo> paths) {
 
         StringBuilder sb =
                 new StringBuilder();
 
-        for (ViewableFieldPaths.FieldPath f : paths) {
+        for (ViewableFieldPaths.PathInfo f : paths) {
             Object value =
                     extractValue(panel.getViewable(), f.path());
 
@@ -189,7 +190,7 @@ public class SearchAndSort {
      *  re-virtualizes. Reuses the same key logic, read straight from the viewable. */
     public List<objectview.Viewable> sortViewables(
             List<objectview.Viewable> viewables,
-            List<ViewableFieldPaths.FieldPath> sortPaths) {
+            List<ViewableFieldPaths.PathInfo> sortPaths) {
 
         List<objectview.Viewable> out = new ArrayList<>(viewables);
         out.sort(Comparator.comparing(q -> buildSortKeyQ(q, sortPaths)));
@@ -198,10 +199,10 @@ public class SearchAndSort {
 
     private String buildSortKeyQ(
             objectview.Viewable viewable,
-            List<ViewableFieldPaths.FieldPath> paths) {
+            List<ViewableFieldPaths.PathInfo> paths) {
 
         StringBuilder sb = new StringBuilder();
-        for (ViewableFieldPaths.FieldPath f : paths) {
+        for (ViewableFieldPaths.PathInfo f : paths) {
             Object value = extractValue(viewable, f.path());
             sb.append(sortKey(f.leafField(), value)).append((char) 0);
         }
@@ -211,7 +212,7 @@ public class SearchAndSort {
 
     private Object extractValue(
             Object obj,
-            List<String> path) {
+            FieldPath path) {
         try {
             return objectview.field.FieldAccess.getPathValues(obj, path);
         } catch (RuntimeException ignored) {

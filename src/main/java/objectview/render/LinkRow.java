@@ -2,10 +2,10 @@ package objectview.render;
 
 import objectview.utils.BrowserLauncher;
 import objectview.field.FieldProperties;
+import objectview.field.FieldPath;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -22,7 +22,7 @@ public class LinkRow extends TextRow {
 
     public LinkRow(
             String fieldName,
-            List<String> fieldPath,
+            FieldPath fieldPath,
             String rawValue,
             String annotationText) {
 
@@ -34,12 +34,12 @@ public class LinkRow extends TextRow {
 
     private LinkRow(
             String fieldName,
-            List<String> fieldPath,
+            FieldPath fieldPath,
             ParsedLink parsed) {
 
         super(
                 fieldName,
-                fieldPath == null ? List.of() : new ArrayList<>(fieldPath),
+                fieldPath == null ? FieldPath.ROOT : fieldPath,
                 List.of(parsed.label()));
 
         this.url = parsed.url();

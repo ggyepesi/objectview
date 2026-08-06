@@ -1,6 +1,7 @@
 package objectview.render;
 
 import objectview.field.FieldProperties;
+import objectview.field.FieldPath;
 import objectview.text.TextSelectable;
 import objectview.text.TextSelection;
 import objectview.text.TextSelectionManager;
@@ -46,7 +47,7 @@ public class TextBlock extends JComponent implements TextSelectable {
     }
 
     public record Row(String fieldName,
-                      List<String> fieldPath,
+                      FieldPath fieldPath,
                       Object value,
                       List<String> lines) {
     }
@@ -64,7 +65,7 @@ public class TextBlock extends JComponent implements TextSelectable {
     }
 
     private final List<Row> rows = new ArrayList<>();
-    private final Map<List<String>, List<String>> highlightTokensByPath =
+    private final Map<FieldPath, List<String>> highlightTokensByPath =
             new HashMap<>();
     private final TextSelection selection =
             new TextSelection();
@@ -376,7 +377,7 @@ public class TextBlock extends JComponent implements TextSelectable {
     private String pathText(Row row) {
         return row.fieldPath() == null
                 ? ""
-                : String.join(".", row.fieldPath());
+                : row.fieldPath().dotted();
     }
 
     private void copyToClipboard(String text) {
@@ -386,7 +387,7 @@ public class TextBlock extends JComponent implements TextSelectable {
                             null);
     }
 
-    public boolean hasMatchingRow(List<String> path, List<String> tokens) {
+    public boolean hasMatchingRow(FieldPath path, List<String> tokens) {
         for (Row row : rows) {
             if (samePath(row.fieldPath(), path)
                     && matches(row.value(), tokens)) {
@@ -396,8 +397,8 @@ public class TextBlock extends JComponent implements TextSelectable {
         return false;
     }
 
-    public void setHighlightTokens(List<String> path, List<String> tokens) {
-        highlightTokensByPath.put(copyPath(path),
+    public void setHighlightTokens(FieldPath path, List<String> tokens) {
+        highlightTokensByPath.put(path == null ? FieldPath.ROOT : path,
                                   tokens == null ? List.of() : new ArrayList<>(tokens));
         repaint();
     }
@@ -765,12 +766,8 @@ public class TextBlock extends JComponent implements TextSelectable {
         return true;
     }
 
-    private boolean samePath(List<String> a, List<String> b) {
+    private boolean samePath(FieldPath a, FieldPath b) {
         return Objects.equals(a, b);
-    }
-
-    private static List<String> copyPath(List<String> path) {
-        return path == null ? List.of() : new ArrayList<>(path);
     }
 
     private static int clamp(int v, int min, int max) {
