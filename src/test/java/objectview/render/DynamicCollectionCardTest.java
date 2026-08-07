@@ -11,6 +11,7 @@ import objectview.viewconfig.ViewConfig;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.JComponent;
+import javax.swing.JLabel;
 import java.awt.Component;
 import java.awt.Container;
 import java.util.LinkedHashMap;
@@ -19,6 +20,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DynamicCollectionCardTest {
 
@@ -109,6 +111,38 @@ class DynamicCollectionCardTest {
         assertEquals("All/Capitals/VI/Vienna",
                 row.getClientProperty(
                         FieldProperties.FIELD_VALUE_PROPERTY));
+    }
+
+    @Test
+    void aReferenceChipCarriesTheCardIdentityDecorationWhenNonNull() throws Exception {
+        DynamicThing parent = new DynamicThing("parent");
+        DynamicThing decorated = new DynamicThing("decorated");
+        DynamicThing plain = new DynamicThing("plain");
+        parent.values.put("a", decorated);
+        parent.values.put("b", plain);
+
+        RenderContext context = new RenderContext();
+        JLabel idChip = new JLabel("Q208045");
+        // The same mechanism cards use — here non-null only for one target, so the other
+        // reference stays undecorated (scoped to non-null).
+        context.setCardDecorator(t -> t == decorated ? idChip : null);
+
+        Card[] card = new Card[1];
+        javax.swing.SwingUtilities.invokeAndWait(() ->
+                card[0] = new Card(parent, ViewConfig.all(DynamicThing.class), context, false));
+
+        assertTrue(contains(card[0], idChip),
+                "a reference whose decoration is non-null carries the identity chip");
+    }
+
+    private static boolean contains(Component root, Component target) {
+        if (root == target) return true;
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                if (contains(child, target)) return true;
+            }
+        }
+        return false;
     }
 
     private static <T extends Component> T find(

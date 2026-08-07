@@ -1129,7 +1129,7 @@ public class Card extends JPanel {
         // is a navigation link (jump to that card) rather than an expand-in-place
         // chip — so the same object never has two competing expand toggles.
         if (renderContext != null && renderContext.isTopLevel(target)) {
-            return new ReferenceRow(
+            return decoratedReference(new ReferenceRow(
                     fieldName,
                     fieldPath,
                     target,
@@ -1137,7 +1137,7 @@ public class Card extends JPanel {
                     targetConfig,
                     objectPathTitle(target),
                     false,
-                    true);
+                    true), target);
         }
 
         boolean exp = renderContext != null
@@ -1154,13 +1154,13 @@ public class Card extends JPanel {
                         exp);
 
         if (!exp) {
-            return chip;
+            return decoratedReference(chip, target);
         }
 
         JPanel wrap = new JPanel(new GridBagLayout());
         wrap.setOpaque(false);
 
-        wrap.add(chip, GridBagUtils.gbc(
+        wrap.add(decoratedReference(chip, target), GridBagUtils.gbc(
                 0, 0, 1.0, 0.0,
                 GridBagConstraints.NORTHWEST,
                 GridBagConstraints.HORIZONTAL,
@@ -1180,6 +1180,23 @@ public class Card extends JPanel {
         }
 
         return wrap;
+    }
+
+    // Reuse the card-header identity decorator (e.g. TransformApp's clickable QID chip) on a
+    // reference chip too, so a referenced entity surfaces its identity the SAME way a card
+    // does — no bespoke identity rendering. Scoped to a non-null decoration, so a plain
+    // reference (identity not actionable) stays a plain chip.
+    private JComponent decoratedReference(JComponent chip, Viewable target) {
+        JComponent decoration = renderContext == null
+                ? null : renderContext.cardDecoration(target);
+        if (decoration == null) {
+            return chip;
+        }
+        JPanel row = new JPanel(new BorderLayout(6, 0));
+        row.setOpaque(false);
+        row.add(chip, BorderLayout.CENTER);
+        row.add(decoration, BorderLayout.EAST);
+        return row;
     }
 
     private TextBlock.Row textBlockRow(
