@@ -138,7 +138,24 @@ public final class FieldAccess {
         if (obj instanceof objectview.Viewable q) {
             FieldSet fs = FieldSet.of(q);
             if (fs.has(name)) {
-                return fs.read(name);   // a REAL field always wins
+                Object value = fs.read(name);
+                if (value != null) {
+                    return value;   // a REAL stored value always wins
+                }
+                // Present-but-null: the DISPLAY field may be DECLARED by the schema yet not
+                // STORED — on a snapshot a reference's display name is getDisplayName(), not a
+                // map entry. Resolve it the same way rendering does so a path to a reference's
+                // display field (e.g. languages.name) reads the name instead of null.
+                if (isDisplayField(fs, name)) {
+                    return q.getDisplayName();
+                }
+                return null;   // a real present-but-null field keeps precedence over any view
+            }
+            // An absent field: the unstored display field resolves to getDisplayName() too.
+            // Recognized by ROLE (the type's DISPLAY field or the reserved contract key),
+            // never by the literal field name.
+            if (isDisplayField(fs, name)) {
+                return q.getDisplayName();
             }
             // Only then any addressable view the type publishes (e.g. value projections),
             // so a real field of the same name takes precedence generically — the ordering
@@ -164,6 +181,15 @@ public final class FieldAccess {
             }
         }
         return null;
+    }
+
+    /** Whether {@code name} addresses the object's DISPLAY field — the last field bound to
+     *  {@link FieldRole#DISPLAY}, or the reserved contract key when nothing is. Role-based,
+     *  so a snapshot's unstored display name resolves through {@link
+     *  objectview.Viewable#getDisplayName()} exactly as rendering does. */
+    private static boolean isDisplayField(FieldSet fs, String name) {
+        return name.equals(ViewableContractFieldSet.displayKey(fs))
+                || ViewableContractFieldSet.DISPLAY_KEY.equals(name);
     }
 
     private static void writeField(Object obj, String name, Object value) {
