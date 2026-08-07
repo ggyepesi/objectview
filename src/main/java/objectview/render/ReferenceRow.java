@@ -155,18 +155,10 @@ public class ReferenceRow extends TextRow {
         refreshRootCard();
     }
 
-    // Rebuilds the whole card in place (Card#refresh) so the toggled
-    // reference re-renders as a chip or an inline panel.
+    // Rebuilds the nearest card/table row so the toggled reference re-renders
+    // as a chip or an inline panel.
     private void refreshRootCard() {
-        Card root = null;
-        for (Container c = getParent(); c != null; c = c.getParent()) {
-            if (c instanceof Card qp) {
-                root = qp;
-            }
-        }
-        if (root != null) {
-            root.refresh();
-        }
+        RenderRefreshHost.refreshAncestor(this);
     }
 
     private void openOrFocus() {

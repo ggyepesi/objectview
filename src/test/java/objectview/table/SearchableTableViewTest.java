@@ -2,11 +2,16 @@ package objectview.table;
 
 import objectview.ViewableAdapter;
 import objectview.annotations.DisplayField;
+import objectview.annotations.Link;
+import objectview.annotations.Inline;
 import objectview.field.FieldProperties;
 import objectview.field.ViewableFieldPaths;
 import objectview.media.ImagePane;
 import objectview.media.MediaValue;
 import objectview.render.RenderingMode;
+import objectview.render.LinkRow;
+import objectview.render.ReferenceRow;
+import objectview.render.TextRow;
 import objectview.search.SearchAndSort;
 import objectview.search.SearchPanel;
 import objectview.view.SearchableView;
@@ -14,8 +19,11 @@ import objectview.viewconfig.ViewConfig;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.JComponent;
+import javax.swing.JLabel;
+import javax.swing.SwingUtilities;
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.event.MouseEvent;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -165,6 +173,79 @@ class SearchableTableViewTest {
                 contentWidth + "px for " + columnCount + " columns");
     }
 
+    @Test void linkAnnotationUsesTheSameClickableRowAsCardMode() {
+        LinkItem item = new LinkItem("ObjectView", "https://example.test/objectview");
+        ViewableColumnsView table = SearchableView.builder(List.of(item))
+                .mode(RenderingMode.TABLE)
+                .sample(item)
+                .build().table();
+
+        assertNotNull(find(table.row(item), LinkRow.class));
+    }
+
+    @Test void referenceColumnUsesCollapsedChipAndSharedIdentityDecoration() {
+        Nested city = new Nested("Budapest");
+        Parent country = new Parent("Hungary", city);
+        ViewConfig config = ViewConfig.of(Parent.class);
+        config.setAllFields(false);
+        config.addField("name", ViewConfig.leaf());
+        config.addField("nested", ViewConfig.leaf());
+
+        ViewableColumnsView table = SearchableView.builder(List.of(country))
+                .mode(RenderingMode.TABLE)
+                .sample(country)
+                .configState(new SearchPanel.ConfigState(null, null, config))
+                .cardDecorator(value -> value == city ? new JLabel("Q1781") : null)
+                .build().table();
+        JComponent row = table.row(country);
+
+        assertNotNull(find(row, ReferenceRow.class),
+                "a reference column uses Card's collapsed-reference semantics");
+        assertTrue(componentText(row).contains("Q1781"),
+                "the same identity decorator is attached to the reference chip");
+    }
+
+    @Test void clickingAChildValueSelectsItsOwningRowWithoutConsumingTheClick() throws Exception {
+        Item item = item("one", List.of("alpha"));
+        java.util.concurrent.atomic.AtomicReference<Object> selected =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        ViewableColumnsView table = SearchableView.builder(List.of(item))
+                .mode(RenderingMode.TABLE)
+                .sample(item)
+                .selectionListener(selected::set)
+                .build().table();
+        TextRow value = find(table.row(item), TextRow.class);
+        assertNotNull(value);
+
+        SwingUtilities.invokeAndWait(() -> {
+            MouseEvent press = new MouseEvent(value, MouseEvent.MOUSE_PRESSED,
+                    System.currentTimeMillis(), 0, 3, 3, 1, false,
+                    MouseEvent.BUTTON1);
+            for (java.awt.event.MouseListener listener : value.getMouseListeners()) {
+                listener.mousePressed(press);
+            }
+            assertTrue(!press.isConsumed(), "row selection must not steal the value click");
+        });
+        assertEquals(item, selected.get());
+    }
+
+    @Test void rowHeightDoesNotTruncateALongRenderedCollection() {
+        List<Nested> many = java.util.stream.IntStream.range(0, 40)
+                .mapToObj(i -> new Nested("value " + i)).toList();
+        InlineCollectionItem item = new InlineCollectionItem("one", many);
+        ViewConfig config = ViewConfig.of(InlineCollectionItem.class);
+        config.setAllFields(false);
+        config.addField("children", ViewConfig.leaf());
+        ViewableColumnsView table = SearchableView.builder(List.of(item))
+                .mode(RenderingMode.TABLE)
+                .sample(item)
+                .configState(new SearchPanel.ConfigState(null, null, config))
+                .build().table();
+
+        assertTrue(table.row(item).getPreferredSize().height > 260,
+                "content determines row height; the former 260px cap must not hide values");
+    }
+
     private static ViewableFieldPaths.PathInfo column(ViewableColumnsView table, String dotted) {
         for (ViewableFieldPaths.PathInfo column : table.columns()) {
             if (dotted.equals(column.dotted())) return column;
@@ -203,6 +284,17 @@ class SearchableTableViewTest {
             }
         }
         return null;
+    }
+
+    private static String componentText(Component root) {
+        StringBuilder text = new StringBuilder();
+        if (root instanceof JLabel label) text.append(label.getText()).append(' ');
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                text.append(componentText(child));
+            }
+        }
+        return text.toString();
     }
 
     private static Item item(String name, List<String> tags) {
@@ -252,6 +344,28 @@ class SearchableTableViewTest {
         private MediaItem(String name, TestMedia image) {
             this.name = name;
             this.image = image;
+        }
+        @Override public String getIdentifier() { return name; }
+        @Override public String getDisplayName() { return name; }
+    }
+
+    private static final class LinkItem extends ViewableAdapter {
+        @DisplayField private final String name;
+        @Link private final String website;
+        private LinkItem(String name, String website) {
+            this.name = name;
+            this.website = website;
+        }
+        @Override public String getIdentifier() { return name; }
+        @Override public String getDisplayName() { return name; }
+    }
+
+    private static final class InlineCollectionItem extends ViewableAdapter {
+        @DisplayField private final String name;
+        @Inline private final List<Nested> children;
+        private InlineCollectionItem(String name, List<Nested> children) {
+            this.name = name;
+            this.children = children;
         }
         @Override public String getIdentifier() { return name; }
         @Override public String getDisplayName() { return name; }

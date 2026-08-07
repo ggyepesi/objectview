@@ -2,9 +2,6 @@ package objectview.render;
 
 import objectview.media.ImagePane;
 import objectview.media.MediaValue;
-import objectview.utils.swing.CachedImage;
-
-import java.awt.Image;
 
 /**
  * The shared rendering boundary between a data-only {@link MediaValue} and Swing.
@@ -24,19 +21,6 @@ public final class MediaRenderSupport {
         } catch (Exception ignored) {
             return null;
         }
-    }
-
-    /** Loads the source's standard ObjectView thumbnail. Call this off the EDT. */
-    public static Image thumbnail(MediaValue media) throws Exception {
-        if (!hasSource(media)) return null;
-        return new CachedImage(
-                media.mediaLabel(), media.mediaUrl(), media.mediaSvg()).getThumbImage();
-    }
-
-    /** Opens the same full-image view as double-clicking an image in a card. */
-    public static void open(MediaValue media, String title) {
-        ImagePane pane = imagePane(media);
-        if (pane != null) pane.openImageView(title);
     }
 
     private static boolean hasSource(MediaValue media) {

@@ -82,15 +82,7 @@ public class CollectionHeader extends JComponent {
     }
 
     private void refreshRootCard() {
-        Card root = null;
-        for (Container c = getParent(); c != null; c = c.getParent()) {
-            if (c instanceof Card qp) {
-                root = qp;
-            }
-        }
-        if (root != null) {
-            root.refresh();
-        }
+        RenderRefreshHost.refreshAncestor(this);
     }
 
     private Font labelFont() {
@@ -102,7 +94,7 @@ public class CollectionHeader extends JComponent {
     }
 
     private String text() {
-        return fieldName + " (" + count + ")";
+        return fieldName.isBlank() ? "(" + count + ")" : fieldName + " (" + count + ")";
     }
 
     @Override

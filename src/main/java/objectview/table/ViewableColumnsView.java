@@ -2,22 +2,27 @@ package objectview.table;
 
 import objectview.Viewable;
 import objectview.field.FieldAccess;
+import objectview.field.FieldKind;
+import objectview.field.FieldPath;
+import objectview.field.FieldRef;
+import objectview.field.FieldSet;
+import objectview.field.ReflectionFieldSet;
 import objectview.field.ViewableContractFieldSet;
 import objectview.field.ViewableFieldPaths.PathInfo;
+import objectview.render.Card;
+import objectview.render.RenderRefreshHost;
 import objectview.render.RenderContext;
-import objectview.render.ValueRenderer;
 import objectview.viewconfig.ViewConfig;
 import objectview.virtual.ConfigurableVirtualizedContainer;
 import objectview.virtual.SearchNavigableContainer;
 import objectview.virtual.VirtualizedCardList;
 
 import javax.swing.BorderFactory;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.SwingUtilities;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -28,6 +33,7 @@ import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -41,22 +47,18 @@ import java.util.function.Function;
 /**
  * TABLE mode as a <em>layout</em> of the card path — not a bespoke JTable.
  *
- * <p>Each row is built from the SAME per-value components {@link ValueRenderer} produces for
- * cards (a {@code MediaValue} becomes an ImagePane, a reference becomes a chip carrying the
- * identity decorator, a leaf becomes a copyable TextRow), arranged as a row of equal-width
- * columns under a sticky header. Vertical virtualization, sort and search-navigation are
- * reused from {@link VirtualizedCardList}; selection, copy and media all come for free from
- * the shared card pipeline. This replaces the former {@code ViewableTable}/{@code
- * ViewableTableModel} pair, whose separate string projection is what dropped images to their
- * label and lost copy/selection.
+ * <p>Each cell enters the SAME semantic field pipeline as a card: annotations,
+ * child configuration, reference/collection policy and cycle context are applied
+ * before the shared terminal value components are arranged as equal-width columns
+ * under a sticky header. Vertical virtualization, sort and search-navigation are
+ * reused from {@link VirtualizedCardList}.
  */
 public final class ViewableColumnsView extends JPanel
         implements ConfigurableVirtualizedContainer, SearchNavigableContainer {
 
-    // Rows size to their content (a text row is compact; a media row is as tall as its scaled
-    // image), clamped so an empty row still has a baseline and a big image can't dominate.
+    // Rows size to their rendered content. Row-height policy is deliberately
+    // independent of field kind and never truncates a value.
     private static final int MIN_ROW_HEIGHT = 32;
-    private static final int MAX_ROW_HEIGHT = 260;
     // VirtualizedCardList lays each row out at max(viewportWidth, 380); the header must span
     // exactly that width so its equal columns line up with the rows' equal columns.
     private static final int CONTENT_WIDTH_FLOOR = 380;
@@ -78,6 +80,7 @@ public final class ViewableColumnsView extends JPanel
     private List<PathInfo> columns = List.of();
     private Function<Viewable, ViewConfig> configResolver;
     private Viewable searchHit;
+    private FieldPath searchPath = FieldPath.ROOT;
 
     public ViewableColumnsView(
             List<? extends Viewable> items,
@@ -170,6 +173,22 @@ public final class ViewableColumnsView extends JPanel
     @Override
     public JComponent revealSearchHit(Viewable item, PathInfo fieldPath, List<String> tokens) {
         searchHit = item;
+        searchPath = fieldPath == null ? FieldPath.ROOT : fieldPath.path();
+        // Search must reveal a value hidden by the shared Card semantics, not
+        // merely scroll to its collapsed header/reference chip.
+        if (item != null && fieldPath != null) {
+            Object value = read(item, fieldPath);
+            boolean stateChanged = false;
+            if (value instanceof java.util.Collection<?> || value instanceof Map<?, ?>) {
+                context.setCollectionExpanded(value, true);
+                stateChanged = true;
+            } else if (value instanceof Viewable reference
+                    && !context.isTopLevel(reference)) {
+                context.setExpanded(reference, true);
+                stateChanged = true;
+            }
+            if (stateChanged) list.invalidateCard(item);
+        }
         JComponent revealed = list.navigateToTop(item);
         list.repaint();
         return revealed;
@@ -178,6 +197,7 @@ public final class ViewableColumnsView extends JPanel
     @Override
     public void clearSearchHighlight() {
         searchHit = null;
+        searchPath = FieldPath.ROOT;
         list.repaint();
     }
 
@@ -246,19 +266,81 @@ public final class ViewableColumnsView extends JPanel
         ViewConfig config = configResolver == null
                 ? ViewConfig.all(asViewableClass(q.getClass())) : configResolver.apply(q);
         for (PathInfo column : columns) {
-            JPanel cell = new JPanel(new BorderLayout());
+            JPanel cell = new CellPanel(q, column.path());
             cell.setOpaque(false);
             cell.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 1, GRID));
             Object value = read(q, column);
-            JComponent rendered = value == null ? null : ValueRenderer.createFieldComponent(
-                    identitySet(), identitySet(), context, "", column.path(), value, config, false);
+            FieldRef field = fieldAtPath(q, column);
+            ViewConfig childConfig = configAtPath(config, column.path());
+            JComponent rendered = value == null || field == null ? null
+                    : Card.renderFieldComponent(
+                            q, field, column.path(), value, config, childConfig,
+                            context, false, false);
             if (rendered != null) {
                 cell.add(rendered, BorderLayout.CENTER);
             }
             row.add(cell);
         }
+        installSelectionListener(row, q);
         context.registerTopLevel(q, row);
         return row;
+    }
+
+    /** Resolves leaf metadata through the same FieldSet/schema bridge Card uses. */
+    private FieldRef fieldAtPath(Viewable root, PathInfo column) {
+        Object current = root;
+        FieldRef resolved = null;
+        for (String segment : column.path().segments()) {
+            current = representative(current);
+            if (!(current instanceof Viewable viewable)) break;
+            FieldSet fields = FieldSet.of(viewable, context.fieldSchema(viewable));
+            resolved = fields.field(segment);
+            current = fields.read(segment);
+        }
+        if (resolved != null) return resolved;
+        if (column.leafField() != null) {
+            return ReflectionFieldSet.describe(
+                    column.leafField(), column.leafField().getDeclaringClass());
+        }
+        Object value = read(root, column);
+        FieldKind kind = FieldKind.ofValue(value);
+        FieldKind valueKind = column.valueKind() == FieldKind.UNKNOWN
+                ? kind : column.valueKind();
+        boolean collection = kind == FieldKind.COLLECTION;
+        return FieldRef.described(
+                column.leaf(), column.title(), objectview.field.FieldRole.NONE,
+                kind, valueKind, null,
+                valueKind == FieldKind.REFERENCE, collection, null,
+                false, false, false, false, "", false);
+    }
+
+    private static Object representative(Object value) {
+        if (value instanceof java.util.Collection<?> collection) {
+            return collection.stream().filter(java.util.Objects::nonNull)
+                    .findFirst().orElse(null);
+        }
+        if (value instanceof Map<?, ?> map) {
+            return map.values().stream().filter(java.util.Objects::nonNull)
+                    .findFirst().orElse(null);
+        }
+        if (value != null && value.getClass().isArray()) {
+            for (int i = 0; i < Array.getLength(value); i++) {
+                Object item = Array.get(value, i);
+                if (item != null) return item;
+            }
+            return null;
+        }
+        return value;
+    }
+
+    private static ViewConfig configAtPath(ViewConfig root, FieldPath path) {
+        ViewConfig current = root;
+        if (current == null || path == null) return null;
+        for (String segment : path.segments()) {
+            current = current.getFieldConfig(segment);
+            if (current == null) return null;
+        }
+        return current;
     }
 
     private static Object read(Viewable q, PathInfo column) {
@@ -273,33 +355,34 @@ public final class ViewableColumnsView extends JPanel
 
     /** A row that paints selection/search state from the shared context, so both survive the
      *  list's virtualized rebuild (they are read from data, never stored on the component). */
-    private final class RowPanel extends JPanel {
+    private final class RowPanel extends JPanel implements RenderRefreshHost {
         private final Viewable q;
 
         RowPanel(Viewable q) {
             this.q = q;
             setOpaque(true);
             setBackground(Color.WHITE);
-            addMouseListener(new MouseAdapter() {
-                @Override public void mousePressed(MouseEvent e) {
-                    if (context.selectionEnabled()) context.select(q);
-                }
-            });
         }
 
         @Override public Dimension getPreferredSize() {
             Dimension d = super.getPreferredSize();
-            int height = Math.min(MAX_ROW_HEIGHT, Math.max(MIN_ROW_HEIGHT, d.height));
+            int height = Math.max(MIN_ROW_HEIGHT, d.height);
             return new Dimension(d.width, height);
         }
 
         @Override protected void paintComponent(Graphics g) {
-            boolean selected = context.isSelected(q);
-            g.setColor(selected ? new Color(237, 244, 252)
-                    : q == searchHit ? SEARCH_HIT : getBackground());
-            g.fillRect(0, 0, getWidth(), getHeight());
             super.paintComponent(g);
-            if (selected) {
+            if (context.isSelected(q)) {
+                g.setColor(new Color(237, 244, 252));
+                g.fillRect(0, 0, getWidth(), getHeight());
+            }
+        }
+
+        @Override protected void paintChildren(Graphics g) {
+            super.paintChildren(g);
+            if (context.isSelected(q)) {
+                // Paint after cell children so opaque media cannot hide the
+                // selection tint or border.
                 g.setColor(SELECTION_TINT);
                 g.fillRect(0, 0, getWidth(), getHeight());
                 Graphics2D g2 = (Graphics2D) g.create();
@@ -309,10 +392,53 @@ public final class ViewableColumnsView extends JPanel
                 g2.dispose();
             }
         }
+
+        @Override public void refreshRenderedContent() {
+            SwingUtilities.invokeLater(() -> list.invalidateCard(q));
+        }
     }
 
-    private static Set<Object> identitySet() {
-        return Collections.newSetFromMap(new IdentityHashMap<>());
+    /** Cell-local search state: fieldPath is no longer discarded by table mode. */
+    private final class CellPanel extends JPanel {
+        private final Viewable owner;
+        private final FieldPath path;
+
+        CellPanel(Viewable owner, FieldPath path) {
+            super(new BorderLayout());
+            this.owner = owner;
+            this.path = path;
+        }
+
+        @Override protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            if (owner == searchHit && path.equals(searchPath)) {
+                g.setColor(SEARCH_HIT);
+                g.fillRect(0, 0, getWidth(), getHeight());
+            }
+        }
+    }
+
+    /** Mouse events do not bubble in Swing; attach selection without consuming
+     *  events so links, reference toggles and image double-clicks keep working. */
+    private void installSelectionListener(java.awt.Component component, Viewable owner) {
+        MouseAdapter listener = new MouseAdapter() {
+            @Override public void mousePressed(MouseEvent event) {
+                if (context.selectionEnabled() && SwingUtilities.isLeftMouseButton(event)) {
+                    context.select(owner);
+                }
+            }
+        };
+        installSelectionListener(component, listener);
+    }
+
+    private static void installSelectionListener(
+            java.awt.Component component, MouseAdapter listener) {
+        component.addMouseListener(listener);
+        if (component instanceof java.awt.Container container) {
+            for (java.awt.Component child : container.getComponents()) {
+                installSelectionListener(child, listener);
+            }
+        }
     }
 
     @SuppressWarnings("unchecked")

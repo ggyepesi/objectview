@@ -69,7 +69,7 @@ import java.util.List;
  * tens of thousands of fields stays cheap. The only structural extra is a
  * single top-pinning {@link Box.Filler} per root card.
  */
-public class Card extends JPanel {
+public class Card extends JPanel implements RenderRefreshHost {
 
     private static final Logger log = LoggerFactory.getLogger(Card.class);
 
@@ -186,6 +186,52 @@ public class Card extends JPanel {
 
     public static <T> Set<T> identitySetOf() {
         return Collections.newSetFromMap(new IdentityHashMap<>());
+    }
+
+    /**
+     * Renders one already-resolved field through the exact semantic path used
+     * inside a card. The caller owns layout; {@code showFieldName=false} is used
+     * by a columns view whose header already carries the field label.
+     */
+    public static JComponent renderFieldComponent(
+            Viewable owner,
+            FieldRef field,
+            FieldPath fieldPath,
+            Object value,
+            ViewConfig ownerConfig,
+            ViewConfig fieldConfig,
+            RenderContext renderContext,
+            boolean fill,
+            boolean showFieldName) {
+        if (owner == null || field == null || value == null) return null;
+        Card renderer = new Card(
+                owner, ownerConfig, renderContext, fill,
+                fieldPath == null ? FieldPath.ROOT : fieldPath.parent());
+        ViewConfig child = fieldConfig == null
+                ? renderer.defaultConfigForValue(value) : fieldConfig;
+        return renderer.renderFieldComponent(
+                field, value, showFieldName ? field.name() : "",
+                fieldPath == null ? FieldPath.ROOT : fieldPath, child);
+    }
+
+    /** Lightweight host for the shared field renderer; it builds no card UI. */
+    private Card(Viewable owner,
+                 ViewConfig config,
+                 RenderContext context,
+                 boolean fill,
+                 FieldPath path) {
+        this.viewable = owner;
+        this.config = config == null ? ViewConfig.of(owner.getClass()) : config;
+        this.renderContext = context == null ? new RenderContext() : context;
+        this.fill = fill;
+        this.path = path == null ? FieldPath.ROOT : path;
+        this.rootRender = false;
+        this.visited = identitySetOf();
+        this.ancestors = identitySetOf();
+        this.visited.add(owner);
+        this.ancestors.add(owner);
+        setLayout(new GridBagLayout());
+        setOpaque(false);
     }
 
     public Card(Viewable viewable,
@@ -420,6 +466,11 @@ public class Card extends JPanel {
 
         revalidate();
         repaint();
+    }
+
+    @Override
+    public void refreshRenderedContent() {
+        refresh();
     }
 
     private void addTitleHeaderIfNeeded() {
@@ -784,94 +835,77 @@ public class Card extends JPanel {
 
         String fieldName = field.name();
         FieldPath fieldPath = path.append(fieldName);
-
-        boolean isCollectionOrMap =
-                value instanceof Collection<?> || value instanceof Map<?, ?>;
-
-        // The child configuration belongs to this field path.  It must travel
-        // with a nested value instead of being rediscovered from the target's
-        // Java class: several logical dynamic types can share one adapter class
-        // (for example State and Language snapshot objects).
         ViewConfig fieldCfg = config.getFieldConfig(fieldName);
-
         if (fieldCfg == null) {
             fieldCfg = defaultConfigForValue(value);
         }
 
+        JComponent component = renderFieldComponent(
+                field, value, fieldName, fieldPath, fieldCfg);
+        if (component != null) {
+            addSingle(component, row++);
+        }
+        return row;
+    }
+
+    /**
+     * The shared semantic field-rendering stage. Card and table layouts call
+     * this before the terminal {@link ValueRenderer}, so annotations, reference
+     * behaviour, child config and collection policy cannot diverge by layout.
+     */
+    private JComponent renderFieldComponent(
+            FieldRef field,
+            Object value,
+            String fieldName,
+            FieldPath fieldPath,
+            ViewConfig fieldCfg) {
+        if (value == null || isEmptyCollectionOrMap(value)) return null;
+
+        boolean isCollectionOrMap =
+                value instanceof Collection<?> || value instanceof Map<?, ?>;
+
         if (field.annotatedReference()) {
             if (isCollectionOrMap) {
-                // The header labels the field; build the items borderless.
                 Object v = value;
                 ViewConfig cfg = fieldCfg;
-                return addCollapsibleCollection(fieldName, fieldPath, value, row,
+                return collapsibleCollectionComponent(fieldName, fieldPath, value,
                         () -> createReferenceFieldComponent(
                                 "", fieldPath, v, cfg));
             }
-            JComponent comp =
-                    createReferenceFieldComponent(
-                            fieldName, fieldPath, value, fieldCfg);
-
-            if (comp != null) {
-                addSingle(comp, row++);
-            }
-
-            return row;
+            return createReferenceFieldComponent(
+                    fieldName, fieldPath, value, fieldCfg);
         }
 
-        // @Inline means "always render fully expanded inline" (e.g. a
-        // query-log step tree) — never collapse it, or the nested content (the
-        // SPARQL, child steps) hides behind a collapsed header.
         if (field.inline()) {
-            JComponent comp =
-                    createInlineFieldComponent(
-                            fieldName, fieldPath, value, fieldCfg);
-
-            if (comp != null) {
-                addSingle(comp, row++);
-            }
-
-            return row;
+            return createInlineFieldComponent(
+                    fieldName, fieldPath, value, fieldCfg);
         }
 
         if (field.link()
                 && value instanceof String url
                 && !url.isBlank()) {
-            addSingle(new LinkRow(
-                    fieldName, fieldPath, url, field.linkText()), row++);
-            return row;
+            return new LinkRow(fieldName, fieldPath, url, field.linkText());
         }
 
-        // A bare (non-annotated) single Viewable is a collapsible chip too,
-        // matching collection members -- see the class doc.
         if (value instanceof Viewable q) {
-            JComponent comp = collapsibleReference(
+            return collapsibleReference(
                     fieldName, fieldPath, q, false, fieldCfg);
-
-            if (comp != null) {
-                addSingle(comp, row++);
-            }
-
-            return row;
         }
 
-        // Quiz query panels: show the answer-hiding (masked/blurred) image.
         if (value instanceof ImagePane ip && config.isBlurImages() && viewable != null) {
             value = blurForQuiz(ip);
         }
 
-        // A complex collection/map (simple ones already folded into a text
-        // block) renders under a collapsible header; build the items borderless
-        // (the header carries the field name) and only when expanded.
         if (isCollectionOrMap) {
             ViewConfig cfg = fieldCfg;
             Object collValue = value;
-            return addCollapsibleCollection(fieldName, fieldPath, value, row,
+            return collapsibleCollectionComponent(fieldName, fieldPath, value,
                     () -> ValueRenderer.createFieldComponent(
                             copyVisited(), copyAncestors(), renderContext,
                             "", fieldPath, collValue, cfg, fill));
         }
 
-        JComponent comp = ValueRenderer.createFieldComponent(
+        return ValueRenderer.createFieldComponent(
                 copyVisited(),
                 copyAncestors(),
                 renderContext,
@@ -880,12 +914,6 @@ public class Card extends JPanel {
                 value,
                 fieldCfg,
                 fill);
-
-        if (comp != null) {
-            addSingle(comp, row++);
-        }
-
-        return row;
     }
 
     // Renders a complex collection/map field as a collapsible group: a clickable
@@ -894,18 +922,17 @@ public class Card extends JPanel {
     // toggle is remembered in the render context (keyed by the collection's
     // identity), and the body is built only when expanded so a collapsed long
     // list stays cheap.
-    private int addCollapsibleCollection(
+    private JComponent collapsibleCollectionComponent(
             String fieldName,
             FieldPath fieldPath,
             Object value,
-            int row,
             java.util.function.Supplier<JComponent> body) {
 
         int count = value instanceof Collection<?> c ? c.size()
                 : value instanceof Map<?, ?> m ? m.size()
                 : 0;
         if (count == 0) {
-            return row;
+            return null;
         }
 
         boolean defaultExpanded = count <= COLLECTION_COLLAPSE_THRESHOLD;
@@ -917,14 +944,12 @@ public class Card extends JPanel {
                 defaultExpanded, renderContext);
 
         if (!expanded) {
-            addSingle(header, row++);
-            return row;
+            return header;
         }
 
         JComponent items = body.get();
         if (items == null) {
-            addSingle(header, row++);
-            return row;
+            return header;
         }
 
         JPanel wrap = new JPanel(new GridBagLayout());
@@ -940,8 +965,7 @@ public class Card extends JPanel {
                 GridBagConstraints.HORIZONTAL,
                 new Insets(0, 16, 2, 0)));
 
-        addSingle(wrap, row++);
-        return row;
+        return wrap;
     }
 
     private JComponent createReferenceFieldComponent(
@@ -1187,8 +1211,14 @@ public class Card extends JPanel {
     // does — no bespoke identity rendering. Scoped to a non-null decoration, so a plain
     // reference (identity not actionable) stays a plain chip.
     private JComponent decoratedReference(JComponent chip, Viewable target) {
-        JComponent decoration = renderContext == null
-                ? null : renderContext.cardDecoration(target);
+        return decorateReference(renderContext, chip, target);
+    }
+
+    /** Shared reference decoration for Card fields and ValueRenderer collection items. */
+    static JComponent decorateReference(
+            RenderContext context, JComponent chip, Viewable target) {
+        JComponent decoration = context == null
+                ? null : context.cardDecoration(target);
         if (decoration == null) {
             return chip;
         }

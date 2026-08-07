@@ -186,8 +186,8 @@ public final class ValueRenderer {
             // A member that is itself a top-level card navigates to it instead
             // of expanding in place (see Card.collapsibleReference).
             if (renderContext != null && renderContext.isTopLevel(q)) {
-                return new ReferenceRow(
-                        "", fieldPath, q, renderContext, config, q.getName(), false, true);
+                return Card.decorateReference(renderContext, new ReferenceRow(
+                        "", fieldPath, q, renderContext, config, q.getName(), false, true), q);
             }
 
             boolean exp = renderContext != null && renderContext.isExpanded(q);
@@ -197,13 +197,13 @@ public final class ValueRenderer {
                             "", fieldPath, q, renderContext, config, q.getName(), exp);
 
             if (!exp) {
-                return chip;
+                return Card.decorateReference(renderContext, chip, q);
             }
 
             JPanel wrap = new JPanel(new GridBagLayout());
             wrap.setOpaque(false);
 
-            wrap.add(chip, GridBagUtils.gbc(
+            wrap.add(Card.decorateReference(renderContext, chip, q), GridBagUtils.gbc(
                     0, 0, 1.0, 0.0,
                     GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL,
                     new Insets(0, 0, 0, 0)));
