@@ -148,6 +148,23 @@ class SearchableTableViewTest {
                 "a sourceless media cell shows nothing, not its label");
     }
 
+    @Test void manyColumnsKeepAMinimumWidthSoTheContentScrollsHorizontally() {
+        Item item = item("one", List.of("a"));
+        item.facts.put("symbol", "H");
+        ViewableColumnsView table = SearchableView.builder(List.of(item))
+                .mode(RenderingMode.TABLE)
+                .sample(item)
+                .build().table();
+
+        int columnCount = table.columns().size();
+        assertTrue(columnCount >= 3, "fixture should exercise several columns: " + columnCount);
+        // The list lays its content out at >= columns * min width, so the columns never shrink
+        // below that — the content grows past a narrow viewport and scrolls horizontally.
+        int contentWidth = table.scrollPane().getViewport().getView().getPreferredSize().width;
+        assertTrue(contentWidth >= columnCount * 160,
+                contentWidth + "px for " + columnCount + " columns");
+    }
+
     private static ViewableFieldPaths.PathInfo column(ViewableColumnsView table, String dotted) {
         for (ViewableFieldPaths.PathInfo column : table.columns()) {
             if (dotted.equals(column.dotted())) return column;

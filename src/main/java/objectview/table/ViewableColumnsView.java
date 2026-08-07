@@ -60,6 +60,9 @@ public final class ViewableColumnsView extends JPanel
     // VirtualizedCardList lays each row out at max(viewportWidth, 380); the header must span
     // exactly that width so its equal columns line up with the rows' equal columns.
     private static final int CONTENT_WIDTH_FLOOR = 380;
+    // Each column keeps at least this width; when the columns need more than the viewport, the
+    // list widens past it and scrolls horizontally instead of squeezing them thinner.
+    private static final int MIN_COLUMN_WIDTH = 160;
     private static final Color GRID = new Color(224, 224, 224);
     private static final Color SELECTION_TINT = new Color(30, 110, 210, 28);
     private static final Color SELECTION_BORDER = new Color(30, 110, 210);
@@ -92,6 +95,11 @@ public final class ViewableColumnsView extends JPanel
         // setViewConfigResolver only fires when a consumer is present; this view owns the
         // config itself, so the consumer is a no-op and the discard/rebuild is what matters.
         this.list.setCardConfigConsumer(resolver -> {});
+        // Give every column at least MIN_COLUMN_WIDTH: the list widens past the viewport (and
+        // scrolls horizontally) rather than shrinking columns below it. Reads the current
+        // column count on each layout.
+        this.list.setContentWidthPolicy(
+                viewportWidth -> Math.max(viewportWidth, columns.size() * MIN_COLUMN_WIDTH));
         this.context.addTopLevelResolver(o ->
                 o instanceof Viewable q ? list.buildIfNeeded(q) : null);
 
@@ -100,10 +108,7 @@ public final class ViewableColumnsView extends JPanel
         // the header scrolls horizontally in step with the content.
         this.header = new JPanel() {
             @Override public Dimension getPreferredSize() {
-                Dimension d = super.getPreferredSize();
-                int viewportWidth = scroll.getViewport() == null ? 0
-                        : scroll.getViewport().getWidth();
-                return new Dimension(Math.max(viewportWidth, CONTENT_WIDTH_FLOOR), d.height);
+                return new Dimension(contentWidth(), super.getPreferredSize().height);
             }
         };
         this.header.setBackground(new Color(245, 245, 245));
@@ -204,6 +209,18 @@ public final class ViewableColumnsView extends JPanel
         }
         columns = List.copyOf(ordered);
         rebuildHeader();
+        // A changed column count changes the desired content width — re-lay the list so its
+        // width (and the horizontal scrollbar) follows.
+        list.revalidate();
+        list.repaint();
+    }
+
+    /** The width the list lays its rows out at, mirrored so the header spans exactly the rows
+     *  (equal columns line up). Matches VirtualizedCardList's effectiveWidth for this view. */
+    private int contentWidth() {
+        int viewportWidth = scroll.getViewport() == null ? 0 : scroll.getViewport().getWidth();
+        return Math.max(CONTENT_WIDTH_FLOOR,
+                Math.max(viewportWidth, columns.size() * MIN_COLUMN_WIDTH));
     }
 
     private void rebuildHeader() {

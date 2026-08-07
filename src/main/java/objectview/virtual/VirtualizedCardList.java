@@ -70,6 +70,14 @@ public final class VirtualizedCardList
     private java.util.function.Consumer<java.util.function.Function<Viewable, ViewConfig>>
             cardConfigConsumer;
 
+    /**
+     * Maps the current viewport width to the desired content width. An owner (e.g. a columns
+     * view) can demand a wider-than-viewport layout so its columns keep a minimum width and
+     * scroll horizontally. Default: track the viewport (the MIN_CONTENT_WIDTH floor still
+     * applies in {@link #effectiveWidth()}).
+     */
+    private java.util.function.IntUnaryOperator contentWidthPolicy = width -> width;
+
     // Notified with each card as it's (re)materialized on scroll, so an owner can
     // re-apply transient decoration a fresh card would otherwise lack — e.g. the
     // search highlight, which is lost when a card is virtualized out and rebuilt.
@@ -561,9 +569,18 @@ public final class VirtualizedCardList
                         : Math.max(1, getWidth());
 
         return Math.max(
-                viewportWidth,
-                MIN_CONTENT_WIDTH
+                MIN_CONTENT_WIDTH,
+                contentWidthPolicy.applyAsInt(viewportWidth)
                        );
+    }
+
+    /** Lets an owner widen the content past the viewport (returning &gt; viewport width) so
+     *  columns keep a minimum width and the list scrolls horizontally. */
+    public void setContentWidthPolicy(java.util.function.IntUnaryOperator policy) {
+        this.contentWidthPolicy = policy == null ? (width -> width) : policy;
+        revalidate();
+        repaint();
+        updateVisible();
     }
 
     private void positionCard(
@@ -1022,8 +1039,10 @@ public final class VirtualizedCardList
 
     @Override
     public boolean getScrollableTracksViewportWidth() {
+        // Track the viewport only while the content fits it; once the desired content width
+        // exceeds the viewport (e.g. many min-width columns), keep that width and scroll.
         return viewport == null
-                || viewport.getWidth() >= MIN_CONTENT_WIDTH;
+                || viewport.getWidth() >= effectiveWidth();
     }
 
     @Override
