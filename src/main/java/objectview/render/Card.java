@@ -661,7 +661,7 @@ public class Card extends JPanel {
         java.util.Set<String> hoistedMedia = new java.util.HashSet<>();
         row = appendHoistedMedia(fields, row, hoistedMedia);
 
-        for (FieldRef field : fields.fields()) {
+        for (FieldRef field : inConfigOrder(fields.fields())) {
             String name = field.name();
 
             if (field.role() != objectview.field.FieldRole.NONE || hoistedMedia.contains(name)
@@ -720,6 +720,40 @@ public class Card extends JPanel {
                     GridBagConstraints.BOTH,
                     new Insets(0, 0, 0, 0)));
         }
+    }
+
+    private List<FieldRef> inConfigOrder(List<FieldRef> fields) {
+        return orderFieldsByConfig(fields,
+                config == null ? java.util.Set.of() : config.getFields().keySet());
+    }
+
+    /**
+     * Render explicitly-configured fields in the CONFIG's order (the same ordered
+     * {@code ViewConfig.getFields()} that sort/search consume), so the view config's move
+     * before/after actually reorders the card. Fields named in {@code configuredOrder}
+     * come first, in that order; implied fields (all-fields / all-minor, never named)
+     * keep their schema order, appended after. An empty order (an all-fields config names
+     * nothing) leaves the cards unchanged.
+     */
+    static List<FieldRef> orderFieldsByConfig(
+            List<FieldRef> fields, java.util.Set<String> configuredOrder) {
+        if (configuredOrder == null || configuredOrder.isEmpty()) {
+            return fields;
+        }
+        java.util.LinkedHashMap<String, FieldRef> remaining =
+                new java.util.LinkedHashMap<>();
+        for (FieldRef field : fields) {
+            remaining.put(field.name(), field);
+        }
+        List<FieldRef> ordered = new ArrayList<>();
+        for (String name : configuredOrder) {
+            FieldRef field = remaining.remove(name);
+            if (field != null) {
+                ordered.add(field);
+            }
+        }
+        ordered.addAll(remaining.values());
+        return ordered;
     }
 
     private boolean shows(FieldRef field) {
