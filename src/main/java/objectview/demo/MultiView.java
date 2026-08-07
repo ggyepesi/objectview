@@ -4,7 +4,7 @@ import objectview.Viewable;
 import objectview.render.RenderContext;
 import objectview.search.MultiSearchBar;
 import objectview.search.SearchPanel;
-import objectview.search.SearchableCardView;
+import objectview.view.SearchableView;
 import objectview.viewconfig.FieldTypeSource;
 
 import javax.swing.*;
@@ -129,7 +129,7 @@ public class MultiView extends JPanel {
 
     private JComponent buildSection(
             Section s, int columns, List<SearchPanel> engines) {
-        SearchableCardView view = SearchableCardView.builder(s.objects())
+        SearchableView view = SearchableView.builder(s.objects())
                 .type(s.type())
                 .sample(s.sample())
                 .hiddenFields(s.hiddenFields())

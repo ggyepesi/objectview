@@ -41,6 +41,8 @@ public final class SearchableView extends JPanel {
     private final SearchPanel search;
     private RenderingMode mode;
     private JComponent center;
+    private CardListView cardList;   // active when mode == CARD
+    private ViewableTable table;     // active when mode == TABLE
 
     private SearchableView(Builder b) {
         super(new BorderLayout(4, 4));
@@ -110,32 +112,41 @@ public final class SearchableView extends JPanel {
     }
 
     private JComponent buildCards() {
-        CardListView cards = new CardListView();
-        cards.setRenderContext(context);
-        builder.members.forEach(cards::addViewable);
-        cards.createCardsPanel(builder.columns);
+        cardList = new CardListView();
+        table = null;
+        cardList.setRenderContext(context);
+        builder.members.forEach(cardList::addViewable);
+        cardList.createCardsPanel(builder.columns);
         search.setRenderContext(context);
         search.setTargetAndApplyViewConfig(
-                cards.getCardsPanel(), cards.getCardsScrollPane());
-        cards.addTargetListener(search);
+                cardList.getCardsPanel(), cardList.getCardsScrollPane());
+        cardList.addTargetListener(search);
+        CardListView cards = cardList;
         SwingUtilities.invokeLater(() -> {
             if (cards.getVirtualList() != null) cards.getVirtualList().rebuild();
         });
-        return cards.getCardsScrollPane();
+        return cardList.getCardsScrollPane();
     }
 
     private JComponent buildTable() {
         Viewable columnSample = builder.sample != null ? builder.sample
                 : builder.members.isEmpty() ? null : builder.members.get(0);
-        ViewableTable table = new ViewableTable(builder.members,
+        table = new ViewableTable(builder.members,
                 (row, config) -> tablePaths(row, config, columnSample,
                         builder.fieldTypes, builder.subtypeConfigs),
                 builder.selectionListener);
+        cardList = null;
         JScrollPane scroll = new JScrollPane(table);
         scroll.getVerticalScrollBar().setUnitIncrement(table.getRowHeight());
         search.setTargetAndApplyViewConfig(table, scroll);
         return scroll;
     }
+
+    /** The active card container, or null when the current mode is TABLE. */
+    public CardListView cardList() { return cardList; }
+
+    /** The active table, or null when the current mode is CARD. */
+    public ViewableTable table() { return table; }
 
     // The table's column paths — same projection SearchableTableView used.
     private static List<ViewableFieldPaths.PathInfo> tablePaths(

@@ -5,6 +5,8 @@ import objectview.annotations.DisplayField;
 import objectview.field.ViewableFieldPaths;
 import objectview.media.MediaValue;
 import objectview.search.SearchAndSort;
+import objectview.view.SearchableView;
+import objectview.render.RenderingMode;
 import objectview.search.SearchPanel;
 import objectview.viewconfig.ViewConfig;
 import org.junit.jupiter.api.Test;
@@ -30,7 +32,8 @@ class SearchableTableViewTest {
         view.setAllFields(false);
         view.addField("name", ViewConfig.leaf());
 
-        SearchableTableView tableView = SearchableTableView.builder(List.of(first, second))
+        SearchableView tableView = SearchableView.builder(List.of(first, second))
+                .mode(RenderingMode.TABLE)
                 .sample(first)
                 .configState(new SearchPanel.ConfigState(null, null, view))
                 .build();
@@ -43,7 +46,8 @@ class SearchableTableViewTest {
 
     @Test void searchRevealSelectsTheMatchingCollectionElement() {
         Item item = item("one", List.of("alpha", "beta"));
-        SearchableTableView tableView = SearchableTableView.builder(List.of(item))
+        SearchableView tableView = SearchableView.builder(List.of(item))
+                .mode(RenderingMode.TABLE)
                 .sample(item)
                 .build();
         ViewableTable table = tableView.table();
@@ -61,7 +65,8 @@ class SearchableTableViewTest {
 
     @Test void boundDisplayFieldIsOnePhysicalColumnNotSyntheticName() {
         Item item = item("one", List.of());
-        ViewableTable table = SearchableTableView.builder(List.of(item))
+        ViewableTable table = SearchableView.builder(List.of(item))
+                .mode(RenderingMode.TABLE)
                 .sample(item)
                 .build().table();
 
@@ -101,7 +106,8 @@ class SearchableTableViewTest {
         parentConfig.addField("name", ViewConfig.leaf());
         parentConfig.addField("nested", nestedConfig);
 
-        ViewableTable table = SearchableTableView.builder(List.of(complete, missing))
+        ViewableTable table = SearchableView.builder(List.of(complete, missing))
+                .mode(RenderingMode.TABLE)
                 .sample(complete)
                 .configState(new SearchPanel.ConfigState(null, null, parentConfig))
                 .build().table();
@@ -116,7 +122,8 @@ class SearchableTableViewTest {
         // A blank source keeps this a pure renderer test: no file/network load is
         // started merely to verify the cell's loading presentation.
         MediaItem item = new MediaItem("Flag", new TestMedia("source text", ""));
-        ViewableTable table = SearchableTableView.builder(List.of(item))
+        ViewableTable table = SearchableView.builder(List.of(item))
+                .mode(RenderingMode.TABLE)
                 .sample(item)
                 .build().table();
         int imageColumn = modelColumn(table, "image");
@@ -130,7 +137,8 @@ class SearchableTableViewTest {
 
     @Test void rowHeightIsAUniformTableLayoutChoiceRatherThanMediaDetection() {
         Item textOnly = item("one", List.of("alpha"));
-        ViewableTable table = SearchableTableView.builder(List.of(textOnly))
+        ViewableTable table = SearchableView.builder(List.of(textOnly))
+                .mode(RenderingMode.TABLE)
                 .sample(textOnly)
                 .build().table();
 

@@ -4,6 +4,7 @@ import objectview.ViewableAdapter;
 import objectview.field.DynamicFields;
 import objectview.viewconfig.FieldTypeSource;
 import objectview.render.Card;
+import objectview.view.SearchableView;
 import objectview.viewconfig.ViewConfig;
 import org.junit.jupiter.api.Test;
 
@@ -21,13 +22,13 @@ class SearchableCardViewTest {
 
     @Test void wiresCardsSearchAndContextOnce() {
         Item item = new Item("one");
-        SearchableCardView view = SearchableCardView.builder(List.of(item))
+        SearchableView view = SearchableView.builder(List.of(item))
                 .sample(item)
                 .hiddenFields(Set.of("internal"))
                 .collapsible(true)
                 .build();
 
-        assertNotNull(view.cards().getVirtualList());
+        assertNotNull(view.cardList().getVirtualList());
         assertNotNull(view.search());
         assertTrue(view.renderContext().collapsibleCards());
         assertTrue(view.search().getViewConfig().isAllMinorFields(),
@@ -42,19 +43,19 @@ class SearchableCardViewTest {
                 objectview.field.ViewableContractFieldSet.DISPLAY_KEY, ViewConfig.leaf());
         AtomicReference<SearchPanel.ConfigState> retained = new AtomicReference<>();
 
-        SearchableCardView view = SearchableCardView.builder(List.of(item))
+        SearchableView view = SearchableView.builder(List.of(item))
                 .sample(item)
                 .configState(new SearchPanel.ConfigState(null, null, viewConfig))
                 .configListener(retained::set)
                 .build();
         view.search().applyView();
 
-        SearchableCardView replacement = SearchableCardView.builder(List.of(item))
+        SearchableView replacement = SearchableView.builder(List.of(item))
                 .sample(item)
                 .configState(retained.get())
                 .build();
 
-        Card card = (Card) replacement.cards().getVirtualList().buildIfNeeded(item);
+        Card card = (Card) replacement.cardList().getVirtualList().buildIfNeeded(item);
         assertTrue(componentText(card).contains("one"));
         assertFalse(componentText(card).contains("secret"));
     }
@@ -72,7 +73,7 @@ class SearchableCardViewTest {
                 null, null, baseView, java.util.Map.of(), java.util.Map.of(),
                 java.util.Map.of("SubItem", disabledSubtype));
 
-        SearchableCardView view = SearchableCardView.builder(List.of(base, subtype))
+        SearchableView view = SearchableView.builder(List.of(base, subtype))
                 .sample(base)
                 .configState(state)
                 .subtypeConfigs(List.of(new SearchPanel.SubtypeConfig(
@@ -80,7 +81,7 @@ class SearchableCardViewTest {
                         value -> value instanceof SubItem)))
                 .build();
 
-        Card card = (Card) view.cards().getVirtualList().buildIfNeeded(subtype);
+        Card card = (Card) view.cardList().getVirtualList().buildIfNeeded(subtype);
         assertTrue(componentText(card).contains("sub"));
         assertFalse(componentText(card).contains("sub-secret"));
         assertTrue(view.search().configState().subtypeView().containsKey("SubItem"));
@@ -103,14 +104,14 @@ class SearchableCardViewTest {
 
         // Snapshot-backed views intentionally have no synthetic sample; fields come
         // from their saved schema. They must still survive the initial config fold.
-        SearchableCardView view = SearchableCardView.builder(List.of(item))
+        SearchableView view = SearchableView.builder(List.of(item))
                 .fieldTypes(schema)
                 .collapsible(true)
                 .build();
 
         assertTrue(view.search().getViewConfig().hasField("detail"),
                 view.search().getViewConfig().getFields().keySet().toString());
-        Card collapsed = (Card) view.cards().getVirtualList().buildIfNeeded(item);
+        Card collapsed = (Card) view.cardList().getVirtualList().buildIfNeeded(item);
         JLabel toggle = findLabel(collapsed, "▶ ");
         assertNotNull(toggle);
         java.awt.event.MouseEvent click = new java.awt.event.MouseEvent(
@@ -120,7 +121,7 @@ class SearchableCardViewTest {
         for (java.awt.event.MouseListener listener : toggle.getMouseListeners()) {
             listener.mousePressed(click);
         }
-        Card card = (Card) view.cards().getVirtualList().buildIfNeeded(item);
+        Card card = (Card) view.cardList().getVirtualList().buildIfNeeded(item);
         assertTrue(card.getComponentCount() > 1,
                 "a saved dynamic field must not vanish before its schema is installed");
     }

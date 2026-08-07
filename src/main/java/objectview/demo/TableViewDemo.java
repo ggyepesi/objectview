@@ -4,7 +4,8 @@ import objectview.ViewableAdapter;
 import objectview.annotations.DisplayField;
 import objectview.annotations.Hidden;
 import objectview.search.SearchPanel;
-import objectview.table.SearchableTableView;
+import objectview.view.SearchableView;
+import objectview.render.RenderingMode;
 import objectview.viewconfig.ViewConfig;
 
 import javax.swing.BorderFactory;
@@ -138,7 +139,8 @@ public final class TableViewDemo {
                 "138 days (Po-210)");
         List<Element> elements = List.of(hydrogen, carbon, polonium);
 
-        SearchableTableView view = SearchableTableView.builder(elements)
+        SearchableView view = SearchableView.builder(elements)
+                .mode(RenderingMode.TABLE)
                 .sample(hydrogen)
                 .configState(new SearchPanel.ConfigState(
                         null, null, initialViewConfig()))
