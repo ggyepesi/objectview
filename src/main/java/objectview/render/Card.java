@@ -1004,7 +1004,12 @@ public class Card extends JPanel {
         JPanel panel = new JPanel(new GridBagLayout());
         panel.setOpaque(false);
         if (fieldName != null && !fieldName.isBlank()) {
-            panel.setBorder(BorderFactory.createTitledBorder(fieldName));
+            // Show the size in the title, as the collapsible CollectionHeader does for
+            // groups/languages — an @Inline collection (e.g. a query log's `steps`)
+            // otherwise showed just "steps" with no count. Re-rendered on refresh, so the
+            // number tracks the collection as it changes.
+            long count = items.stream().filter(Viewable.class::isInstance).count();
+            panel.setBorder(BorderFactory.createTitledBorder(fieldName + " (" + count + ")"));
         }
 
         int row = 0;
