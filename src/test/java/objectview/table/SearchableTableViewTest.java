@@ -2,18 +2,18 @@ package objectview.table;
 
 import objectview.ViewableAdapter;
 import objectview.annotations.DisplayField;
+import objectview.field.FieldProperties;
 import objectview.field.ViewableFieldPaths;
+import objectview.media.ImagePane;
 import objectview.media.MediaValue;
-import objectview.search.SearchAndSort;
-import objectview.view.SearchableView;
 import objectview.render.RenderingMode;
+import objectview.search.SearchAndSort;
 import objectview.search.SearchPanel;
+import objectview.view.SearchableView;
 import objectview.viewconfig.ViewConfig;
 import org.junit.jupiter.api.Test;
 
-import javax.swing.JLabel;
-import javax.swing.JTable;
-import javax.swing.table.TableCellRenderer;
+import javax.swing.JComponent;
 import java.awt.Component;
 import java.awt.Container;
 import java.util.LinkedHashMap;
@@ -21,8 +21,15 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * TABLE mode is now a LAYOUT of the card path ({@link ViewableColumnsView}), so these tests
+ * assert the component contract — columns come from the view config, and each cell reuses the
+ * card path's value components (an image is an {@link ImagePane}, never its label text).
+ */
 class SearchableTableViewTest {
 
     @Test void viewConfigDefinesColumnsAndRawRowsRemainTheData() {
@@ -32,47 +39,41 @@ class SearchableTableViewTest {
         view.setAllFields(false);
         view.addField("name", ViewConfig.leaf());
 
-        SearchableView tableView = SearchableView.builder(List.of(first, second))
+        ViewableColumnsView table = SearchableView.builder(List.of(first, second))
                 .mode(RenderingMode.TABLE)
                 .sample(first)
                 .configState(new SearchPanel.ConfigState(null, null, view))
-                .build();
+                .build().table();
 
-        assertEquals(2, tableView.table().items().size());
-        assertEquals(1, tableView.table().getColumnCount());
-        assertEquals("name", tableView.table().viewableModel().column(0).dotted());
-        assertEquals("one", tableView.table().getValueAt(0, 0));
+        assertEquals(2, table.items().size());
+        assertEquals(List.of("name"), dottedColumns(table));
+        assertTrue(values(table.row(first)).contains("one"), "the row shows its data value");
     }
 
-    @Test void searchRevealSelectsTheMatchingCollectionElement() {
+    @Test void searchRevealHighlightsTheRowAndTheCellShowsEveryCollectionElement() {
         Item item = item("one", List.of("alpha", "beta"));
-        SearchableView tableView = SearchableView.builder(List.of(item))
+        ViewableColumnsView table = SearchableView.builder(List.of(item))
                 .mode(RenderingMode.TABLE)
                 .sample(item)
-                .build();
-        ViewableTable table = tableView.table();
-        int tags = modelColumn(table, "tags");
-        ViewableFieldPaths.PathInfo path = table.viewableModel().column(tags);
-        table.moveColumn(table.convertColumnIndexToView(tags), 0);
+                .build().table();
+        ViewableFieldPaths.PathInfo tags = column(table, "tags");
 
-        table.revealSearchHit(item, path, List.of("beta"));
+        JComponent revealed = table.revealSearchHit(item, tags, List.of("beta"));
 
-        int tagsView = table.convertColumnIndexToView(tags);
-        String text = rendererText(table, 0, tagsView);
-        assertTrue(text.contains("beta"), text);
-        assertTrue(text.contains("2/2"), text);
+        assertNotNull(revealed, "revealing a hit navigates to (and returns) its row");
+        // The whole collection renders in the cell — no per-element cursor is needed.
+        String rowText = values(table.row(item));
+        assertTrue(rowText.contains("alpha") && rowText.contains("beta"), rowText);
     }
 
     @Test void boundDisplayFieldIsOnePhysicalColumnNotSyntheticName() {
         Item item = item("one", List.of());
-        ViewableTable table = SearchableView.builder(List.of(item))
+        ViewableColumnsView table = SearchableView.builder(List.of(item))
                 .mode(RenderingMode.TABLE)
                 .sample(item)
                 .build().table();
 
-        List<String> paths = java.util.stream.IntStream.range(0, table.getColumnCount())
-                .mapToObj(index -> table.viewableModel().column(index).dotted())
-                .toList();
+        List<String> paths = dottedColumns(table);
         assertTrue(paths.contains("name"), paths.toString());
         assertTrue(!paths.contains(
                 objectview.field.ViewableContractFieldSet.DISPLAY_KEY), paths.toString());
@@ -106,68 +107,85 @@ class SearchableTableViewTest {
         parentConfig.addField("name", ViewConfig.leaf());
         parentConfig.addField("nested", nestedConfig);
 
-        ViewableTable table = SearchableView.builder(List.of(complete, missing))
+        ViewableColumnsView table = SearchableView.builder(List.of(complete, missing))
                 .mode(RenderingMode.TABLE)
                 .sample(complete)
                 .configState(new SearchPanel.ConfigState(null, null, parentConfig))
                 .build().table();
 
-        assertEquals(2, table.getColumnCount());
-        int nestedColumn = modelColumn(table, "nested.label");
-        assertEquals("Budapest", table.viewableModel().getValueAt(0, nestedColumn));
-        assertEquals(null, table.viewableModel().getValueAt(1, nestedColumn));
+        assertEquals(List.of("name", "nested.label"), dottedColumns(table));
+        assertTrue(values(table.row(complete)).contains("Budapest"));
+        assertTrue(!values(table.row(missing)).contains("Budapest"),
+                "a null nested value leaves the configured leaf cell empty");
     }
 
-    @Test void tableHeightLeavesRoomForThumbnailAndMediaSourceIsNotRenderedAsValue() {
-        // A blank source keeps this a pure renderer test: no file/network load is
-        // started merely to verify the cell's loading presentation.
-        MediaItem item = new MediaItem("Flag", new TestMedia("source text", ""));
-        ViewableTable table = SearchableView.builder(List.of(item))
+    @Test void aMediaCellRendersAsAnImageComponentNotItsLabelText() {
+        // ON_PAINT loading means constructing the ImagePane starts no file/network load, so
+        // this stays a pure rendering test.
+        MediaItem withImage = new MediaItem("Flag", new TestMedia("Flag.jpg", "http://x/Flag.jpg"));
+        ViewableColumnsView table = SearchableView.builder(List.of(withImage))
                 .mode(RenderingMode.TABLE)
-                .sample(item)
-                .build().table();
-        int imageColumn = modelColumn(table, "image");
-
-        assertTrue(table.getRowHeight(0) >= 150);
-        String rendered = rendererText(
-                table, 0, table.convertColumnIndexToView(imageColumn));
-        assertTrue(rendered.contains("image unavailable"), rendered);
-        assertTrue(!rendered.contains("source text"), rendered);
-    }
-
-    @Test void rowHeightIsAUniformTableLayoutChoiceRatherThanMediaDetection() {
-        Item textOnly = item("one", List.of("alpha"));
-        ViewableTable table = SearchableView.builder(List.of(textOnly))
-                .mode(RenderingMode.TABLE)
-                .sample(textOnly)
+                .sample(withImage)
                 .build().table();
 
-        assertTrue(table.getRowHeight(0) >= 150);
+        JComponent row = table.row(withImage);
+        assertNotNull(find(row, ImagePane.class),
+                "a media value becomes an ImagePane — the same component cards use");
+        assertTrue(!values(row).contains("Flag.jpg"),
+                "the media source is never rendered as its label text");
     }
 
-    private static int modelColumn(ViewableTable table, String path) {
-        for (int i = 0; i < table.getColumnCount(); i++) {
-            if (path.equals(table.viewableModel().column(i).dotted())) return i;
+    @Test void aSourcelessMediaCellIsEmptyRatherThanShowingItsLabel() {
+        MediaItem blank = new MediaItem("Flag", new TestMedia("Flag.jpg", ""));
+        ViewableColumnsView table = SearchableView.builder(List.of(blank))
+                .mode(RenderingMode.TABLE)
+                .sample(blank)
+                .build().table();
+
+        JComponent row = table.row(blank);
+        assertNull(find(row, ImagePane.class), "no source, no image component");
+        assertTrue(!values(row).contains("Flag.jpg"),
+                "a sourceless media cell shows nothing, not its label");
+    }
+
+    private static ViewableFieldPaths.PathInfo column(ViewableColumnsView table, String dotted) {
+        for (ViewableFieldPaths.PathInfo column : table.columns()) {
+            if (dotted.equals(column.dotted())) return column;
         }
-        throw new AssertionError("Missing column " + path);
+        throw new AssertionError("Missing column " + dotted);
     }
 
-    private static String rendererText(JTable table, int row, int column) {
-        TableCellRenderer renderer = table.getCellRenderer(row, column);
-        Component component = renderer.getTableCellRendererComponent(
-                table, table.getValueAt(row, column), false, false, row, column);
-        return componentText(component);
+    private static List<String> dottedColumns(ViewableColumnsView table) {
+        return table.columns().stream().map(ViewableFieldPaths.PathInfo::dotted).toList();
     }
 
-    private static String componentText(Component component) {
+    /** All field values rendered inside a component tree, read from the shared
+     *  FIELD_VALUE client property the card path's value rows carry. */
+    private static String values(Component root) {
         StringBuilder text = new StringBuilder();
-        if (component instanceof JLabel label) text.append(label.getText()).append(' ');
-        if (component instanceof Container container) {
+        if (root instanceof JComponent component) {
+            Object value = component.getClientProperty(FieldProperties.FIELD_VALUE_PROPERTY);
+            // Data values only — a media cell carries its ImagePane as the value; that is the
+            // image rendered, not the label text, so it must not count as rendered text.
+            if (value != null && !(value instanceof Component)) text.append(value).append(' ');
+        }
+        if (root instanceof Container container) {
             for (Component child : container.getComponents()) {
-                text.append(componentText(child));
+                text.append(values(child));
             }
         }
         return text.toString();
+    }
+
+    private static <T extends Component> T find(Component root, Class<T> type) {
+        if (type.isInstance(root)) return type.cast(root);
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                T found = find(child, type);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     private static Item item(String name, List<String> tags) {

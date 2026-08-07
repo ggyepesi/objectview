@@ -7,7 +7,7 @@ import objectview.render.CardListView;
 import objectview.render.RenderContext;
 import objectview.render.RenderingMode;
 import objectview.search.SearchPanel;
-import objectview.table.ViewableTable;
+import objectview.table.ViewableColumnsView;
 import objectview.viewconfig.FieldTypeSource;
 import objectview.viewconfig.ViewConfig;
 
@@ -15,7 +15,6 @@ import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.JScrollPane;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.util.ArrayList;
@@ -41,8 +40,8 @@ public final class SearchableView extends JPanel {
     private final SearchPanel search;
     private RenderingMode mode;
     private JComponent center;
-    private CardListView cardList;   // active when mode == CARD
-    private ViewableTable table;     // active when mode == TABLE
+    private CardListView cardList;        // active when mode == CARD
+    private ViewableColumnsView table;    // active when mode == TABLE
 
     private SearchableView(Builder b) {
         super(new BorderLayout(4, 4));
@@ -131,22 +130,22 @@ public final class SearchableView extends JPanel {
     private JComponent buildTable() {
         Viewable columnSample = builder.sample != null ? builder.sample
                 : builder.members.isEmpty() ? null : builder.members.get(0);
-        table = new ViewableTable(builder.members,
+        // The table is a LAYOUT of the card path: rows reuse ValueRenderer's components
+        // (media/chip/copyable-text) through the shared RenderContext, so selection, copy and
+        // images come for free — only the column arrangement differs from CARD mode.
+        table = new ViewableColumnsView(builder.members, context,
                 (row, config) -> tablePaths(row, config, columnSample,
-                        builder.fieldTypes, builder.subtypeConfigs),
-                builder.selectionListener);
+                        builder.fieldTypes, builder.subtypeConfigs));
         cardList = null;
-        JScrollPane scroll = new JScrollPane(table);
-        scroll.getVerticalScrollBar().setUnitIncrement(table.getRowHeight());
-        search.setTargetAndApplyViewConfig(table, scroll);
-        return scroll;
+        search.setTargetAndApplyViewConfig(table, table.scrollPane());
+        return table;
     }
 
     /** The active card container, or null when the current mode is TABLE. */
     public CardListView cardList() { return cardList; }
 
-    /** The active table, or null when the current mode is CARD. */
-    public ViewableTable table() { return table; }
+    /** The active table (a card-path columns layout), or null when the current mode is CARD. */
+    public ViewableColumnsView table() { return table; }
 
     // The table's column paths — same projection SearchableTableView used.
     private static List<ViewableFieldPaths.PathInfo> tablePaths(
