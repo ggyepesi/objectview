@@ -3,6 +3,7 @@ package objectview.table;
 import objectview.ViewableAdapter;
 import objectview.annotations.DisplayField;
 import objectview.field.ViewableFieldPaths;
+import objectview.media.MediaValue;
 import objectview.search.SearchAndSort;
 import objectview.search.SearchPanel;
 import objectview.viewconfig.ViewConfig;
@@ -111,6 +112,31 @@ class SearchableTableViewTest {
         assertEquals(null, table.viewableModel().getValueAt(1, nestedColumn));
     }
 
+    @Test void tableHeightLeavesRoomForThumbnailAndMediaSourceIsNotRenderedAsValue() {
+        // A blank source keeps this a pure renderer test: no file/network load is
+        // started merely to verify the cell's loading presentation.
+        MediaItem item = new MediaItem("Flag", new TestMedia("source text", ""));
+        ViewableTable table = SearchableTableView.builder(List.of(item))
+                .sample(item)
+                .build().table();
+        int imageColumn = modelColumn(table, "image");
+
+        assertTrue(table.getRowHeight(0) >= 150);
+        String rendered = rendererText(
+                table, 0, table.convertColumnIndexToView(imageColumn));
+        assertTrue(rendered.contains("image unavailable"), rendered);
+        assertTrue(!rendered.contains("source text"), rendered);
+    }
+
+    @Test void rowHeightIsAUniformTableLayoutChoiceRatherThanMediaDetection() {
+        Item textOnly = item("one", List.of("alpha"));
+        ViewableTable table = SearchableTableView.builder(List.of(textOnly))
+                .sample(textOnly)
+                .build().table();
+
+        assertTrue(table.getRowHeight(0) >= 150);
+    }
+
     private static int modelColumn(ViewableTable table, String path) {
         for (int i = 0; i < table.getColumnCount(); i++) {
             if (path.equals(table.viewableModel().column(i).dotted())) return i;
@@ -171,5 +197,20 @@ class SearchableTableViewTest {
         private Nested(String label) { this.label = label; }
         @Override public String getIdentifier() { return label; }
         @Override public String getDisplayName() { return label; }
+    }
+
+    private record TestMedia(String mediaLabel, String mediaUrl) implements MediaValue {
+        @Override public boolean mediaSvg() { return false; }
+    }
+
+    private static final class MediaItem extends ViewableAdapter {
+        @DisplayField private final String name;
+        private final TestMedia image;
+        private MediaItem(String name, TestMedia image) {
+            this.name = name;
+            this.image = image;
+        }
+        @Override public String getIdentifier() { return name; }
+        @Override public String getDisplayName() { return name; }
     }
 }

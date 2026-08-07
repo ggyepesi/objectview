@@ -48,15 +48,11 @@ public class ImagePane extends JPanel
         ON_DEMAND
     }
 
-    private static final JTextArea draggingCoordinates = new JTextArea();
-    private static final JFrame draggingFrame = new JFrame();
-
-    static {
-        draggingCoordinates.setEditable(false);
-        draggingFrame.getContentPane().add(draggingCoordinates);
-        draggingFrame.setUndecorated(true);
-        draggingFrame.setOpacity(0.75f);
-    }
+    // Drag UI is created only when a user actually starts cropping. Eager static
+    // JFrame construction made merely loading ImagePane initialize the native GUI
+    // toolkit, which is especially harmful to table renderers and headless tests.
+    private JTextArea draggingCoordinates;
+    private JFrame draggingFrame;
 
     private String title = "";
     private Viewable viewable;
@@ -99,7 +95,17 @@ public class ImagePane extends JPanel
 
     public void setKey(String key) {
         this.key = key;
-        draggingFrame.setTitle(key);
+        if (draggingFrame != null) draggingFrame.setTitle(key);
+    }
+
+    private void ensureDraggingFrame() {
+        if (draggingFrame != null) return;
+        draggingCoordinates = new JTextArea();
+        draggingCoordinates.setEditable(false);
+        draggingFrame = new JFrame(key);
+        draggingFrame.getContentPane().add(draggingCoordinates);
+        draggingFrame.setUndecorated(true);
+        draggingFrame.setOpacity(0.75f);
     }
 
     public ImagePane(String title, String url, Viewable viewable, boolean addTitle) throws Exception {
@@ -508,28 +514,38 @@ public class ImagePane extends JPanel
         event.consume();
 
         if (selectionListener == null) {
-            try {
-                // Prefer the depicted entity's name (e.g. the person) over the
-                // structural field path ("All/CHEMISTRY, 117.laureatesWith...
-                // portrait:null"), to match the dedicated entity window.
-                String name = getName();
-                String longTitle = (name != null && !name.isBlank())
-                        ? name
-                        : String.join(".", TitleUtils.getAncestorTitles(this)) + ":" + key;
-
-                // The full image may not be loaded in every context (e.g. a logo
-                // shown via the transform view); fall back to the painted image so
-                // a double-click never opens an empty frame.
-                Image full = cachedImage == null ? null : cachedImage.getFullImage();
-                if (full == null) {
-                    full = displayImage;
-                }
-                showImageView(longTitle, full, true);
-            } catch (Exception e) {
-                log.warn("image operation failed", e);
-            }
+            openImageView(null);
         } else {
             selectionListener.selected(this);
+        }
+    }
+
+    /**
+     * Opens this pane's full-image view. Non-component renderers such as JTable
+     * cells call this method because Swing does not dispatch mouse events to a
+     * renderer component; card images reach the same method from mouseClicked.
+     */
+    public void openImageView(String preferredTitle) {
+        try {
+            // Prefer an explicit row/cell title, then the depicted entity's name,
+            // then the structural card path. The media label is the final fallback
+            // for an ImagePane created outside a component hierarchy.
+            String name = preferredTitle;
+            if (name == null || name.isBlank()) name = getName();
+            if (name == null || name.isBlank()) {
+                name = String.join(".", TitleUtils.getAncestorTitles(this));
+                if (key != null && !key.isBlank()) name += ":" + key;
+            }
+            if (name == null || name.isBlank()) name = title;
+
+            // The full image may not be loaded in every context (e.g. a logo
+            // shown via the transform view); fall back to the painted image so
+            // a double-click never opens an empty frame.
+            Image full = cachedImage == null ? null : cachedImage.getFullImage();
+            if (full == null) full = displayImage;
+            showImageView(name == null ? "Image" : name, full, true);
+        } catch (Exception e) {
+            log.warn("image operation failed", e);
         }
     }
 
@@ -547,6 +563,8 @@ public class ImagePane extends JPanel
     @Override
     public void mouseDragged(MouseEvent event) {
         if (!dragging) return;
+
+        ensureDraggingFrame();
 
         dragged = true;
         currentPoint = translatePoint(event.getPoint());
@@ -569,7 +587,7 @@ public class ImagePane extends JPanel
         if (!dragging || !dragged) {
             dragging = false;
             dragged = false;
-            draggingFrame.setVisible(false);
+            if (draggingFrame != null) draggingFrame.setVisible(false);
             return;
         }
 
@@ -577,7 +595,7 @@ public class ImagePane extends JPanel
 
         dragging = false;
         dragged = false;
-        draggingFrame.setVisible(false);
+        if (draggingFrame != null) draggingFrame.setVisible(false);
 
         if (r.width > 0 && r.height > 0) {
             try {

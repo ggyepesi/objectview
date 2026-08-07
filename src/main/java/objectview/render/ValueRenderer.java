@@ -29,7 +29,7 @@ public final class ValueRenderer {
         // A backing media value (e.g. a Wikidata image) becomes a real ImagePane
         // here, at render time — so the data pool never has to carry Swing.
         if (value instanceof MediaValue media) {
-            value = imagePaneFor(media);
+            value = MediaRenderSupport.imagePane(media);
             if (value == null) {
                 return null;
             }
@@ -68,20 +68,6 @@ public final class ValueRenderer {
         }
 
         return leafComponent(fieldName, fieldPath, value);
-    }
-
-    /** Builds a (lazy-loading) ImagePane from a backing media value, or null if
-     *  it has no URL / can't be built. */
-    private static ImagePane imagePaneFor(MediaValue media) {
-        String url = media.mediaUrl();
-        if (url == null || url.isBlank()) {
-            return null;
-        }
-        try {
-            return new ImagePane(media.mediaLabel(), url, null, false, media.mediaSvg(), false);
-        } catch (Exception e) {
-            return null;
-        }
     }
 
     private static JComponent imageComponent(String fieldName, FieldPath fieldPath, ImagePane imagePane) {
@@ -187,7 +173,7 @@ public final class ValueRenderer {
         }
 
         if (item instanceof MediaValue media) {
-            ImagePane pane = imagePaneFor(media);
+            ImagePane pane = MediaRenderSupport.imagePane(media);
             return pane == null ? null : imageComponent("", fieldPath, pane);
         }
 

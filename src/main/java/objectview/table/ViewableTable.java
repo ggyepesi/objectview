@@ -4,6 +4,7 @@ import objectview.Viewable;
 import objectview.annotations.Link;
 import objectview.field.ViewableFieldPaths;
 import objectview.media.MediaValue;
+import objectview.render.MediaRenderSupport;
 import objectview.utils.BrowserLauncher;
 import objectview.viewconfig.ViewConfig;
 import objectview.virtual.ConfigurableVirtualizedContainer;
@@ -40,6 +41,10 @@ import java.util.function.Function;
 public final class ViewableTable extends JTable
         implements ConfigurableVirtualizedContainer, SearchNavigableContainer {
     private static final int NAV_WIDTH = 82;
+    // A table-wide layout choice, independent of the value renderer. This also
+    // leaves room for CachedImage's standard 150 px thumbnail without teaching
+    // row sizing about media or any other field kind.
+    private static final int DEFAULT_ROW_HEIGHT = 156;
     private static final Color SEARCH_HIT = new Color(255, 188, 120);
 
     private final ViewableTableModel viewableModel;
@@ -75,7 +80,7 @@ public final class ViewableTable extends JTable
 
         setAutoCreateRowSorter(false); // SearchPanel owns the shared sort semantics.
         setAutoResizeMode(AUTO_RESIZE_OFF);
-        setRowHeight(38);
+        setRowHeight(DEFAULT_ROW_HEIGHT);
         setShowVerticalLines(true);
         setGridColor(new Color(225, 225, 225));
         setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -232,13 +237,10 @@ public final class ViewableTable extends JTable
         }
         if (loadingThumbnails.add(url)) {
             int height = Math.max(8, getRowHeight() - 6);
-            String label = media.mediaLabel();
-            boolean svg = url.toLowerCase(java.util.Locale.ROOT).endsWith(".svg");
             THUMBNAIL_LOADER.submit(() -> {
                 javax.swing.ImageIcon icon = MISSING_THUMBNAIL;
                 try {
-                    java.awt.Image image =
-                            new objectview.utils.swing.CachedImage(label, url, svg).getThumbImage();
+                    java.awt.Image image = MediaRenderSupport.thumbnail(media);
                     if (image != null && image.getHeight(null) > 0) {
                         int width = Math.max(1,
                                 image.getWidth(null) * height / image.getHeight(null));
@@ -293,6 +295,14 @@ public final class ViewableTable extends JTable
 
             CellEntry entry = selectedEntry(row, column, raw);
             Object selected = entry.value();
+            if (event.getClickCount() >= 2 && selected instanceof MediaValue media) {
+                String title = media.mediaLabel();
+                if (title == null || title.isBlank()) {
+                    title = viewableModel.column(modelColumn(column)).title();
+                }
+                MediaRenderSupport.open(media, title);
+                return;
+            }
             if (selectionListener != null) {
                 selectionListener.accept(event.getClickCount() >= 2
                         && selected instanceof Viewable
@@ -341,7 +351,13 @@ public final class ViewableTable extends JTable
             if (cellValue instanceof MediaValue media) {
                 javax.swing.ImageIcon thumb = thumbnailFor(media);
                 value.setIcon(thumb);
-                value.setText(thumb != null ? "" : display(cellValue));   // label while loading
+                // Match ImagePane: loading is presentation state, not the media
+                // source rendered temporarily as if it were the cell value.
+                value.setText(thumb != null ? ""
+                        : media.mediaUrl() == null || media.mediaUrl().isBlank()
+                        ? "image unavailable"
+                        : thumbnails.get(media.mediaUrl()) == MISSING_THUMBNAIL
+                        ? "image failed" : "loading...");
             } else {
                 value.setIcon(null);
                 String key = display(entry.key());
