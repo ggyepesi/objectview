@@ -48,6 +48,22 @@ public final class ViewableTable extends JTable
     private int searchRow = -1;
     private int searchColumn = -1;
 
+    // Media cells render a real thumbnail (the card view shows images; the table used to
+    // show only the label/URL). CachedImage reads bytes synchronously on first call, which
+    // must not happen on the EDT during paint — so thumbnails load off-EDT into this cache,
+    // keyed by URL, and the table repaints when each arrives. MISSING marks a failed load.
+    private final java.util.Map<String, javax.swing.ImageIcon> thumbnails =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.Set<String> loadingThumbnails =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static final javax.swing.ImageIcon MISSING_THUMBNAIL = new javax.swing.ImageIcon();
+    private static final java.util.concurrent.ExecutorService THUMBNAIL_LOADER =
+            java.util.concurrent.Executors.newFixedThreadPool(4, runnable -> {
+                Thread thread = new Thread(runnable, "table-thumbnail-loader");
+                thread.setDaemon(true);
+                return thread;
+            });
+
     public ViewableTable(
             List<? extends Viewable> rows,
             BiFunction<Viewable, ViewConfig,
@@ -203,6 +219,43 @@ public final class ViewableTable extends JTable
         return display(value);
     }
 
+    /** A row-height thumbnail for a media cell, or null while it loads (or on failure) —
+     *  loaded off-EDT and cached by URL, with a repaint when it arrives. */
+    private javax.swing.ImageIcon thumbnailFor(MediaValue media) {
+        String url = media.mediaUrl();
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        javax.swing.ImageIcon cached = thumbnails.get(url);
+        if (cached != null) {
+            return cached == MISSING_THUMBNAIL ? null : cached;
+        }
+        if (loadingThumbnails.add(url)) {
+            int height = Math.max(8, getRowHeight() - 6);
+            String label = media.mediaLabel();
+            boolean svg = url.toLowerCase(java.util.Locale.ROOT).endsWith(".svg");
+            THUMBNAIL_LOADER.submit(() -> {
+                javax.swing.ImageIcon icon = MISSING_THUMBNAIL;
+                try {
+                    java.awt.Image image =
+                            new objectview.utils.swing.CachedImage(label, url, svg).getThumbImage();
+                    if (image != null && image.getHeight(null) > 0) {
+                        int width = Math.max(1,
+                                image.getWidth(null) * height / image.getHeight(null));
+                        icon = new javax.swing.ImageIcon(image.getScaledInstance(
+                                width, height, java.awt.Image.SCALE_SMOOTH));
+                    }
+                } catch (Exception ignored) {
+                    // Leave MISSING_THUMBNAIL — the cell falls back to its label.
+                }
+                thumbnails.put(url, icon);
+                loadingThumbnails.remove(url);
+                javax.swing.SwingUtilities.invokeLater(this::repaint);
+            });
+        }
+        return null;
+    }
+
     private static String display(Object value) {
         if (value == null) return "";
         if (value instanceof Viewable viewable) return viewable.getReferenceLabel();
@@ -284,9 +337,18 @@ public final class ViewableTable extends JTable
             int index = values.isEmpty() ? 0 : cursors.index(
                     viewableModel.row(row),
                     viewableModel.column(modelColumn(column)).dotted(), values.size());
-            String key = display(entry.key());
-            String text = display(entry.value());
-            value.setText(key.isBlank() ? (text.isBlank() ? "—" : text) : key + ": " + text);
+            Object cellValue = entry.value();
+            if (cellValue instanceof MediaValue media) {
+                javax.swing.ImageIcon thumb = thumbnailFor(media);
+                value.setIcon(thumb);
+                value.setText(thumb != null ? "" : display(cellValue));   // label while loading
+            } else {
+                value.setIcon(null);
+                String key = display(entry.key());
+                String text = display(cellValue);
+                value.setText(key.isBlank()
+                        ? (text.isBlank() ? "—" : text) : key + ": " + text);
+            }
             navigation.setText(values.size() > 1
                     ? "▲ " + (index + 1) + "/" + values.size() + " ▼" : "");
             value.setForeground(isLinkColumn(column) ? new Color(0, 80, 200)
