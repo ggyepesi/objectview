@@ -20,8 +20,16 @@ import java.util.Set;
 public final class ViewableFieldPaths {
     private ViewableFieldPaths() {}
 
-    /** Presentation/metadata attached to one canonical access path. */
-    public record PathInfo(String title, FieldPath path, Field leafField) {
+    /** Presentation/metadata attached to one canonical access path. {@code valueKind} is
+     *  the leaf's value kind (ORDERED / TEXT / …) — carried so consumers like sort know a
+     *  field is numeric from the schema (a persisted {@code @Numeric}), not only from a
+     *  reflection {@link Field} that a dynamic/snapshot path lacks. */
+    public record PathInfo(String title, FieldPath path, Field leafField, FieldKind valueKind) {
+        /** Derives {@code valueKind} from the leaf reflection field (UNKNOWN when none). */
+        public PathInfo(String title, FieldPath path, Field leafField) {
+            this(title, path, leafField, leafField == null
+                    ? FieldKind.UNKNOWN : FieldKind.ofClass(leafField.getType()));
+        }
         public String dotted() { return path.dotted(); }
         public String leaf() { return path.leaf(); }
     }
@@ -119,9 +127,11 @@ public final class ViewableFieldPaths {
                 } else if (info.nested() != null) {
                     // The configured reference is this path. Its display label is
                     // the searchable value of the reference, not an invented child.
-                    out.add(new PathInfo(title, path, null));
+                    out.add(new PathInfo(title, path, null, info.valueKind()));
                 } else {
-                    out.add(new PathInfo(title, path, null));
+                    // Carry the schema's value kind (e.g. a persisted @Numeric -> ORDERED)
+                    // so sort reads this dynamic leaf as a number without a reflection field.
+                    out.add(new PathInfo(title, path, null, info.valueKind()));
                 }
             }
         } finally {

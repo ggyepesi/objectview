@@ -176,7 +176,7 @@ public class SearchAndSort {
 
             // A @Numeric leaf field sorts by its leading number ("1538 K" ->
             // 1538), not lexically — driven by the annotation, not the value type.
-            sb.append(sortKey(f.leafField(), value))
+            sb.append(sortKey(f, value))
               .append('\u0000');
         }
 
@@ -204,7 +204,7 @@ public class SearchAndSort {
         StringBuilder sb = new StringBuilder();
         for (ViewableFieldPaths.PathInfo f : paths) {
             Object value = extractValue(viewable, f.path());
-            sb.append(sortKey(f.leafField(), value)).append((char) 0);
+            sb.append(sortKey(f, value)).append((char) 0);
         }
         sb.append(sortableString(viewable));
         return sb.toString();
@@ -273,10 +273,12 @@ public class SearchAndSort {
         return true;
     }
 
-    private String sortKey(Field leafField, Object value) {
-        return isNumericField(leafField)
-                ? numericSortKey(value)
-                : sortableString(value);
+    private String sortKey(ViewableFieldPaths.PathInfo field, Object value) {
+        // Numeric by the declared kind (ORDERED — covers a persisted @Numeric on a
+        // dynamic/snapshot field with no reflection Field) OR by the reflected field.
+        boolean numeric = field.valueKind() == objectview.field.FieldKind.ORDERED
+                || isNumericField(field.leafField());
+        return numeric ? numericSortKey(value) : sortableString(value);
     }
 
     private static boolean isNumericField(Field field) {
@@ -295,23 +297,15 @@ public class SearchAndSort {
                 || Number.class.isAssignableFrom(type);
     }
 
-    private static final java.util.regex.Pattern LEADING_NUMBER =
-            java.util.regex.Pattern.compile("-?\\d+(?:\\.\\d+)?");
-
-    // Leading number of the value's text, as a fixed-width offset key so
-    // lexicographic order == numeric order (for |x| < 1e12).
+    // The numeric value of the field, as a fixed-width offset key so lexicographic order
+    // == numeric order (for |x| < 1e12). Uses the ONE shared numeric reading
+    // (NumericValues) so a scaled/ranged string sorts the same way it orders and filters.
     private String numericSortKey(Object value) {
         Double n = leadingNumber(value);
         return n == null ? "" : String.format("%026.6f", n + 1e12);
     }
 
     private Double leadingNumber(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof Number num) {
-            return num.doubleValue();
-        }
         if (value instanceof Collection<?> c) {
             for (Object o : c) {
                 Double d = leadingNumber(o);
@@ -321,9 +315,8 @@ public class SearchAndSort {
             }
             return null;
         }
-        java.util.regex.Matcher m =
-                LEADING_NUMBER.matcher(String.valueOf(value).trim());
-        return m.lookingAt() ? Double.valueOf(m.group()) : null;
+        java.util.OptionalDouble n = objectview.field.NumericValues.parse(value);
+        return n.isPresent() ? n.getAsDouble() : null;
     }
 
     private String sortableString(Object value) {

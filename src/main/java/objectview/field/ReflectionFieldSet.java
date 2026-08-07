@@ -108,6 +108,13 @@ public final class ReflectionFieldSet implements FieldSet {
         } else {
             valueKind = FieldKind.ofClass(type);
         }
+        // @Numeric declares a String-backed field whose values are numbers (e.g. a
+        // language's "300 million" speakers): it sorts/filters/orders as a number, not
+        // text. Recorded as the value KIND so it persists into a snapshot's field graph
+        // and reaches every consumer, not just reflection-time sort.
+        if (!reference && field.isAnnotationPresent(objectview.annotations.Numeric.class)) {
+            valueKind = FieldKind.ORDERED;
+        }
         FieldKind kind = collection ? FieldKind.COLLECTION : valueKind;
 
         boolean link = ViewableAdapter.isLinkField(field);
