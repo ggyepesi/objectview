@@ -287,15 +287,63 @@ public final class VirtualizedCardList
      * synchronously, makes the scroll range take effect at once for both directions.
      */
     private void syncScrollPaneToContent() {
-        setSize(
-                Math.max(getWidth(), effectiveWidth()),
-                preferredContentHeight()
-        );
-
         JScrollPane sp = (JScrollPane)
                 SwingUtilities.getAncestorOfClass(JScrollPane.class, this);
-        if (sp != null) {
-            sp.validate();
+        if (sp != null && sp.getWidth() > 0 && sp.getHeight() > 0) {
+            sp.revalidate();
+            // Establish the current viewport extent first. Doing this after
+            // setViewSize lets ScrollPaneLayout overwrite the freshly-published
+            // height with the stale preferred size.
+            sp.doLayout();
+        }
+
+        // JScrollPane's range is driven by JViewport.viewSize, not merely by the
+        // child component's current size. Publishing it can synchronously trigger
+        // updateVisible(), which may replace estimates with exact card heights;
+        // repeat until that measurement settles so size, preferred size and the
+        // scrollbar model all describe the same bottom.
+        for (int pass = 0; pass < 4; pass++) {
+            Dimension contentSize = new Dimension(
+                    Math.max(getWidth(), effectiveWidth()),
+                    preferredContentHeight());
+            boolean settled = contentSize.equals(getSize())
+                    && (viewport == null
+                    || contentSize.equals(viewport.getViewSize()));
+            setSize(contentSize);
+            if (viewport != null
+                    && !contentSize.equals(viewport.getViewSize())) {
+                viewport.setViewSize(contentSize);
+                viewport.revalidate();
+            }
+            if (settled) break;
+        }
+
+        // The first layout above establishes the extent; this second one sees the
+        // now-settled preferred/view height and updates ScrollPaneLayout plus the
+        // scrollbar model from it. A final publication covers any width change caused
+        // by the vertical bar becoming visible.
+        if (sp != null && sp.getWidth() > 0 && sp.getHeight() > 0) {
+            sp.revalidate();
+            sp.doLayout();
+            Dimension finalSize = new Dimension(
+                    Math.max(getWidth(), effectiveWidth()),
+                    preferredContentHeight());
+            setSize(finalSize);
+            if (viewport != null && !finalSize.equals(viewport.getViewSize())) {
+                viewport.setViewSize(finalSize);
+            }
+            if (viewport != null) {
+                int extent = viewport.getExtentSize().height;
+                int maximum = Math.max(extent, finalSize.height);
+                int value = Math.min(viewport.getViewPosition().y,
+                        Math.max(0, maximum - extent));
+                // BasicScrollPaneUI normally mirrors viewSize into this model via
+                // a viewport ChangeEvent. That event is deferred for a resized view,
+                // which is precisely the one-gesture lag fixed here, so publish the
+                // already-settled values directly as the final synchronous step.
+                sp.getVerticalScrollBar().setValues(
+                        value, extent, 0, maximum);
+            }
         }
     }
 
@@ -925,10 +973,6 @@ public final class VirtualizedCardList
             rebuildTops();
             revalidate();
         }
-        // Re-evaluate the scrollbar range NOW, in the same event as the toggle click —
-        // not only via the deferred ensureVisible on expand (which loses the race when a
-        // competing layout runs first) and not at all on collapse. This is what makes a
-        // short, non-scrolling log grow a scrollbar the instant a card expands past it.
         // Re-evaluate the scrollbar range NOW, in the same event as the toggle click —
         // not only via the deferred ensureVisible on expand (which loses the race when a
         // competing layout runs first) and not at all on collapse. This is what makes a

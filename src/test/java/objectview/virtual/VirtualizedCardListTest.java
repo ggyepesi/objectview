@@ -450,4 +450,35 @@ class VirtualizedCardListTest {
                             + "downward scrolling is not clamped to the old bottom");
         });
     }
+
+    @Test
+    void expandingLastCardPublishesTheNewBottomToTheScrollbarImmediately() {
+        onEdt(() -> {
+            List<Item> items = makeItems(20);
+            Item last = items.get(items.size() - 1);
+            VirtualizedCardList list = new VirtualizedCardList(this::card);
+            JScrollPane scroll = new JScrollPane();
+            scroll.setSize(VIEW_W + 20, VIEW_H);
+            list.install(scroll);
+            list.setItems(new ArrayList<>(items));
+            scroll.doLayout();
+
+            list.navigateToTop(last);
+            realHeight.put(last, 900);
+            list.invalidateCard(last);
+
+            javax.swing.JScrollBar bar = scroll.getVerticalScrollBar();
+            int bottom = bar.getMaximum() - bar.getVisibleAmount();
+            assertEquals(list.getPreferredSize().height, bar.getMaximum(),
+                    "the scrollbar maximum must receive the expanded view height "
+                            + "during the toggle, without a compensating scroll event");
+
+            bar.setValue(bottom);
+            assertEquals(bottom, scroll.getViewport().getViewPosition().y,
+                    "the expanded last card's bottom must be reachable immediately");
+            assertTrue(bottom + scroll.getViewport().getExtentSize().height
+                            >= list.totalHeight(),
+                    "the reachable range must include the expanded card's bottom");
+        });
+    }
 }
