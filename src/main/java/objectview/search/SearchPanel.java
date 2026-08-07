@@ -852,14 +852,30 @@ public class SearchPanel extends JPanel
 
     private void openViewDialog() {
         if (viewDialog == null) {
-            viewDialog =
-                    createDialog(
-                            "View Configuration",
-                            hierarchyEditor(viewEditor),
-                            this::applyView);
+            JComponent content = hierarchyEditor(viewEditor);
+            // The rendering-mode control (card / table / …) is a "how to view" choice, so it
+            // sits atop the view-config editor when a searchable view supplies it.
+            if (renderingModeControl != null) {
+                JPanel wrapped = new JPanel(new java.awt.BorderLayout(0, 6));
+                JPanel modeRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+                modeRow.add(new JLabel("Rendering:"));
+                modeRow.add(renderingModeControl);
+                wrapped.add(modeRow, java.awt.BorderLayout.NORTH);
+                wrapped.add(content, java.awt.BorderLayout.CENTER);
+                content = wrapped;
+            }
+            viewDialog = createDialog("View Configuration", content, this::applyView);
         }
 
         viewDialog.setVisible(true);
+    }
+
+    private JComponent renderingModeControl;
+
+    /** A "how to view" control (e.g. a card/table mode combo) shown atop the view-config
+     *  dialog. Supplied by a searchable view that can swap its renderer; null hides it. */
+    public void setRenderingModeControl(JComponent control) {
+        this.renderingModeControl = control;
     }
 
     private JDialog createDialog(
