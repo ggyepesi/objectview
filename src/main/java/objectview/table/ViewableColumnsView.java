@@ -53,7 +53,13 @@ import java.util.function.Function;
 public final class ViewableColumnsView extends JPanel
         implements ConfigurableVirtualizedContainer, SearchNavigableContainer {
 
-    private static final int ROW_HEIGHT = 150;   // uniform rows; room for a scaled thumbnail
+    // Rows size to their content (a text row is compact; a media row is as tall as its scaled
+    // image), clamped so an empty row still has a baseline and a big image can't dominate.
+    private static final int MIN_ROW_HEIGHT = 32;
+    private static final int MAX_ROW_HEIGHT = 260;
+    // VirtualizedCardList lays each row out at max(viewportWidth, 380); the header must span
+    // exactly that width so its equal columns line up with the rows' equal columns.
+    private static final int CONTENT_WIDTH_FLOOR = 380;
     private static final Color GRID = new Color(224, 224, 224);
     private static final Color SELECTION_TINT = new Color(30, 110, 210, 28);
     private static final Color SELECTION_BORDER = new Color(30, 110, 210);
@@ -89,13 +95,26 @@ public final class ViewableColumnsView extends JPanel
         this.context.addTopLevelResolver(o ->
                 o instanceof Viewable q ? list.buildIfNeeded(q) : null);
 
-        this.header = new JPanel();
-        this.header.setLayout(new BoxLayout(header, BoxLayout.X_AXIS));
+        this.scroll = new JScrollPane();
+        // The header spans the same width the list gives its rows, so equal columns align and
+        // the header scrolls horizontally in step with the content.
+        this.header = new JPanel() {
+            @Override public Dimension getPreferredSize() {
+                Dimension d = super.getPreferredSize();
+                int viewportWidth = scroll.getViewport() == null ? 0
+                        : scroll.getViewport().getWidth();
+                return new Dimension(Math.max(viewportWidth, CONTENT_WIDTH_FLOOR), d.height);
+            }
+        };
         this.header.setBackground(new Color(245, 245, 245));
 
-        this.scroll = new JScrollPane();
         this.list.install(scroll);
         this.scroll.setColumnHeaderView(header);
+        // Keep the header width tracking the viewport as it resizes.
+        this.scroll.getViewport().addChangeListener(e -> {
+            header.revalidate();
+            header.repaint();
+        });
         add(scroll, BorderLayout.CENTER);
 
         // A sensible default until the SearchPanel applies the real view config, so the
@@ -252,15 +271,9 @@ public final class ViewableColumnsView extends JPanel
         }
 
         @Override public Dimension getPreferredSize() {
-            return new Dimension(super.getPreferredSize().width, ROW_HEIGHT);
-        }
-
-        @Override public Dimension getMinimumSize() {
-            return new Dimension(0, ROW_HEIGHT);
-        }
-
-        @Override public Dimension getMaximumSize() {
-            return new Dimension(Integer.MAX_VALUE, ROW_HEIGHT);
+            Dimension d = super.getPreferredSize();
+            int height = Math.min(MAX_ROW_HEIGHT, Math.max(MIN_ROW_HEIGHT, d.height));
+            return new Dimension(d.width, height);
         }
 
         @Override protected void paintComponent(Graphics g) {
