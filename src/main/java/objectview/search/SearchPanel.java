@@ -100,9 +100,6 @@ public class SearchPanel extends JPanel
     private final Set<JComponent> rememberedSearchComponents =
             Collections.newSetFromMap(new IdentityHashMap<>());
 
-    private final Set<JComponent> previousMatchedCards =
-            Collections.newSetFromMap(new IdentityHashMap<>());
-
     private final javax.swing.Timer debounceTimer;
 
     private JComponent targetPanel;
@@ -237,9 +234,16 @@ public class SearchPanel extends JPanel
             VirtualizedContainer explicitVirtualTarget) {
 
         this.targetPanel = targetPanel;
-        this.virtualList = explicitVirtualTarget != null
+        VirtualizedContainer next = explicitVirtualTarget != null
                 ? explicitVirtualTarget
                 : targetPanel instanceof VirtualizedContainer container ? container : null;
+        // A SearchPanel can be reused for another presentation. Release the one
+        // being left behind before replacing the reference, or its later
+        // materialization contaminates this panel's new transient state.
+        if (this.virtualList != null && this.virtualList != next) {
+            this.virtualList.setMaterializationListener(null);
+        }
+        this.virtualList = next;
         if (this.virtualList != null) {
             this.virtualList.setMaterializationListener(
                     this::reapplyHighlightOnMaterialized);
@@ -322,7 +326,7 @@ public class SearchPanel extends JPanel
     /** A component rebuilt on scroll-back is fresh; re-apply the highlight if its
      *  instance is a current hit, or the tint is lost when you scroll away and back. */
     private void reapplyHighlightOnMaterialized(JComponent component) {
-        if (component instanceof RenderRefreshHost host
+        if (component instanceof RenderedInstanceHost host
                 && virtualHits.contains(host.renderedInstance())) {
             highlightInstance(component);
         }
@@ -801,6 +805,43 @@ public class SearchPanel extends JPanel
 
     /** The single field-path boundary used by search, sorting and highlighting.
      * Schema-backed domains never inspect an instance to discover paths. */
+    /**
+     * The fields search actually looks at: the search config INTERSECTED with the
+     * view config. Search can only match what the view shows, so a hit is always in
+     * a field you can see — which is why there is no "hidden hit" to annotate.
+     * Enforced here, at the single point of use, rather than by keeping two configs
+     * in step behind the user's back.
+     */
+    private List<ViewableFieldPaths.PathInfo> searchPaths() {
+        List<ViewableFieldPaths.PathInfo> shown = new ArrayList<>();
+        for (ViewableFieldPaths.PathInfo path
+                : configuredPaths(searchEditor, subtypeSearchEditors)) {
+            if (viewShows(path.path())) {
+                shown.add(path);
+            }
+        }
+        return shown;
+    }
+
+    /** Whether the view config renders {@code path} — walking it segment by segment,
+     *  where an all-fields level shows everything below it. */
+    private boolean viewShows(FieldPath path) {
+        ViewConfig config = getViewConfig();
+        if (path == null) {
+            return true;
+        }
+        for (String segment : path.segments()) {
+            if (config == null) {
+                return false;
+            }
+            if (config.isAllFields()) {
+                return true;
+            }
+            config = config.getFieldConfig(segment);
+        }
+        return config != null;
+    }
+
     private List<ViewableFieldPaths.PathInfo> configuredPaths(
             ViewConfigEditor baseEditor,
             java.util.Map<String, ViewConfigEditor> subtypeEditors) {
@@ -1013,7 +1054,7 @@ public class SearchPanel extends JPanel
         if (virtualList == null) {
             searchAndSort.rebuildSearchIndex(
                     targetPanel,
-                    configuredPaths(searchEditor, subtypeSearchEditors));
+                    searchPaths());
         }
     }
 
@@ -1092,7 +1133,7 @@ public class SearchPanel extends JPanel
             List<String> queryTokens) {
 
         List<ViewableFieldPaths.PathInfo> paths =
-                configuredPaths(searchEditor, subtypeSearchEditors);
+                searchPaths();
 
         Map<String, ViewableFieldPaths.PathInfo> pathByTitle =
                 new LinkedHashMap<>();
@@ -1173,9 +1214,9 @@ public class SearchPanel extends JPanel
         }
     }
 
-    /** Tints every hit of the current query that already has a card, matching what
-     *  the non-virtual path does for all matched cards. Cards built later are topped
-     *  up by {@link #cardMaterialized}. */
+    /** Tints every hit of the current query that is currently materialized.
+     *  Components built later are brought up to date by the container's generic
+     *  materialization listener. */
     private void highlightBuiltHits() {
         if (virtualList == null) {
             return;
@@ -1188,16 +1229,21 @@ public class SearchPanel extends JPanel
         });
     }
 
-    /** Tints ONE rendered instance. Card or table row: both are RenderRefreshHosts,
+    /** Tints ONE rendered instance. Card or table row: both are RenderedInstanceHosts,
      *  so the search never asks which layout it is looking at. */
     private void highlightInstance(JComponent component) {
-        if (!(component instanceof RenderRefreshHost host)) {
+        if (!(component instanceof RenderedInstanceHost host)) {
             return;
         }
 
-        remember(component);
-        previousMatchedCards.add(component);
-
+        // A virtual component's tint is derived from virtualHits and restored by
+        // the materialization listener. Holding the component here after the
+        // virtual list evicts it would retain its entire subtree while scrolling.
+        // Non-virtual targets already retain every component, and still need the
+        // ordinary remember/restore path.
+        if (virtualList == null) {
+            remember(component);
+        }
         host.setHighlightColor(CARD_HIT_BACKGROUND);
     }
 
@@ -1208,9 +1254,9 @@ public class SearchPanel extends JPanel
         c.repaint();
     }
 
-    /** NOTE: the badge is positioned by GridBag constraints, so it currently shows
-     *  only on hosts with a GridBagLayout (cards). A table row lays out its cells
-     *  itself and will not place it — see the known gap in the review notes. */
+    /** Adds presentation-neutral hidden-hit feedback. Cards honor the GridBag
+     *  constraint; the lightweight column row recognizes non-cell children as
+     *  overlays and positions the same label itself. */
     private void addHiddenHitBadge(
             JComponent panel,
             String fieldTitle) {
@@ -1243,7 +1289,6 @@ public class SearchPanel extends JPanel
                         GridBagConstraints.NORTHWEST,
                         GridBagConstraints.HORIZONTAL,
                         new Insets(2, 8, 2, 2)));
-
         panel.revalidate();
         panel.repaint();
     }
@@ -1795,13 +1840,22 @@ public class SearchPanel extends JPanel
     private void clearHighlights() {
         currentHit =
                 null;
+        // Whole-instance tint in a virtual presentation is data-derived, not
+        // remembered component state. Clear only the components that still
+        // exist; evicted components are deliberately not retained by SearchPanel.
+        if (virtualList != null) {
+            virtualList.forEachMaterialized((item, component) -> {
+                if (component instanceof RenderedInstanceHost host) {
+                    host.setHighlightColor(null);
+                }
+            });
+        }
         // NOTE: virtualHits is NOT cleared here — clearHighlights fires on every
         // navigate-between-hits, but the hit set belongs to the whole QUERY, so a
         // card rebuilt on scroll-back can be re-highlighted. It's reset per query
         // in searchSync (and repopulated by searchSyncVirtual).
 
-        if (rememberedSearchComponents.isEmpty()
-                && previousMatchedCards.isEmpty()) {
+        if (rememberedSearchComponents.isEmpty()) {
             return;
         }
 
@@ -1812,14 +1866,6 @@ public class SearchPanel extends JPanel
         }
 
         rememberedSearchComponents.clear();
-
-        for (JComponent panel
-                : new ArrayList<>(previousMatchedCards)) {
-
-            restoreRememberedComponent(panel);
-        }
-
-        previousMatchedCards.clear();
 
         if (targetPanel != null) {
             targetPanel.revalidate();
@@ -1885,7 +1931,7 @@ public class SearchPanel extends JPanel
             }
         }
 
-        if (jc instanceof RenderRefreshHost host) {
+        if (jc instanceof RenderedInstanceHost host) {
             host.setHighlightColor(null);
         }
 
@@ -2036,7 +2082,7 @@ public class SearchPanel extends JPanel
                 searchAndSort.searchViewables(
                         virtualList.items(),
                         queryTokens,
-                        configuredPaths(searchEditor, subtypeSearchEditors));
+                        searchPaths());
 
         // Remember the hits so a card rebuilt on scroll-back gets re-highlighted.
         virtualHits.clear();
@@ -2046,7 +2092,7 @@ public class SearchPanel extends JPanel
                 new LinkedHashMap<>();
 
         for (ViewableFieldPaths.PathInfo fp
-                : configuredPaths(searchEditor, subtypeSearchEditors)) {
+                : searchPaths()) {
 
             pathByTitle.put(fp.title(), fp);
         }
@@ -2130,9 +2176,9 @@ public class SearchPanel extends JPanel
     private void navigateToCurrentVirtual(HitGroupQ g) {
         clearHighlights();
         // clearHighlights strips EVERY hit tint, and navigating re-applies only the
-        // one below — so re-tint the whole hit set first. Without this, a card is
+        // one below — so re-tint the whole hit set first. Without this, an instance is
         // highlighted only while it is the current hit or in the moment it is built
-        // (cardMaterialized), and hits that were already on screen stayed untinted.
+        // and hits that were already on screen stay untinted.
         highlightBuiltHits();
 
         Viewable q = g.hits.get(g.index);
@@ -2145,9 +2191,9 @@ public class SearchPanel extends JPanel
         }
 
         // From here NOTHING is layout-specific: a card and a table row are both
-        // RenderRefreshHosts, and the field/text helpers below walk any component
+        // RenderedInstanceHosts, and the field/text helpers below walk any component
         // subtree by field path. One highlighting path serves every render mode.
-        if (g.fieldPath != null && card instanceof RenderRefreshHost host
+        if (g.fieldPath != null && card instanceof RenderedInstanceHost host
                 && host.revealPath(g.fieldPath.path())) {
             host.refreshRenderedContent();
         }

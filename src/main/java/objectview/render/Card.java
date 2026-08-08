@@ -69,7 +69,7 @@ import java.util.List;
  * tens of thousands of fields stays cheap. The only structural extra is a
  * single top-pinning {@link Box.Filler} per root card.
  */
-public class Card extends JPanel implements RenderRefreshHost {
+public class Card extends JPanel implements RenderedInstanceHost {
 
     private static final Logger log = LoggerFactory.getLogger(Card.class);
 

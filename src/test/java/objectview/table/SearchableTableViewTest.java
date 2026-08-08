@@ -24,6 +24,7 @@ import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.Rectangle;
 import java.awt.event.MouseEvent;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -249,6 +250,38 @@ class SearchableTableViewTest {
 
         assertTrue(table.row(item).getPreferredSize().height > 260,
                 "content determines row height; the former 260px cap must not hide values");
+    }
+
+    @Test void askingForPreferredSizeDoesNotLayOutOrMoveChildren() {
+        Item item = item("one", List.of("alpha"));
+        ViewableColumnsView table = SearchableView.builder(List.of(item))
+                .mode(RenderingMode.TABLE)
+                .sample(item)
+                .build().table();
+        JComponent row = table.row(item);
+        Component child = row.getComponent(0);
+        Rectangle sentinel = new Rectangle(7, 8, 9, 10);
+        child.setBounds(sentinel);
+
+        row.getPreferredSize();
+
+        assertEquals(sentinel, child.getBounds(),
+                "preferred-size queries must not mutate the live component tree");
+    }
+
+    @Test void hiddenHitBadgeIsPositionedInALightweightTableRow() {
+        Item item = item("one", List.of());
+        ViewableColumnsView table = SearchableView.builder(List.of(item))
+                .mode(RenderingMode.TABLE)
+                .sample(item)
+                .build().table();
+        JComponent row = table.row(item);
+        JLabel badge = new JLabel("hidden hit: Tags");
+        row.add(badge); // same transient child SearchPanel adds
+        row.doLayout();
+
+        assertTrue(badge.getWidth() > 0 && badge.getHeight() > 0,
+                "the private row layout must position its transient overlay");
     }
 
     private static ViewableFieldPaths.PathInfo column(ViewableColumnsView table, String dotted) {

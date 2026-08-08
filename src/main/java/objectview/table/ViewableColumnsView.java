@@ -10,7 +10,7 @@ import objectview.field.ReflectionFieldSet;
 import objectview.field.ViewableContractFieldSet;
 import objectview.field.ViewableFieldPaths.PathInfo;
 import objectview.render.Card;
-import objectview.render.RenderRefreshHost;
+import objectview.render.RenderedInstanceHost;
 import objectview.render.RenderContext;
 import objectview.viewconfig.ViewConfig;
 import objectview.virtual.ConfigurableVirtualizedContainer;
@@ -73,7 +73,7 @@ public final class ViewableColumnsView
     private static final int CELL_PAD_Y = 3;
 
     private final RenderContext context;
-    private final BiFunction<Viewable, ViewConfig, List<PathInfo>> columnResolver;
+    private final java.util.function.Supplier<List<PathInfo>> columnResolver;
     private final VirtualizedCardList list;
     private final JScrollPane scroll;
     private final ColumnHeader header;
@@ -86,7 +86,7 @@ public final class ViewableColumnsView
     public ViewableColumnsView(
             List<? extends Viewable> items,
             RenderContext context,
-            BiFunction<Viewable, ViewConfig, List<PathInfo>> columnResolver) {
+            java.util.function.Supplier<List<PathInfo>> columnResolver) {
         this.context = context == null ? new RenderContext() : context;
         this.columnResolver = columnResolver;
         this.items = new ArrayList<>(items == null ? List.of() : items);
@@ -169,13 +169,10 @@ public final class ViewableColumnsView
 
     @Override
     public void setItems(List<Viewable> ordered) {
-        List<Viewable> next = new ArrayList<>(ordered == null ? List.of() : ordered);
-        boolean sameMembers = sameIdentityMembers(items, next);
-        items = next;
+        items = new ArrayList<>(ordered == null ? List.of() : ordered);
         context.addTopLevels(items);
-        if (!sameMembers) {
-            columnsStale = true;   // a changed member set can widen/narrow the union
-        }
+        // Columns come from the declared shape, so a changed member set cannot widen
+        // or narrow them — no invalidation, and no rescan.
         list.setItems(items);
     }
 
@@ -188,7 +185,7 @@ public final class ViewableColumnsView
     }
 
     // ---- SearchNavigableContainer: REVEAL only. The hit tint and the field/text
-    // highlights are applied by SearchPanel through the shared RenderRefreshHost
+    // highlights are applied by SearchPanel through the shared RenderedInstanceHost
     // contract, exactly as for cards — this view has no highlighting of its own.
 
     @Override
@@ -215,31 +212,15 @@ public final class ViewableColumnsView
 
     // ---- columns + header ----
 
+    /**
+     * Asks for the column projection. It is derived from the DECLARED shape, so this
+     * costs the same for ten rows and for five hundred thousand — the view never
+     * scans its members to find out what columns exist.
+     */
     private void rebuildColumns() {
-        Map<String, PathInfo> union = new LinkedHashMap<>();
-        if (configResolver != null && columnResolver != null) {
-            for (Viewable row : items) {
-                List<PathInfo> paths = columnResolver.apply(row, configResolver.apply(row));
-                if (paths == null) continue;
-                for (PathInfo path : paths) {
-                    if (path != null) union.putIfAbsent(path.dotted(), path);
-                }
-            }
-        }
-        List<PathInfo> ordered = new ArrayList<>(union.values());
-        // The display field reads as the row's title, so it leads the columns (last-wins if
-        // several bind @DisplayField) — same ordering the JTable model used.
-        if (!items.isEmpty()) {
-            String displayKey = ViewableContractFieldSet.displayKey(
-                    asViewableClass(items.get(0).getClass()));
-            for (int i = 1; i < ordered.size(); i++) {
-                if (ordered.get(i).dotted().equals(displayKey)) {
-                    ordered.add(0, ordered.remove(i));
-                    break;
-                }
-            }
-        }
-        columns = List.copyOf(ordered);
+        List<PathInfo> projected =
+                columnResolver == null ? null : columnResolver.get();
+        columns = projected == null ? List.of() : List.copyOf(projected);
         rebuildHeader();
         // A changed column count changes the desired content width — re-lay the list so its
         // width (and the horizontal scrollbar) follows.
@@ -366,11 +347,13 @@ public final class ViewableColumnsView
      * Its private layout and painting replace the former row panel + N cell
      * panels + GridLayout/BorderLayout hierarchy.
      */
-    private final class ColumnRow extends JComponent implements RenderRefreshHost {
+    private final class ColumnRow extends JComponent implements RenderedInstanceHost {
         private final Viewable q;
         private final List<PathInfo> rowColumns;
         private final JComponent[] cells;
         private Color highlightColor;
+        private int measuredWidth = -1;
+        private int measuredHeight = MIN_ROW_HEIGHT;
 
         ColumnRow(Viewable q, List<PathInfo> rowColumns) {
             this.q = q;
@@ -402,12 +385,19 @@ public final class ViewableColumnsView
         }
 
         @Override public void doLayout() {
-            layoutCells(getWidth());
+            measuredWidth = getWidth();
+            measuredHeight = layoutCells(measuredWidth);
+            layoutOverlays(measuredWidth);
         }
 
         @Override public Dimension getPreferredSize() {
             int width = getWidth() > 0 ? getWidth() : contentWidth();
-            return new Dimension(width, layoutCells(width));
+            // VirtualizedCardList explicitly lays out the subtree at its assigned
+            // width before asking for preferred height. Returning that cached
+            // measurement keeps this query pure: no child sizing, layout or
+            // bounds changes from getPreferredSize().
+            return new Dimension(width,
+                    measuredWidth == width ? measuredHeight : MIN_ROW_HEIGHT);
         }
 
         /**
@@ -434,6 +424,32 @@ public final class ViewableColumnsView
                 height = Math.max(height, cellHeight + 2 * CELL_PAD_Y);
             }
             return height;
+        }
+
+        /** Positions transient children that are not field cells, currently the
+         *  search "hidden hit" badge. They float at the top-right of the existing
+         *  row height and therefore need neither a cell wrapper nor a second
+         *  table-specific layout mechanism. */
+        private void layoutOverlays(int width) {
+            for (Component child : getComponents()) {
+                if (isCell(child)) continue;
+                Dimension preferred = child.getPreferredSize();
+                int overlayWidth = Math.min(
+                        Math.max(0, width - 2 * CELL_PAD_X), preferred.width);
+                child.setBounds(
+                        Math.max(CELL_PAD_X, width - overlayWidth - CELL_PAD_X),
+                        CELL_PAD_Y,
+                        overlayWidth,
+                        Math.min(Math.max(0, getHeight() - 2 * CELL_PAD_Y),
+                                preferred.height));
+            }
+        }
+
+        private boolean isCell(Component component) {
+            for (JComponent cell : cells) {
+                if (cell == component) return true;
+            }
+            return false;
         }
 
         @Override protected void paintComponent(Graphics g) {
@@ -558,8 +574,8 @@ public final class ViewableColumnsView
                     || !SwingUtilities.isLeftMouseButton(event)) {
                 return;
             }
-            RenderRefreshHost host =
-                    RenderRefreshHost.hostOf(event.getComponent());
+            RenderedInstanceHost host =
+                    RenderedInstanceHost.hostOf(event.getComponent());
             if (host != null && host.renderedInstance() != null) {
                 context.select(host.renderedInstance());
             }

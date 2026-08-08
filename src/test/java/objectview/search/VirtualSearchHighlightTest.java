@@ -2,7 +2,7 @@ package objectview.search;
 
 import objectview.Viewable;
 import objectview.ViewableAdapter;
-import objectview.render.RenderRefreshHost;
+import objectview.render.RenderedInstanceHost;
 import objectview.render.RenderingMode;
 import objectview.view.SearchableView;
 import org.junit.jupiter.api.Test;
@@ -10,8 +10,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import javax.swing.JComponent;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -23,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * (re)built afterwards.
  *
  * <p>Every assertion runs against BOTH rendering modes through the same
- * {@link RenderRefreshHost} contract: search highlighting is one code path, and
+ * {@link RenderedInstanceHost} contract: search highlighting is one code path, and
  * a mode that grows its own is a regression, not a variation.
  */
 class VirtualSearchHighlightTest {
@@ -31,82 +35,181 @@ class VirtualSearchHighlightTest {
     @ParameterizedTest
     @EnumSource(RenderingMode.class)
     void highlightsEveryAlreadyBuiltHit(RenderingMode mode) {
-        Element neptunium = new Element("neptunium");
-        Element tungsten = new Element("tungsten");
-        Element unbibium = new Element("unbibium");
-        Element unbiennium = new Element("unbiennium");
-        Element helium = new Element("helium");
-        List<Element> items =
-                List.of(neptunium, tungsten, unbibium, unbiennium, helium);
+        onEdt(() -> {
+            Element neptunium = new Element("neptunium");
+            Element tungsten = new Element("tungsten");
+            Element unbibium = new Element("unbibium");
+            Element unbiennium = new Element("unbiennium");
+            Element helium = new Element("helium");
+            List<Element> items =
+                    List.of(neptunium, tungsten, unbibium, unbiennium, helium);
 
-        SearchableView view = build(items, neptunium, mode);
+            SearchableView view = build(items, neptunium, mode);
 
-        // Every component exists BEFORE the query — the on-screen state when you
-        // type into the search box. Nothing is materialized during the search, so
-        // build-time re-highlighting cannot mask a missing highlight pass.
-        materializeAll(view, items);
+            // Every component exists BEFORE the query — the on-screen state when you
+            // type into the search box. Nothing is materialized during the search, so
+            // build-time re-highlighting cannot mask a missing highlight pass.
+            materializeAll(view, items);
 
-        view.search().runCoordinatedSearch("un");
+            view.search().runCoordinatedSearch("un");
 
-        // neptunium, tungsten, unbibium and unbiennium all contain "un".
-        List<String> unhighlighted = new ArrayList<>();
-        for (Element hit : List.of(neptunium, tungsten, unbibium, unbiennium)) {
-            if (!host(view, hit).isHighlighted()) {
-                unhighlighted.add(hit.getDisplayName());
+            // neptunium, tungsten, unbibium and unbiennium all contain "un".
+            List<String> unhighlighted = new ArrayList<>();
+            for (Element hit : List.of(neptunium, tungsten, unbibium, unbiennium)) {
+                if (!host(view, hit).isHighlighted()) {
+                    unhighlighted.add(hit.getDisplayName());
+                }
             }
-        }
 
-        assertFalse(host(view, helium).isHighlighted(),
-                mode + ": a non-matching instance must stay untinted");
-        assertTrue(host(view, neptunium).isHighlighted(),
-                mode + ": the navigated-to first hit is highlighted");
-        if (!unhighlighted.isEmpty()) {
-            throw new AssertionError(mode
-                    + ": every hit with a built component must be highlighted, "
-                    + "but these were not: " + unhighlighted);
-        }
+            assertFalse(host(view, helium).isHighlighted(),
+                    mode + ": a non-matching instance must stay untinted");
+            assertTrue(host(view, neptunium).isHighlighted(),
+                    mode + ": the navigated-to first hit is highlighted");
+            if (!unhighlighted.isEmpty()) {
+                throw new AssertionError(mode
+                        + ": every hit with a built component must be highlighted, "
+                        + "but these were not: " + unhighlighted);
+            }
+            });
     }
 
     @ParameterizedTest
     @EnumSource(RenderingMode.class)
     void navigatingToTheNextHitKeepsTheOtherHitsHighlighted(RenderingMode mode) {
-        Element neptunium = new Element("neptunium");
-        Element tungsten = new Element("tungsten");
-        Element unbibium = new Element("unbibium");
-        List<Element> items = List.of(neptunium, tungsten, unbibium);
-
-        SearchableView view = build(items, neptunium, mode);
-        materializeAll(view, items);
-        view.search().runCoordinatedSearch("un");
-
-        // Stepping to the next hit scrolls it to the top; the hits left behind are
-        // still hits and must stay tinted (navigation moves through the matches, it
-        // does not narrow them to one).
-        nextHitButton(view.search()).doClick();
-
-        for (Element hit : items) {
-            assertTrue(host(view, hit).isHighlighted(),
-                    mode + ": " + hit.getDisplayName()
-                            + " lost its highlight on navigate");
-        }
-    }
-
-    @Test void clearingTheQueryClearsEveryHighlight() {
-        for (RenderingMode mode : RenderingMode.values()) {
+        onEdt(() -> {
             Element neptunium = new Element("neptunium");
             Element tungsten = new Element("tungsten");
-            List<Element> items = List.of(neptunium, tungsten);
+            Element unbibium = new Element("unbibium");
+            List<Element> items = List.of(neptunium, tungsten, unbibium);
 
             SearchableView view = build(items, neptunium, mode);
             materializeAll(view, items);
             view.search().runCoordinatedSearch("un");
-            view.search().runCoordinatedSearch("");
 
-            for (Element item : items) {
-                assertFalse(host(view, item).isHighlighted(),
-                        mode + ": " + item.getDisplayName()
-                                + " kept its highlight after the query was cleared");
+            // Stepping to the next hit scrolls it to the top; the hits left behind are
+            // still hits and must stay tinted (navigation moves through the matches, it
+            // does not narrow them to one).
+            nextHitButton(view.search()).doClick();
+
+            for (Element hit : items) {
+                assertTrue(host(view, hit).isHighlighted(),
+                        mode + ": " + hit.getDisplayName()
+                                + " lost its highlight on navigate");
             }
+            });
+    }
+
+    @Test void clearingTheQueryClearsEveryHighlight() {
+        onEdt(() -> {
+            for (RenderingMode mode : RenderingMode.values()) {
+                Element neptunium = new Element("neptunium");
+                Element tungsten = new Element("tungsten");
+                List<Element> items = List.of(neptunium, tungsten);
+
+                SearchableView view = build(items, neptunium, mode);
+                materializeAll(view, items);
+                view.search().runCoordinatedSearch("un");
+                view.search().runCoordinatedSearch("");
+
+                for (Element item : items) {
+                    assertFalse(host(view, item).isHighlighted(),
+                            mode + ": " + item.getDisplayName()
+                                    + " kept its highlight after the query was cleared");
+                }
+            }
+            });
+    }
+
+    @Test void retargetingDetachesThePreviousMaterializationListener() {
+        onEdt(() -> {
+            SearchPanel search = new SearchPanel(Element.class);
+            TrackingVirtualContainer first = new TrackingVirtualContainer();
+            TrackingVirtualContainer second = new TrackingVirtualContainer();
+
+            search.setTargetAndApplyViewConfig(
+                    first, new JPanel(), new JScrollPane());
+            assertNotNull(first.listener);
+
+            search.setTargetAndApplyViewConfig(
+                    second, new JPanel(), new JScrollPane());
+
+            assertTrue(first.listener == null,
+                    "the old presentation must no longer call into this SearchPanel");
+            assertNotNull(second.listener);
+            });
+    }
+
+    /**
+     * Search may only match what the view renders. Search is widened to a field the
+     * view then hides: the hit must disappear with it, so a match can never sit in a
+     * field the user cannot see. (Search covers only the display field by default,
+     * so this situation arises only once you widen it deliberately.)
+     */
+    @ParameterizedTest
+    @EnumSource(RenderingMode.class)
+    void searchIgnoresFieldsTheViewDoesNotShow(RenderingMode mode) {
+        onEdt(() -> {
+            assertFalse(matches(mode, viewOf(DISPLAY_ONLY)),
+                    mode + ": a token only in an unshown field must not match");
+
+            // Control: the SAME token, the SAME search config, the field now shown —
+            // otherwise the assertion above could pass for the wrong reason.
+            assertTrue(matches(mode, viewOf(DISPLAY_AND_NOTE)),
+                    mode + ": control - the same field matches when the view shows it");
+            });
+    }
+
+    private static final String[] DISPLAY_ONLY = {
+            objectview.field.ViewableContractFieldSet.DISPLAY_KEY};
+    private static final String[] DISPLAY_AND_NOTE = {
+            objectview.field.ViewableContractFieldSet.DISPLAY_KEY, "note"};
+
+    private static objectview.viewconfig.ViewConfig viewOf(String... fields) {
+        objectview.viewconfig.ViewConfig config =
+                objectview.viewconfig.ViewConfig.of(Element.class);
+        config.setAllFields(false);
+        for (String field : fields) {
+            config.addField(field, objectview.viewconfig.ViewConfig.leaf());
+        }
+        return config;
+    }
+
+    /** Searches "resonant" — present ONLY in note — with note explicitly searchable
+     *  and the given view config, and reports whether the instance was tinted. */
+    private static boolean matches(
+            RenderingMode mode, objectview.viewconfig.ViewConfig view) {
+        Element item = new Element("alpha");
+        item.note = "resonant";
+
+        objectview.viewconfig.ViewConfig search = viewOf("note");
+        SearchableView v = SearchableView.builder(List.of(item))
+                .sample(item)
+                .mode(mode)
+                .collapsible(true)
+                .configState(new SearchPanel.ConfigState(search, null, view))
+                .build();
+        materialize(v, item);
+        v.search().runCoordinatedSearch("resonant");
+        return host(v, item).isHighlighted();
+    }
+
+    /**
+     * Runs the body on the EDT. SearchableView posts invokeLater(rebuild), so a test
+     * driving these components from the main thread races the EDT over the list's
+     * item index — buildIfNeeded then intermittently returns null. Swing components
+     * belong to one thread; the tests use the same one the app does.
+     */
+    private static void onEdt(Runnable body) {
+        try {
+            javax.swing.SwingUtilities.invokeAndWait(body);
+        } catch (java.lang.reflect.InvocationTargetException failure) {
+            Throwable cause = failure.getCause();
+            if (cause instanceof RuntimeException runtime) throw runtime;
+            if (cause instanceof Error error) throw error;
+            throw new IllegalStateException(cause);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(interrupted);
         }
     }
 
@@ -134,12 +237,12 @@ class VirtualSearchHighlightTest {
 
     /** The rendered component for one instance, seen through the layout-neutral
      *  contract the search itself uses. */
-    private static RenderRefreshHost host(SearchableView view, Viewable item) {
+    private static RenderedInstanceHost host(SearchableView view, Viewable item) {
         JComponent component = materialize(view, item);
-        assertTrue(component instanceof RenderRefreshHost,
-                "a rendered instance must be a RenderRefreshHost, was "
+        assertTrue(component instanceof RenderedInstanceHost,
+                "a rendered instance must be a RenderedInstanceHost, was "
                         + component.getClass().getName());
-        return (RenderRefreshHost) component;
+        return (RenderedInstanceHost) component;
     }
 
     private static javax.swing.JButton nextHitButton(java.awt.Container panel) {
@@ -158,14 +261,33 @@ class VirtualSearchHighlightTest {
         return null;
     }
 
-    private static final class Element extends ViewableAdapter {
+    // Package-private: a PRIVATE nested class's fields are not reflectable, so a
+    // field-level search would silently find nothing and prove nothing.
+    public static final class Element extends ViewableAdapter {
         private final String name;
+        public String note = "";
 
-        private Element(String name) {
+        public Element(String name) {
             this.name = name;
         }
 
         @Override public String getIdentifier() { return name; }
         @Override public String getDisplayName() { return name; }
+    }
+
+    private static final class TrackingVirtualContainer
+            implements objectview.virtual.VirtualizedContainer {
+        private Consumer<JComponent> listener;
+
+        @Override public List<Viewable> items() { return List.of(); }
+        @Override public Viewable topVisibleItem() { return null; }
+        @Override public JComponent navigateToTop(Viewable item) { return null; }
+        @Override public void setItems(List<Viewable> orderedItems) {}
+        @Override public void forEachMaterialized(
+                BiConsumer<Viewable, JComponent> visitor) {}
+        @Override public void setMaterializationListener(
+                Consumer<JComponent> listener) {
+            this.listener = listener;
+        }
     }
 }

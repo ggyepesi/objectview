@@ -133,9 +133,12 @@ public final class SearchableView extends JPanel {
         // The table is a LAYOUT of the card path: rows reuse ValueRenderer's components
         // (media/chip/copyable-text) through the shared RenderContext, so selection, copy and
         // images come for free — only the column arrangement differs from CARD mode.
+        // Columns come from the DECLARED shape — the base schema plus every declared
+        // subtype — never from sampling the members. That is what keeps the header
+        // O(declared subtypes) instead of O(items).
         table = new ViewableColumnsView(builder.members, context,
-                (row, config) -> tablePaths(row, config, columnSample,
-                        builder.fieldTypes, builder.subtypeConfigs));
+                () -> tablePaths(search.getViewConfig(), columnSample,
+                        builder.type, builder.fieldTypes, builder.subtypeConfigs));
         cardList = null;
         search.setTargetAndApplyViewConfig(
                 table, table.scrollPane(), table.scrollPane());
@@ -148,27 +151,55 @@ public final class SearchableView extends JPanel {
     /** The active table (a card-path columns layout), or null when the current mode is CARD. */
     public ViewableColumnsView table() { return table; }
 
-    // The table's column paths — same projection SearchableTableView used.
+    /**
+     * The table's column paths, projected from the DECLARED shape: the base schema
+     * (or the stable sample's class when there is none) plus every declared subtype
+     * that contributes its own fields. It never inspects the members — a subtype is
+     * a declaration, not something to discover by scanning, so the projection costs
+     * O(declared subtypes) whether the view holds ten rows or five hundred thousand.
+     *
+     * <p>Consequence, accepted deliberately: a declared subtype with no instances
+     * present still contributes its column, empty. The declared class is the shape.
+     */
     private static List<ViewableFieldPaths.PathInfo> tablePaths(
-            Viewable row, ViewConfig config, Viewable stableSample,
+            ViewConfig config, Viewable stableSample,
+            Class<? extends Viewable> declaredType,
             FieldTypeSource root, List<SearchPanel.SubtypeConfig> subtypes) {
+        ViewConfig effective = config == null ? new ViewConfig() : config;
         Map<String, ViewableFieldPaths.PathInfo> paths = new LinkedHashMap<>();
         if (root != null) {
-            addPaths(paths, ViewableFieldPaths.collectFromSchema(config, root, false));
+            addPaths(paths, ViewableFieldPaths.collectFromSchema(effective, root, false));
             for (SearchPanel.SubtypeConfig subtype : subtypes) {
                 if (subtype == null || subtype.fieldTypes() == null) continue;
-                if (subtype.applies() == null || subtype.applies().test(row)) {
-                    addPaths(paths, ViewableFieldPaths.collectFromSchema(
-                            config, subtype.fieldTypes(), false));
-                }
+                addPaths(paths, ViewableFieldPaths.collectFromSchema(
+                        effective, subtype.fieldTypes(), false));
             }
         } else if (stableSample != null) {
             addPaths(paths, ViewableFieldPaths.collectFromSample(
-                    stableSample, config, ViewableFieldPaths.ALL_FIELDS));
+                    stableSample, effective, ViewableFieldPaths.ALL_FIELDS));
         } else {
-            addPaths(paths, ViewableFieldPaths.collect(config, ViewableFieldPaths.ALL_FIELDS));
+            addPaths(paths, ViewableFieldPaths.collect(effective, ViewableFieldPaths.ALL_FIELDS));
         }
-        return List.copyOf(paths.values());
+        return displayFirst(List.copyOf(paths.values()), declaredType, stableSample);
+    }
+
+    /** The display field reads as the row's title, so it leads the columns. Resolved
+     *  from the declared class — the same source the columns themselves come from. */
+    private static List<ViewableFieldPaths.PathInfo> displayFirst(
+            List<ViewableFieldPaths.PathInfo> ordered,
+            Class<? extends Viewable> declaredType, Viewable stableSample) {
+        Class<? extends Viewable> type = declaredType != null ? declaredType
+                : stableSample == null ? null : viewableClass(stableSample);
+        if (type == null) return ordered;
+        String displayKey = objectview.field.ViewableContractFieldSet.displayKey(type);
+        List<ViewableFieldPaths.PathInfo> out = new ArrayList<>(ordered);
+        for (int i = 1; i < out.size(); i++) {
+            if (out.get(i).dotted().equals(displayKey)) {
+                out.add(0, out.remove(i));
+                break;
+            }
+        }
+        return List.copyOf(out);
     }
 
     private static void addPaths(Map<String, ViewableFieldPaths.PathInfo> target,
