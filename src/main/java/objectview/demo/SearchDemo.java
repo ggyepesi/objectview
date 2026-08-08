@@ -4,19 +4,20 @@ import objectview.ViewableAdapter;
 import objectview.render.CardListView;
 import objectview.render.ExpandToolbar;
 import objectview.render.RenderContext;
-import objectview.search.SearchPanel;
+import objectview.view.SearchableView;
 
 import javax.swing.BorderFactory;
 import javax.swing.JFrame;
-import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Demonstrates {@link SearchPanel} — live search, sort, and field highlight —
- * alongside the bulk expand/collapse {@link ExpandToolbar}.
+ * Demonstrates {@link SearchableView} — live search, sort, field highlight, and a
+ * Cards/Table rendering-mode combo (in the View Configuration dialog) — alongside the
+ * bulk expand/collapse {@link ExpandToolbar}. Switch the mode to Table to see the same
+ * films laid out as rows.
  *
  * <p>A small set of cross-referenced films: each card shows its director as a
  * chip and its cast as a collapsible list of chips. Cards start as birdseye
@@ -142,32 +143,27 @@ public class SearchDemo {
 
         RenderContext context = new RenderContext();
         context.setInPlaceNavigation(true);
-        context.setCollapsibleCards(true);          // birdseye cards → "expand all" opens them
 
-        CardListView view = new CardListView();
-        view.setRenderContext(context);
-        for (Film f : films) {
-            view.addViewable(f);
-        }
-        view.createCardsPanel(1);
+        // One assembled browser: search + sort + view config, plus a Cards/Table mode combo
+        // in the View Configuration dialog. The mode is a presentation choice over the same
+        // items — SearchableView registers the combo, which a raw SearchPanel does not.
+        SearchableView view = SearchableView.builder(films)
+                .renderContext(context)
+                .collapsible(true)          // birdseye cards → "expand all" opens them
+                .build();
 
-        SearchPanel search = new SearchPanel(Film.class);
-        search.setTarget(view.getCardsPanel(), view.getCardsScrollPane());
-        search.setRenderContext(context);
-        view.addTargetListener(search);
-
-        ExpandToolbar expand = new ExpandToolbar(context, view::refreshBuiltCards);
+        // Bulk expand/collapse acts on the shared context; refresh the built cards when in
+        // card mode (table rows re-measure themselves).
+        ExpandToolbar expand = new ExpandToolbar(context, () -> {
+            if (view.cardList() != null) view.cardList().refreshBuiltCards();
+        });
         expand.setBorder(BorderFactory.createTitledBorder("Bulk expand / collapse"));
-
-        JPanel top = new JPanel(new BorderLayout());
-        top.add(search, BorderLayout.CENTER);
-        top.add(expand, BorderLayout.SOUTH);
 
         JFrame frame = new JFrame("objectview — SearchDemo");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setLayout(new BorderLayout());
-        frame.add(top, BorderLayout.NORTH);
-        frame.add(view.getCardsScrollPane(), BorderLayout.CENTER);
+        frame.add(expand, BorderLayout.NORTH);
+        frame.add(view, BorderLayout.CENTER);
         frame.setSize(820, 760);
         frame.setLocationRelativeTo(null);
         frame.setVisible(true);
