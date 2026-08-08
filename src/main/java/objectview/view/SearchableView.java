@@ -137,8 +137,9 @@ public final class SearchableView extends JPanel {
                 (row, config) -> tablePaths(row, config, columnSample,
                         builder.fieldTypes, builder.subtypeConfigs));
         cardList = null;
-        search.setTargetAndApplyViewConfig(table, table.scrollPane());
-        return table;
+        search.setTargetAndApplyViewConfig(
+                table, table.scrollPane(), table.scrollPane());
+        return table.scrollPane();
     }
 
     /** The active card container, or null when the current mode is TABLE. */

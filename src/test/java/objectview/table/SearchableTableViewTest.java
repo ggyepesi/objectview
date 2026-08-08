@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 
 import javax.swing.JComponent;
 import javax.swing.JLabel;
+import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import java.awt.Component;
 import java.awt.Container;
@@ -29,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -55,7 +57,10 @@ class SearchableTableViewTest {
 
         assertEquals(2, table.items().size());
         assertEquals(List.of("name"), dottedColumns(table));
-        assertTrue(values(table.row(first)).contains("one"), "the row shows its data value");
+        JComponent row = table.row(first);
+        assertTrue(values(row).contains("one"), "the row shows its data value");
+        assertFalse(row instanceof JPanel,
+                "table rows are lightweight components, not panel wrappers");
     }
 
     @Test void searchRevealHighlightsTheRowAndTheCellShowsEveryCollectionElement() {

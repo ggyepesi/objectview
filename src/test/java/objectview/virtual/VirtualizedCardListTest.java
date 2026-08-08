@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -120,6 +121,26 @@ class VirtualizedCardListTest {
                 "viewport must be scrolled to the card's true offset" + ctx);
         assertEquals(viewY, card.getY(),
                 "card must be pinned at the viewport top" + ctx);
+    }
+
+    @Test
+    void undisplayedZeroSizeViewportDoesNotMaterializeUntilLayout() {
+        List<Item> items = makeItems(20);
+        AtomicInteger builds = new AtomicInteger();
+        VirtualizedCardList list = new VirtualizedCardList(q -> {
+            builds.incrementAndGet();
+            return card(q);
+        });
+        JScrollPane scroll = new JScrollPane();
+        list.install(scroll);
+
+        list.setItems(new ArrayList<>(items));
+        assertEquals(0, builds.get(),
+                "model setup must not masquerade as visible rendering");
+
+        scroll.getViewport().setSize(VIEW_W, VIEW_H);
+        assertTrue(builds.get() > 0,
+                "real viewport layout triggers natural visible materialization");
     }
 
     @Test

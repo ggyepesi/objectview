@@ -134,9 +134,28 @@ public class Card extends JPanel implements RenderRefreshHost {
         return new Dimension(d);
     }
 
+    @Override
     public void setHighlightColor(Color c) {
         this.highlightColor = c;
         repaint();
+    }
+
+    /** Whether this card currently carries a search-hit highlight. */
+    @Override
+    public boolean isHighlighted() {
+        return highlightColor != null;
+    }
+
+    /** A card reveals by expanding the collections on the path, in place, after it
+     *  has been materialized. */
+    @Override
+    public boolean revealPath(FieldPath path) {
+        return expandCollectionsOnPath(path);
+    }
+
+    @Override
+    public Viewable renderedInstance() {
+        return viewable;
     }
 
     private static final Color SELECTION_TINT = new Color(30, 110, 210, 28);

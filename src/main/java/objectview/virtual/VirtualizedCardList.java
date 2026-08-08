@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 /**
@@ -82,6 +83,9 @@ public final class VirtualizedCardList
     // re-apply transient decoration a fresh card would otherwise lack — e.g. the
     // search highlight, which is lost when a card is virtualized out and rebuilt.
     private java.util.function.Consumer<JComponent> onCardBuilt;
+    // A second, independent slot: the presentation owns onCardBuilt, the search
+    // owns this one, so neither has to know the other exists.
+    private java.util.function.Consumer<JComponent> materializationListener;
 
     // Invoked at the start of navigateToTop, so the owner can reveal the target
     // (e.g. expand a collapsed card whose search-hit field is hidden) before it
@@ -254,6 +258,14 @@ public final class VirtualizedCardList
 
     public JComponent builtCard(Viewable q) {
         return built.get(q);
+    }
+
+    @Override
+    public void forEachMaterialized(BiConsumer<Viewable, JComponent> visitor) {
+        Objects.requireNonNull(visitor, "visitor");
+        // Search only changes component paint state. Never build components or
+        // scan the complete data set merely to restore visible highlights.
+        built.forEach(visitor);
     }
 
     /**
@@ -708,7 +720,13 @@ public final class VirtualizedCardList
     }
 
     private void updateVisible() {
-        if (viewport == null || items.isEmpty() || updating) {
+        // A newly installed, undisplayed viewport has a 0x0 extent. Treating
+        // that as a visible range materializes the first item plus the buffer
+        // during model setup, before rendering starts. Besides doing needless
+        // work, that makes first-visible-render benchmarks impossible to read.
+        // The viewport change fired by real layout will enter here again.
+        if (viewport == null || viewport.getWidth() <= 0 || viewport.getHeight() <= 0
+                || items.isEmpty() || updating) {
             return;
         }
 
@@ -815,11 +833,20 @@ public final class VirtualizedCardList
         if (onCardBuilt != null) {
             onCardBuilt.accept(card);
         }
+        if (materializationListener != null) {
+            materializationListener.accept(card);
+        }
 
         return card;
     }
 
     /** Registers a callback invoked with each card as it's (re)materialized. */
+    @Override
+    public void setMaterializationListener(
+            java.util.function.Consumer<JComponent> listener) {
+        this.materializationListener = listener;
+    }
+
     public void setOnCardBuilt(java.util.function.Consumer<JComponent> onCardBuilt) {
         this.onCardBuilt = onCardBuilt;
     }
