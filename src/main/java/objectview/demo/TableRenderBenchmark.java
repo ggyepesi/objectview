@@ -24,9 +24,9 @@ import java.util.List;
  *
  * <p>Two figures are worth watching next to the card run:
  * <ul>
- *   <li><b>columns</b> — the table unions the column paths across EVERY item
- *       before it can draw a header, so this step is O(items), where the card
- *       list has no equivalent up-front pass;</li>
+ *   <li><b>columns</b> — the table projects columns from the declared/stable
+ *       shape, so this step is independent of the item count and performs no
+ *       member scan;</li>
  *   <li><b>first visible</b> — layout, natural viewport materialization and the
  *       first completed paint;</li>
  *   <li><b>rows</b> — retained bytes per materialized row against the card run's

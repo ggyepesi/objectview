@@ -338,7 +338,7 @@ public class SearchPanel extends JPanel
         }
 
         List<ViewableFieldPaths.PathInfo> sortPaths =
-                configuredPaths(sortEditor, subtypeSortEditors);
+                configuredPaths(sortEditor, subtypeSortEditors, true);
 
         if (sortPaths.isEmpty()) {
             return;
@@ -813,42 +813,34 @@ public class SearchPanel extends JPanel
      * in step behind the user's back.
      */
     private List<ViewableFieldPaths.PathInfo> searchPaths() {
+        java.util.Set<FieldPath> visible = new java.util.LinkedHashSet<>();
+        for (ViewableFieldPaths.PathInfo path
+                : configuredPaths(viewEditor, subtypeViewEditors, false)) {
+            visible.add(path.path());
+        }
         List<ViewableFieldPaths.PathInfo> shown = new ArrayList<>();
         for (ViewableFieldPaths.PathInfo path
-                : configuredPaths(searchEditor, subtypeSearchEditors)) {
-            if (viewShows(path.path())) {
+                : configuredPaths(searchEditor, subtypeSearchEditors, true)) {
+            if (visible.contains(path.path())) {
                 shown.add(path);
             }
         }
         return shown;
     }
 
-    /** Whether the view config renders {@code path} — walking it segment by segment,
-     *  where an all-fields level shows everything below it. */
-    private boolean viewShows(FieldPath path) {
-        ViewConfig config = getViewConfig();
-        if (path == null) {
-            return true;
-        }
-        for (String segment : path.segments()) {
-            if (config == null) {
-                return false;
-            }
-            if (config.isAllFields()) {
-                return true;
-            }
-            config = config.getFieldConfig(segment);
-        }
-        return config != null;
+    /** Complete subtype-aware path projection used by the active presentation. */
+    public List<ViewableFieldPaths.PathInfo> viewPaths() {
+        return configuredPaths(viewEditor, subtypeViewEditors, false);
     }
 
     private List<ViewableFieldPaths.PathInfo> configuredPaths(
             ViewConfigEditor baseEditor,
-            java.util.Map<String, ViewConfigEditor> subtypeEditors) {
+            java.util.Map<String, ViewConfigEditor> subtypeEditors,
+            boolean excludeMedia) {
         List<ViewableFieldPaths.PathInfo> paths = new ArrayList<>();
         if (rootFieldTypes != null) {
             paths.addAll(ViewableFieldPaths.collectFromSchema(
-                    baseEditor.getConfig(), rootFieldTypes, true));
+                    baseEditor.getConfig(), rootFieldTypes, excludeMedia));
             java.util.Map<String, ViewConfig> branches = baseEditor.classBranchConfigs();
             for (SubtypeConfig subtype : subtypeConfigs) {
                 ViewConfig config = branches.get(subtype.typeName());
@@ -858,16 +850,18 @@ public class SearchPanel extends JPanel
                 }
                 if (config != null && subtype.fieldTypes() != null) {
                     paths.addAll(ViewableFieldPaths.collectFromSchema(
-                            config, subtype.fieldTypes(), true));
+                            config, subtype.fieldTypes(), excludeMedia));
                 }
             }
         } else {
             ViewConfig config = effectiveConfig(baseEditor, subtypeEditors, null);
             paths.addAll(fieldPathSample == null
                     ? ViewableFieldPaths.collect(config,
-                            ViewableFieldPaths.NOT_MEDIA_FIELDS)
+                            excludeMedia ? ViewableFieldPaths.NOT_MEDIA_FIELDS
+                                    : ViewableFieldPaths.ALL_FIELDS)
                     : ViewableFieldPaths.collectFromSample(fieldPathSample, config,
-                            ViewableFieldPaths.NOT_MEDIA_FIELDS));
+                            excludeMedia ? ViewableFieldPaths.NOT_MEDIA_FIELDS
+                                    : ViewableFieldPaths.ALL_FIELDS));
         }
         java.util.LinkedHashMap<String, ViewableFieldPaths.PathInfo> unique =
                 new java.util.LinkedHashMap<>();

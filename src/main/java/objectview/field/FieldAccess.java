@@ -48,48 +48,8 @@ public final class FieldAccess {
      * all language names, while a direct map/collection leaf remains intact.
      */
     public static Object getPathValues(Object root, FieldPath path) {
-        if (path == null || path.isRoot()) {
-            return root;
-        }
-        return getPathValues(root, path.segments(), 0);
-    }
-
-    private static Object getPathValues(Object current, List<String> path, int index) {
-        if (current == null || index >= path.size()) {
-            return current;
-        }
-        if (current instanceof Collection<?> values) {
-            List<Object> result = new ArrayList<>();
-            for (Object value : values) {
-                addFlattened(result, getPathValues(value, path, index));
-            }
-            return result.isEmpty() ? null : result;
-        }
-        if (current instanceof Map<?, ?> values) {
-            List<Object> result = new ArrayList<>();
-            for (Object value : values.values()) {
-                addFlattened(result, getPathValues(value, path, index));
-            }
-            return result.isEmpty() ? null : result;
-        }
-        if (current.getClass().isArray()) {
-            List<Object> result = new ArrayList<>();
-            int length = java.lang.reflect.Array.getLength(current);
-            for (int i = 0; i < length; i++) {
-                addFlattened(result, getPathValues(
-                        java.lang.reflect.Array.get(current, i), path, index));
-            }
-            return result.isEmpty() ? null : result;
-        }
-        return getPathValues(readField(current, path.get(index)), path, index + 1);
-    }
-
-    private static void addFlattened(List<Object> target, Object value) {
-        if (value instanceof Collection<?> nested) {
-            target.addAll(nested);
-        } else if (value != null) {
-            target.add(value);
-        }
+        if (path == null || path.isRoot()) return root;
+        return ResolvedFieldPath.resolve(root, path).value();
     }
 
     public static void setPath(Object root, String path, Object value) {
@@ -130,7 +90,7 @@ public final class FieldAccess {
 
     // --- field access, through the ONE FieldSet bridge (dynamic map or declared) ---
 
-    private static Object readField(Object obj, String name) {
+    static Object readField(Object obj, String name) {
         // A Viewable reads through the ONE FieldSet bridge — a dynamic property map OR
         // declared Java fields behind one interface, no `instanceof DynamicFields`
         // fork (#87). has() distinguishes a present-but-null field (return its value)

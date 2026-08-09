@@ -76,8 +76,6 @@ public class Card extends JPanel implements RenderedInstanceHost {
     // A complex collection/map field renders under a collapsible header,
     // collapsed by default (threshold 0 => no list auto-expands); click the
     // header to expand. Toggleable per collection.
-    private static final int COLLECTION_COLLAPSE_THRESHOLD = 0;
-
     private final Viewable viewable;
     private final ViewConfig config;
     private final boolean fill;
@@ -158,38 +156,28 @@ public class Card extends JPanel implements RenderedInstanceHost {
         return viewable;
     }
 
-    private static final Color SELECTION_TINT = new Color(30, 110, 210, 28);
-    private static final Color SELECTION_BORDER = new Color(30, 110, 210);
-
     @Override
     protected void paintComponent(Graphics g) {
-        boolean selected = renderContext != null && renderContext.isSelected(viewable);
-        if (highlightColor != null) {
-            g.setColor(highlightColor);
-            g.fillRect(0, 0, getWidth(), getHeight());
-        }
-        // The selection tint composites OVER any search-hit highlight (it is
-        // semi-transparent), so selecting a highlighted hit is visibly distinct
-        // rather than being masked by the hit colour.
-        if (selected) {
-            g.setColor(SELECTION_TINT);
-            g.fillRect(0, 0, getWidth(), getHeight());
-        }
+        InstancePaint.fillHighlight(
+                g, highlightColor, getWidth(), getHeight());
         super.paintComponent(g);
-        // A repaint-only selection ring drawn just inside the card border, so
-        // toggling selection never changes the card's measured size (which would
-        // force the virtualized list to re-measure every card).
-        if (selected) {
-            Graphics2D g2 = (Graphics2D) g.create();
-            g2.setColor(SELECTION_BORDER);
-            g2.setStroke(new BasicStroke(2f));
-            g2.drawRoundRect(1, 1, getWidth() - 3, getHeight() - 3, 8, 8);
-            g2.dispose();
+    }
+
+    @Override
+    protected void paintChildren(Graphics g) {
+        super.paintChildren(g);
+        if (renderContext != null && renderContext.isSelected(viewable)) {
+            InstancePaint.paintSelection(g, getWidth(), getHeight(), true);
         }
     }
 
     private final Set<Object> visited;
     private final Set<Object> ancestors;
+    // The traversal context with which this exact card was constructed. A nested
+    // card refresh must restart from these seeds, not pretend it is a new root;
+    // otherwise cycle suppression and shape differ before/after a chip click.
+    private final Set<Object> refreshVisitedSeed;
+    private final Set<Object> refreshAncestorsSeed;
     private final RenderContext renderContext;
     private boolean renderedConfiguredContent = false;
 
@@ -247,6 +235,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
         this.rootRender = false;
         this.visited = identitySetOf();
         this.ancestors = identitySetOf();
+        this.refreshVisitedSeed = identitySetOf();
+        this.refreshAncestorsSeed = identitySetOf();
         this.visited.add(owner);
         this.ancestors.add(owner);
         setLayout(new GridBagLayout());
@@ -374,6 +364,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
         this.rootRender = rootRender;
         this.visited = visited == null ? identitySetOf() : visited;
         this.ancestors = ancestors == null ? identitySetOf() : ancestors;
+        this.refreshVisitedSeed = identityCopy(this.visited);
+        this.refreshAncestorsSeed = identityCopy(this.ancestors);
         this.renderContext = renderContext == null
                 ? new RenderContext()
                 : renderContext;
@@ -406,38 +398,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
             ));
         }
 
-        if (!rootRender) {
-            assert ancestors != null;
-            if (ancestors.contains(viewable)) {
-                addCompactReference(viewable, false);
-                return;
-            }
-        }
-
-        if (!rootRender) {
-            assert visited != null;
-            if (visited.contains(viewable)) {
-                addCompactReference(viewable, false);
-                return;
-            }
-        }
-
-        if (!rootRender && this.renderContext.isTopLevel(viewable)) {
-            addCompactReference(viewable, true);
-            return;
-        }
-
-        this.visited.add(viewable);
-        this.ancestors.add(viewable);
-
-        if (rootRender && this.renderContext.collapsibleCards()) {
-            buildCollapsibleRoot();
-        } else {
-            addTitleHeaderIfNeeded();
-            buildFields();
-            ensureTitleHasRoom();
-        }
-        this.ancestors.remove(viewable);
+        buildConfiguredContent();
     }
 
     public boolean hasRenderedConfiguredContent() {
@@ -464,27 +425,51 @@ public class Card extends JPanel implements RenderedInstanceHost {
         firstFieldRow = 0;
         renderedConfiguredContent = false;
 
-        // visited/ancestors are this card's own cycle-detection sets;
-        // reset them so the rebuild re-renders nested references that the
-        // first pass had already marked as seen.
-        visited.clear();
-        ancestors.clear();
+        restoreTraversalContext();
+        buildConfiguredContent();
+
+        revalidate();
+        repaint();
+    }
+
+    /** The one construction/refresh path for reflected card content. */
+    private void buildConfiguredContent() {
+        if (!rootRender && ancestors.contains(viewable)) {
+            addCompactReference(viewable, false);
+            return;
+        }
+        if (!rootRender && visited.contains(viewable)) {
+            addCompactReference(viewable, false);
+            return;
+        }
+        if (!rootRender && renderContext.isTopLevel(viewable)) {
+            addCompactReference(viewable, true);
+            return;
+        }
 
         visited.add(viewable);
         ancestors.add(viewable);
-
-        if (renderContext.collapsibleCards()) {
+        if (rootRender && renderContext.collapsibleCards()) {
             buildCollapsibleRoot();
         } else {
             addTitleHeaderIfNeeded();
             buildFields();
             ensureTitleHasRoom();
         }
-
         ancestors.remove(viewable);
+    }
 
-        revalidate();
-        repaint();
+    private void restoreTraversalContext() {
+        visited.clear();
+        visited.addAll(refreshVisitedSeed);
+        ancestors.clear();
+        ancestors.addAll(refreshAncestorsSeed);
+    }
+
+    private static Set<Object> identityCopy(Set<Object> source) {
+        Set<Object> copy = identitySetOf();
+        if (source != null) copy.addAll(source);
+        return copy;
     }
 
     @Override
@@ -947,44 +932,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
             Object value,
             java.util.function.Supplier<JComponent> body) {
 
-        int count = value instanceof Collection<?> c ? c.size()
-                : value instanceof Map<?, ?> m ? m.size()
-                : 0;
-        if (count == 0) {
-            return null;
-        }
-
-        boolean defaultExpanded = count <= COLLECTION_COLLAPSE_THRESHOLD;
-        boolean expanded =
-                renderContext.isCollectionExpanded(value, defaultExpanded);
-
-        CollectionHeader header = new CollectionHeader(
-                fieldName, fieldPath, count, expanded, value,
-                defaultExpanded, renderContext);
-
-        if (!expanded) {
-            return header;
-        }
-
-        JComponent items = body.get();
-        if (items == null) {
-            return header;
-        }
-
-        JPanel wrap = new JPanel(new GridBagLayout());
-        wrap.setOpaque(false);
-        wrap.add(header, GridBagUtils.gbc(
-                0, 0, 1.0, 0.0,
-                GridBagConstraints.NORTHWEST,
-                GridBagConstraints.HORIZONTAL,
-                new Insets(0, 0, 0, 0)));
-        wrap.add(items, GridBagUtils.gbc(
-                0, 1, 1.0, 0.0,
-                GridBagConstraints.NORTHWEST,
-                GridBagConstraints.HORIZONTAL,
-                new Insets(0, 16, 2, 0)));
-
-        return wrap;
+        return CollapsibleFieldRenderer.create(
+                fieldName, fieldPath, value, value, renderContext, body);
     }
 
     private JComponent createReferenceFieldComponent(
@@ -1561,72 +1510,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
      * caller can {@link #refresh()} once. Does not itself refresh.
      */
     public boolean expandCollectionsOnPath(FieldPath searchPath) {
-        if (searchPath == null || searchPath.isRoot() || viewable == null) {
-            return false;
-        }
-        return expandCollectionsAlong(viewable, searchPath, 0);
-    }
-
-    private boolean expandCollectionsAlong(Object obj, FieldPath path, int idx) {
-        if (obj == null || idx > path.size()) {
-            return false;
-        }
-
-        // Force-expand a nested Viewable rendered as a reference CHIP (e.g. a query
-        // log's `steps` item) so a match deeper inside it renders + highlights.
-        // idx>0 skips the root card itself; idx<size means the hit is INSIDE it.
-        boolean changed = false;
-        if (idx > 0 && idx < path.size() && obj instanceof Viewable q
-                && renderContext != null && !renderContext.isTopLevel(q)
-                && renderContext.setExpanded(q, true)) {
-            changed = true;
-        }
-
-        if (obj instanceof Collection<?> c) {
-            changed |= expandIfCollapsed(obj, c.size());
-            for (Object item : c) {
-                changed |= expandCollectionsAlong(item, path, idx);
-            }
-            return changed;
-        }
-
-        if (obj instanceof Map<?, ?> m) {
-            changed |= expandIfCollapsed(obj, m.size());
-            for (Object v : m.values()) {
-                changed |= expandCollectionsAlong(v, path, idx);
-            }
-            return changed;
-        }
-
-        if (idx >= path.size()) {
-            return changed;
-        }
-
-        String part = path.segments().get(idx);
-        if (obj instanceof Viewable q) {
-            FieldSet fields = FieldSet.of(q);
-            if (!fields.has(part)) return changed;
-            return changed | expandCollectionsAlong(fields.read(part), path, idx + 1);
-        }
-        Field f = ViewableAdapter.getField(obj.getClass(), part);
-        if (f == null) {
-            return changed;
-        }
-        try {
-            f.setAccessible(true);
-            return changed | expandCollectionsAlong(f.get(obj), path, idx + 1);
-        } catch (Exception e) {
-            return changed;
-        }
-    }
-
-    private boolean expandIfCollapsed(Object collectionKey, int count) {
-        boolean defaultExpanded = count <= COLLECTION_COLLAPSE_THRESHOLD;
-        if (!renderContext.isCollectionExpanded(collectionKey, defaultExpanded)) {
-            renderContext.setCollectionExpanded(collectionKey, true);
-            return true;
-        }
-        return false;
+        return renderContext != null
+                && renderContext.revealPath(viewable, searchPath);
     }
 
     public String getTitle() {

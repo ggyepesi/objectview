@@ -1,15 +1,13 @@
 package objectview.table;
 
 import objectview.Viewable;
-import objectview.field.FieldAccess;
-import objectview.field.FieldKind;
 import objectview.field.FieldPath;
-import objectview.field.FieldRef;
-import objectview.field.FieldSet;
-import objectview.field.ReflectionFieldSet;
+import objectview.field.ResolvedFieldPath;
 import objectview.field.ViewableContractFieldSet;
 import objectview.field.ViewableFieldPaths.PathInfo;
 import objectview.render.Card;
+import objectview.render.CollapsibleFieldRenderer;
+import objectview.render.InstancePaint;
 import objectview.render.RenderedInstanceHost;
 import objectview.render.RenderContext;
 import objectview.viewconfig.ViewConfig;
@@ -20,7 +18,6 @@ import objectview.virtual.VirtualizedCardList;
 import javax.swing.JComponent;
 import javax.swing.JScrollPane;
 import javax.swing.SwingUtilities;
-import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
@@ -32,15 +29,11 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.function.BiFunction;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 
@@ -66,8 +59,6 @@ public final class ViewableColumnsView
     // list widens past it and scrolls horizontally instead of squeezing them thinner.
     private static final int MIN_COLUMN_WIDTH = 160;
     private static final Color GRID = new Color(224, 224, 224);
-    private static final Color SELECTION_TINT = new Color(30, 110, 210, 28);
-    private static final Color SELECTION_BORDER = new Color(30, 110, 210);
     private static final Color HEADER_BACKGROUND = new Color(245, 245, 245);
     private static final int CELL_PAD_X = 6;
     private static final int CELL_PAD_Y = 3;
@@ -190,20 +181,9 @@ public final class ViewableColumnsView
 
     @Override
     public JComponent revealSearchHit(Viewable item, PathInfo fieldPath, List<String> tokens) {
-        // Search must reveal a value hidden by the shared Card semantics, not
-        // merely scroll to its collapsed header/reference chip.
-        if (item != null && fieldPath != null) {
-            Object value = read(item, fieldPath);
-            boolean stateChanged = false;
-            if (value instanceof java.util.Collection<?> || value instanceof Map<?, ?>) {
-                context.setCollectionExpanded(value, true);
-                stateChanged = true;
-            } else if (value instanceof Viewable reference
-                    && !context.isTopLevel(reference)) {
-                context.setExpanded(reference, true);
-                stateChanged = true;
-            }
-            if (stateChanged) list.invalidateCard(item);
+        if (item != null && fieldPath != null
+                && context.revealPath(item, fieldPath.path())) {
+            list.invalidateCard(item);
         }
         JComponent revealed = list.navigateToTop(item);
         list.repaint();
@@ -258,13 +238,9 @@ public final class ViewableColumnsView
                 ? ViewConfig.all(asViewableClass(q.getClass())) : configResolver.apply(q);
         for (int columnIndex = 0; columnIndex < rowColumns.size(); columnIndex++) {
             PathInfo column = rowColumns.get(columnIndex);
-            Object value = read(q, column);
-            FieldRef field = fieldAtPath(q, column);
-            ViewConfig childConfig = configAtPath(config, column.path());
-            JComponent rendered = value == null || field == null ? null
-                    : Card.renderFieldComponent(
-                            q, field, column.path(), value, config, childConfig,
-                            context, false, false);
+            ResolvedFieldPath resolved = ResolvedFieldPath.resolve(
+                    q, column.path(), context::fieldSchema);
+            JComponent rendered = renderResolvedCell(q, column, resolved, config);
             if (rendered != null) {
                 row.setCell(columnIndex, rendered);
             }
@@ -274,51 +250,62 @@ public final class ViewableColumnsView
         return row;
     }
 
-    /** Resolves leaf metadata through the same FieldSet/schema bridge Card uses. */
-    private FieldRef fieldAtPath(Viewable root, PathInfo column) {
-        Object current = root;
-        FieldRef resolved = null;
-        for (String segment : column.path().segments()) {
-            current = representative(current);
-            if (!(current instanceof Viewable viewable)) break;
-            FieldSet fields = FieldSet.of(viewable, context.fieldSchema(viewable));
-            resolved = fields.field(segment);
-            current = fields.read(segment);
+    /**
+     * Renders the real leaf occurrences resolved from the source graph. A direct
+     * field remains one ordinary Card field. A path crossing a collection uses
+     * the same collapsible collection presentation, keyed by the ORIGINAL source
+     * collection, and renders each leaf with its own metadata/annotations.
+     */
+    private JComponent renderResolvedCell(
+            Viewable root, PathInfo column,
+            ResolvedFieldPath resolved, ViewConfig rootConfig) {
+        List<ResolvedFieldPath.Occurrence> present = resolved.occurrences().stream()
+                .filter(occurrence -> occurrence.field() != null
+                        && occurrence.value() != null)
+                .toList();
+        if (present.isEmpty()) return null;
+
+        Object sourceContainer = resolved.primaryContainer();
+        boolean directValue = present.size() == 1
+                && (sourceContainer == null
+                || sourceContainer == present.get(0).value());
+        if (directValue) {
+            return renderOccurrence(root, column.path(), present.get(0), rootConfig);
         }
-        if (resolved != null) return resolved;
-        if (column.leafField() != null) {
-            return ReflectionFieldSet.describe(
-                    column.leafField(), column.leafField().getDeclaringClass());
-        }
-        Object value = read(root, column);
-        FieldKind kind = FieldKind.ofValue(value);
-        FieldKind valueKind = column.valueKind() == FieldKind.UNKNOWN
-                ? kind : column.valueKind();
-        boolean collection = kind == FieldKind.COLLECTION;
-        return FieldRef.described(
-                column.leaf(), column.title(), objectview.field.FieldRole.NONE,
-                kind, valueKind, null,
-                valueKind == FieldKind.REFERENCE, collection, null,
-                false, false, false, false, "", false);
+
+        Object represented = resolved.value();
+        int count = represented instanceof java.util.Collection<?> values
+                ? values.size() : present.size();
+        return CollapsibleFieldRenderer.create(
+                "", column.path(), represented, sourceContainer, count, context,
+                () -> occurrenceList(root, column.path(), present, rootConfig));
     }
 
-    private static Object representative(Object value) {
-        if (value instanceof java.util.Collection<?> collection) {
-            return collection.stream().filter(java.util.Objects::nonNull)
-                    .findFirst().orElse(null);
+    private JComponent occurrenceList(
+            Viewable root, FieldPath path,
+            List<ResolvedFieldPath.Occurrence> occurrences,
+            ViewConfig rootConfig) {
+        OccurrenceList list = new OccurrenceList();
+        for (ResolvedFieldPath.Occurrence occurrence : occurrences) {
+            JComponent component = renderOccurrence(root, path, occurrence, rootConfig);
+            if (component == null) continue;
+            list.addItem(component);
         }
-        if (value instanceof Map<?, ?> map) {
-            return map.values().stream().filter(java.util.Objects::nonNull)
-                    .findFirst().orElse(null);
-        }
-        if (value != null && value.getClass().isArray()) {
-            for (int i = 0; i < Array.getLength(value); i++) {
-                Object item = Array.get(value, i);
-                if (item != null) return item;
-            }
-            return null;
-        }
-        return value;
+        return list.getComponentCount() == 0 ? null : list;
+    }
+
+    private JComponent renderOccurrence(
+            Viewable root, FieldPath path,
+            ResolvedFieldPath.Occurrence occurrence,
+            ViewConfig rootConfig) {
+        Viewable owner = occurrence.renderOwner() == null
+                ? root : occurrence.renderOwner();
+        ViewConfig ownerConfig = configAtPath(rootConfig, path.parent());
+        if (ownerConfig == null) ownerConfig = rootConfig;
+        ViewConfig fieldConfig = configAtPath(rootConfig, path);
+        return Card.renderFieldComponent(
+                owner, occurrence.field(), path, occurrence.value(),
+                ownerConfig, fieldConfig, context, false, false);
     }
 
     private static ViewConfig configAtPath(ViewConfig root, FieldPath path) {
@@ -329,16 +316,6 @@ public final class ViewableColumnsView
             if (current == null) return null;
         }
         return current;
-    }
-
-    private static Object read(Viewable q, PathInfo column) {
-        try {
-            return FieldAccess.getPathValues(q, column.path());
-        } catch (RuntimeException ignored) {
-            // A heterogeneous row may not implement a subtype-only column: an empty cell,
-            // not a broken row.
-            return null;
-        }
     }
 
     /**
@@ -382,6 +359,10 @@ public final class ViewableColumnsView
 
         @Override public boolean isHighlighted() {
             return highlightColor != null;
+        }
+
+        @Override public boolean revealPath(FieldPath path) {
+            return context.revealPath(q, path);
         }
 
         @Override public void doLayout() {
@@ -462,8 +443,8 @@ public final class ViewableColumnsView
             // paintChildren — the same order Card uses, so a selected hit reads
             // the same in both rendering modes.
             if (highlightColor != null) {
-                g.setColor(highlightColor);
-                g.fillRect(0, 0, getWidth(), getHeight());
+                InstancePaint.fillHighlight(
+                        g, highlightColor, getWidth(), getHeight());
             }
 
             int count = Math.max(1, rowColumns.size());
@@ -478,20 +459,56 @@ public final class ViewableColumnsView
         @Override protected void paintChildren(Graphics g) {
             super.paintChildren(g);
             if (context.isSelected(q)) {
-                // Paint after cell children so opaque media cannot hide the
-                // selection tint or border.
-                g.setColor(SELECTION_TINT);
-                g.fillRect(0, 0, getWidth(), getHeight());
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setColor(SELECTION_BORDER);
-                g2.setStroke(new BasicStroke(2f));
-                g2.drawRect(1, 1, getWidth() - 3, getHeight() - 3);
-                g2.dispose();
+                InstancePaint.paintSelection(
+                        g, getWidth(), getHeight(), false);
             }
         }
 
         @Override public void refreshRenderedContent() {
-            SwingUtilities.invokeLater(() -> list.invalidateCard(q));
+            list.invalidateCard(q);
+        }
+    }
+
+    /** Lightweight vertical layout for multiple real leaf occurrences in one cell. */
+    private static final class OccurrenceList extends JComponent {
+        private static final int GAP = 2;
+        private int measuredWidth = -1;
+        private int measuredHeight;
+
+        OccurrenceList() {
+            setLayout(null);
+            setOpaque(false);
+        }
+
+        void addItem(JComponent component) { add(component); }
+
+        @Override public void doLayout() {
+            measuredWidth = getWidth();
+            int y = 0;
+            for (Component child : getComponents()) {
+                JComponent component = (JComponent) child;
+                component.setSize(Math.max(1, measuredWidth),
+                        Math.max(1, component.getPreferredSize().height));
+                layoutSubtree(component);
+                int height = component.getPreferredSize().height;
+                component.setBounds(0, y, measuredWidth, height);
+                y += height + GAP;
+            }
+            measuredHeight = Math.max(0, y - GAP);
+        }
+
+        @Override public Dimension getPreferredSize() {
+            if (measuredWidth == getWidth() && measuredWidth > 0) {
+                return new Dimension(measuredWidth, measuredHeight);
+            }
+            int width = 0;
+            int height = 0;
+            for (Component child : getComponents()) {
+                Dimension preferred = child.getPreferredSize();
+                width = Math.max(width, preferred.width);
+                height += preferred.height + GAP;
+            }
+            return new Dimension(width, Math.max(0, height - GAP));
         }
     }
 

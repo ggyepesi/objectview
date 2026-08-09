@@ -35,6 +35,7 @@ public class CollectionHeader extends JComponent {
                             int count,
                             boolean expanded,
                             Object key,
+                            Object representedValue,
                             boolean defaultExpanded,
                             RenderContext renderContext) {
         this.fieldName = fieldName == null ? "" : fieldName;
@@ -54,6 +55,7 @@ public class CollectionHeader extends JComponent {
         FieldPath path = fieldPath == null ? FieldPath.ROOT : fieldPath;
         putClientProperty(FieldProperties.FIELD_NAME_PROPERTY, this.fieldName);
         putClientProperty(FieldProperties.FIELD_PATH_PROPERTY, path);
+        putClientProperty(FieldProperties.FIELD_VALUE_PROPERTY, representedValue);
 
         addMouseListener(new MouseAdapter() {
             @Override

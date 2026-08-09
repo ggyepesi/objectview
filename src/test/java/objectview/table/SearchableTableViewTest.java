@@ -133,6 +133,34 @@ class SearchableTableViewTest {
                 "a null nested value leaves the configured leaf cell empty");
     }
 
+    @Test void explicitSubtypeOnlyFieldContributesAColumnAndOnlySubtypeValues() {
+        BaseItem base = new BaseItem("base");
+        SubItem subtype = new SubItem("sub", "subtype value");
+        ViewConfig baseView = ViewConfig.of(BaseItem.class);
+        baseView.setAllFields(false);
+        baseView.addField("name", ViewConfig.leaf());
+        ViewConfig subtypeView = ViewConfig.of(SubItem.class);
+        subtypeView.setAllFields(false);
+        subtypeView.addField("extra", ViewConfig.leaf());
+        SearchPanel.ConfigState state = new SearchPanel.ConfigState(
+                null, null, baseView, Map.of(), Map.of(),
+                Map.of("SubItem", subtypeView));
+
+        ViewableColumnsView table = SearchableView.builder(List.of(base, subtype))
+                .type(BaseItem.class)
+                .sample(base)
+                .mode(RenderingMode.TABLE)
+                .configState(state)
+                .subtypeConfigs(List.of(new SearchPanel.SubtypeConfig(
+                        "SubItem", "BaseItem", subtype, null, java.util.Set.of("extra"),
+                        value -> value instanceof SubItem)))
+                .build().table();
+
+        assertTrue(dottedColumns(table).contains("extra"), dottedColumns(table).toString());
+        assertFalse(values(table.row(base)).contains("subtype value"));
+        assertTrue(values(table.row(subtype)).contains("subtype value"));
+    }
+
     @Test void aMediaCellRendersAsAnImageComponentNotItsLabelText() {
         // ON_PAINT loading means constructing the ImagePane starts no file/network load, so
         // this stays a pure rendering test.
@@ -407,5 +435,20 @@ class SearchableTableViewTest {
         }
         @Override public String getIdentifier() { return name; }
         @Override public String getDisplayName() { return name; }
+    }
+
+    private static class BaseItem extends ViewableAdapter {
+        @DisplayField final String name;
+        BaseItem(String name) { this.name = name; }
+        @Override public String getIdentifier() { return name; }
+        @Override public String getDisplayName() { return name; }
+    }
+
+    private static final class SubItem extends BaseItem {
+        final String extra;
+        SubItem(String name, String extra) {
+            super(name);
+            this.extra = extra;
+        }
     }
 }

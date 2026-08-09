@@ -19,9 +19,7 @@ import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -137,8 +135,7 @@ public final class SearchableView extends JPanel {
         // subtype — never from sampling the members. That is what keeps the header
         // O(declared subtypes) instead of O(items).
         table = new ViewableColumnsView(builder.members, context,
-                () -> tablePaths(search.getViewConfig(), columnSample,
-                        builder.type, builder.fieldTypes, builder.subtypeConfigs));
+                () -> displayFirst(search.viewPaths(), builder.type, columnSample));
         cardList = null;
         search.setTargetAndApplyViewConfig(
                 table, table.scrollPane(), table.scrollPane());
@@ -150,38 +147,6 @@ public final class SearchableView extends JPanel {
 
     /** The active table (a card-path columns layout), or null when the current mode is CARD. */
     public ViewableColumnsView table() { return table; }
-
-    /**
-     * The table's column paths, projected from the DECLARED shape: the base schema
-     * (or the stable sample's class when there is none) plus every declared subtype
-     * that contributes its own fields. It never inspects the members — a subtype is
-     * a declaration, not something to discover by scanning, so the projection costs
-     * O(declared subtypes) whether the view holds ten rows or five hundred thousand.
-     *
-     * <p>Consequence, accepted deliberately: a declared subtype with no instances
-     * present still contributes its column, empty. The declared class is the shape.
-     */
-    private static List<ViewableFieldPaths.PathInfo> tablePaths(
-            ViewConfig config, Viewable stableSample,
-            Class<? extends Viewable> declaredType,
-            FieldTypeSource root, List<SearchPanel.SubtypeConfig> subtypes) {
-        ViewConfig effective = config == null ? new ViewConfig() : config;
-        Map<String, ViewableFieldPaths.PathInfo> paths = new LinkedHashMap<>();
-        if (root != null) {
-            addPaths(paths, ViewableFieldPaths.collectFromSchema(effective, root, false));
-            for (SearchPanel.SubtypeConfig subtype : subtypes) {
-                if (subtype == null || subtype.fieldTypes() == null) continue;
-                addPaths(paths, ViewableFieldPaths.collectFromSchema(
-                        effective, subtype.fieldTypes(), false));
-            }
-        } else if (stableSample != null) {
-            addPaths(paths, ViewableFieldPaths.collectFromSample(
-                    stableSample, effective, ViewableFieldPaths.ALL_FIELDS));
-        } else {
-            addPaths(paths, ViewableFieldPaths.collect(effective, ViewableFieldPaths.ALL_FIELDS));
-        }
-        return displayFirst(List.copyOf(paths.values()), declaredType, stableSample);
-    }
 
     /** The display field reads as the row's title, so it leads the columns. Resolved
      *  from the declared class — the same source the columns themselves come from. */
@@ -200,13 +165,6 @@ public final class SearchableView extends JPanel {
             }
         }
         return List.copyOf(out);
-    }
-
-    private static void addPaths(Map<String, ViewableFieldPaths.PathInfo> target,
-                                 List<ViewableFieldPaths.PathInfo> paths) {
-        for (ViewableFieldPaths.PathInfo path : paths) {
-            target.putIfAbsent(path.dotted(), path);
-        }
     }
 
     @SuppressWarnings("unchecked")

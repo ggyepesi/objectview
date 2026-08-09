@@ -160,6 +160,104 @@ class VirtualSearchHighlightTest {
             });
     }
 
+    @ParameterizedTest
+    @EnumSource(RenderingMode.class)
+    void highlightsNestedFieldReachedThroughACollection(RenderingMode mode) {
+        EdtTests.onEdt(() -> {
+            Element item = new Element("alpha");
+            item.details = List.of(new Detail("resonant"));
+
+            objectview.viewconfig.ViewConfig detail =
+                    objectview.viewconfig.ViewConfig.of(Detail.class);
+            detail.setAllFields(false);
+            detail.addField("note", objectview.viewconfig.ViewConfig.leaf());
+            objectview.viewconfig.ViewConfig config =
+                    objectview.viewconfig.ViewConfig.of(Element.class);
+            config.setAllFields(false);
+            config.addField("details", detail);
+
+            SearchableView view = SearchableView.builder(List.of(item))
+                    .sample(item)
+                    .mode(mode)
+                    .collapsible(true)
+                    .configState(new SearchPanel.ConfigState(config, null, config))
+                    .build();
+            materialize(view, item);
+            view.search().setFieldHighlight(true);
+            view.search().runCoordinatedSearch("resonant");
+
+            assertTrue(host(view, item).isHighlighted(),
+                    mode + ": the matching instance is highlighted");
+            assertTrue(hasHighlightedPath(
+                            materialize(view, item),
+                            objectview.field.FieldPath.of("details", "note"),
+                            List.of("resonant")),
+                    mode + ": the nested matching field itself is highlighted");
+        });
+    }
+
+    @ParameterizedTest
+    @EnumSource(RenderingMode.class)
+    void subtypeNestedSearchPathIsComparedWithItsSubtypeViewBranch(RenderingMode mode) {
+        EdtTests.onEdt(() -> {
+            SubElement item = new SubElement("alpha");
+            item.subtypeDetail = new Detail("resonant");
+            objectview.viewconfig.ViewConfig base = viewOf(
+                    objectview.field.ViewableContractFieldSet.DISPLAY_KEY);
+            objectview.viewconfig.ViewConfig detail =
+                    objectview.viewconfig.ViewConfig.of(Detail.class);
+            detail.setAllFields(false);
+            detail.addField("note", objectview.viewconfig.ViewConfig.leaf());
+            objectview.viewconfig.ViewConfig subtype =
+                    objectview.viewconfig.ViewConfig.of(SubElement.class);
+            subtype.setAllFields(false);
+            subtype.addField("subtypeDetail", detail);
+            SearchPanel.ConfigState state = new SearchPanel.ConfigState(
+                    base, null, base,
+                    java.util.Map.of("SubElement", subtype), java.util.Map.of(),
+                    java.util.Map.of("SubElement", subtype));
+
+            SearchableView view = SearchableView.builder(List.of(item))
+                    .type(Element.class)
+                    .sample(item)
+                    .mode(mode)
+                    .collapsible(true)
+                    .configState(state)
+                    .subtypeConfigs(List.of(new SearchPanel.SubtypeConfig(
+                            "SubElement", "Element", item, null,
+                            java.util.Set.of("subtypeDetail"),
+                            value -> value instanceof SubElement)))
+                    .build();
+            materialize(view, item);
+            view.search().setFieldHighlight(true);
+            view.search().runCoordinatedSearch("resonant");
+
+            assertTrue(host(view, item).isHighlighted(),
+                    mode + ": subtype-only nested search path must remain searchable");
+        });
+    }
+
+    private static boolean hasHighlightedPath(
+            java.awt.Component root, objectview.field.FieldPath path,
+            List<String> tokens) {
+        if (root instanceof objectview.render.TextBlock block
+                && block.hasMatchingRow(path, tokens) && block.isOpaque()) {
+            return true;
+        }
+        if (root instanceof objectview.render.TextRow component
+                && path.equals(component.getClientProperty(
+                objectview.field.FieldProperties.FIELD_PATH_PROPERTY))
+                && component.isOpaque()) {
+            return true;
+        }
+        if (root instanceof java.awt.Container container) {
+            for (java.awt.Component child : container.getComponents()) {
+                if (hasHighlightedPath(child, path, tokens)) return true;
+            }
+        }
+        return false;
+    }
+
     private static final String[] DISPLAY_ONLY = {
             objectview.field.ViewableContractFieldSet.DISPLAY_KEY};
     private static final String[] DISPLAY_AND_NOTE = {
@@ -244,9 +342,10 @@ class VirtualSearchHighlightTest {
 
     // Package-private: a PRIVATE nested class's fields are not reflectable, so a
     // field-level search would silently find nothing and prove nothing.
-    public static final class Element extends ViewableAdapter {
+    public static class Element extends ViewableAdapter {
         private final String name;
         public String note = "";
+        public List<Detail> details = List.of();
 
         public Element(String name) {
             this.name = name;
@@ -254,6 +353,19 @@ class VirtualSearchHighlightTest {
 
         @Override public String getIdentifier() { return name; }
         @Override public String getDisplayName() { return name; }
+    }
+
+    public static final class SubElement extends Element {
+        public Detail subtypeDetail;
+        public SubElement(String name) { super(name); }
+    }
+
+    public static final class Detail extends ViewableAdapter {
+        public String note;
+
+        public Detail(String note) { this.note = note; }
+        @Override public String getIdentifier() { return note; }
+        @Override public String getDisplayName() { return note; }
     }
 
     private static final class TrackingVirtualContainer

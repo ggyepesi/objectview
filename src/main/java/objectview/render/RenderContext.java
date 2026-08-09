@@ -1,6 +1,8 @@
 package objectview.render;
 
 import objectview.Viewable;
+import objectview.field.FieldPath;
+import objectview.field.ResolvedFieldPath;
 import objectview.field.FieldSchema;
 import objectview.virtual.VirtualizedCardList;
 import objectview.viewconfig.ViewConfig;
@@ -18,6 +20,9 @@ import java.util.Map;
 import java.util.Set;
 
 public class RenderContext {
+
+    /** Collections are collapsed by default; callers may still explicitly expand them. */
+    public static final int COLLECTION_AUTO_EXPAND_MAX = 0;
 
     private static final Logger log = LoggerFactory.getLogger(RenderContext.class);
 
@@ -179,6 +184,35 @@ public class RenderContext {
         if (key != null) {
             collectionExpanded.put(key, expanded);
         }
+    }
+
+    /**
+     * Reveals every collection/map and nested reference on a semantic field
+     * path, using the identities from the original object graph. Cards and
+     * tables call this same operation; a flattened search value is never used
+     * as an expansion key.
+     *
+     * @return true when any effective expansion state changed
+     */
+    public boolean revealPath(Viewable root, FieldPath path) {
+        if (root == null || path == null || path.isRoot()) return false;
+        ResolvedFieldPath resolved = ResolvedFieldPath.resolve(
+                root, path, this::fieldSchema);
+        boolean changed = false;
+        for (Viewable nested : resolved.nestedViewables()) {
+            if (!isTopLevel(nested)) changed |= setExpanded(nested, true);
+        }
+        for (Object container : resolved.containers()) {
+            int count = container instanceof Collection<?> collection
+                    ? collection.size()
+                    : container instanceof Map<?, ?> map ? map.size() : 0;
+            boolean defaultExpanded = count <= COLLECTION_AUTO_EXPAND_MAX;
+            if (!isCollectionExpanded(container, defaultExpanded)) {
+                setCollectionExpanded(container, true);
+                changed = true;
+            }
+        }
+        return changed;
     }
 
     /** Flips the in-place expand state relative to a default-collapsed reference;
