@@ -1,6 +1,7 @@
 package objectview.search;
 
 import objectview.Viewable;
+import objectview.EdtTests;
 import objectview.ViewableAdapter;
 import objectview.render.RenderedInstanceHost;
 import objectview.render.RenderingMode;
@@ -35,7 +36,7 @@ class VirtualSearchHighlightTest {
     @ParameterizedTest
     @EnumSource(RenderingMode.class)
     void highlightsEveryAlreadyBuiltHit(RenderingMode mode) {
-        onEdt(() -> {
+        EdtTests.onEdt(() -> {
             Element neptunium = new Element("neptunium");
             Element tungsten = new Element("tungsten");
             Element unbibium = new Element("unbibium");
@@ -76,7 +77,7 @@ class VirtualSearchHighlightTest {
     @ParameterizedTest
     @EnumSource(RenderingMode.class)
     void navigatingToTheNextHitKeepsTheOtherHitsHighlighted(RenderingMode mode) {
-        onEdt(() -> {
+        EdtTests.onEdt(() -> {
             Element neptunium = new Element("neptunium");
             Element tungsten = new Element("tungsten");
             Element unbibium = new Element("unbibium");
@@ -100,7 +101,7 @@ class VirtualSearchHighlightTest {
     }
 
     @Test void clearingTheQueryClearsEveryHighlight() {
-        onEdt(() -> {
+        EdtTests.onEdt(() -> {
             for (RenderingMode mode : RenderingMode.values()) {
                 Element neptunium = new Element("neptunium");
                 Element tungsten = new Element("tungsten");
@@ -121,7 +122,7 @@ class VirtualSearchHighlightTest {
     }
 
     @Test void retargetingDetachesThePreviousMaterializationListener() {
-        onEdt(() -> {
+        EdtTests.onEdt(() -> {
             SearchPanel search = new SearchPanel(Element.class);
             TrackingVirtualContainer first = new TrackingVirtualContainer();
             TrackingVirtualContainer second = new TrackingVirtualContainer();
@@ -148,7 +149,7 @@ class VirtualSearchHighlightTest {
     @ParameterizedTest
     @EnumSource(RenderingMode.class)
     void searchIgnoresFieldsTheViewDoesNotShow(RenderingMode mode) {
-        onEdt(() -> {
+        EdtTests.onEdt(() -> {
             assertFalse(matches(mode, viewOf(DISPLAY_ONLY)),
                     mode + ": a token only in an unshown field must not match");
 
@@ -191,26 +192,6 @@ class VirtualSearchHighlightTest {
         materialize(v, item);
         v.search().runCoordinatedSearch("resonant");
         return host(v, item).isHighlighted();
-    }
-
-    /**
-     * Runs the body on the EDT. SearchableView posts invokeLater(rebuild), so a test
-     * driving these components from the main thread races the EDT over the list's
-     * item index — buildIfNeeded then intermittently returns null. Swing components
-     * belong to one thread; the tests use the same one the app does.
-     */
-    private static void onEdt(Runnable body) {
-        try {
-            javax.swing.SwingUtilities.invokeAndWait(body);
-        } catch (java.lang.reflect.InvocationTargetException failure) {
-            Throwable cause = failure.getCause();
-            if (cause instanceof RuntimeException runtime) throw runtime;
-            if (cause instanceof Error error) throw error;
-            throw new IllegalStateException(cause);
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException(interrupted);
-        }
     }
 
     private static SearchableView build(

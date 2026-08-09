@@ -1,5 +1,6 @@
 package objectview.search;
 
+import objectview.EdtTests;
 import objectview.ViewableAdapter;
 import objectview.field.DynamicFields;
 import objectview.viewconfig.FieldTypeSource;
@@ -21,109 +22,117 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 class SearchableCardViewTest {
 
     @Test void wiresCardsSearchAndContextOnce() {
-        Item item = new Item("one");
-        SearchableView view = SearchableView.builder(List.of(item))
-                .sample(item)
-                .hiddenFields(Set.of("internal"))
-                .collapsible(true)
-                .build();
+        EdtTests.onEdt(() -> {
+            Item item = new Item("one");
+            SearchableView view = SearchableView.builder(List.of(item))
+                    .sample(item)
+                    .hiddenFields(Set.of("internal"))
+                    .collapsible(true)
+                    .build();
 
-        assertNotNull(view.cardList().getVirtualList());
-        assertNotNull(view.search());
-        assertTrue(view.renderContext().collapsibleCards());
-        assertTrue(view.search().getViewConfig().isAllMinorFields(),
-                "an expanded instance starts with its complete field set");
+            assertNotNull(view.cardList().getVirtualList());
+            assertNotNull(view.search());
+            assertTrue(view.renderContext().collapsibleCards());
+            assertTrue(view.search().getViewConfig().isAllMinorFields(),
+                    "an expanded instance starts with its complete field set");
+            });
     }
 
     @Test void initialViewConfigControlsVirtualizedCards() {
-        Item item = new Item("one", "secret");
-        ViewConfig viewConfig = ViewConfig.of(Item.class);
-        viewConfig.setAllFields(false);
-        viewConfig.addField(
-                objectview.field.ViewableContractFieldSet.DISPLAY_KEY, ViewConfig.leaf());
-        AtomicReference<SearchPanel.ConfigState> retained = new AtomicReference<>();
+        EdtTests.onEdt(() -> {
+            Item item = new Item("one", "secret");
+            ViewConfig viewConfig = ViewConfig.of(Item.class);
+            viewConfig.setAllFields(false);
+            viewConfig.addField(
+                    objectview.field.ViewableContractFieldSet.DISPLAY_KEY, ViewConfig.leaf());
+            AtomicReference<SearchPanel.ConfigState> retained = new AtomicReference<>();
 
-        SearchableView view = SearchableView.builder(List.of(item))
-                .sample(item)
-                .configState(new SearchPanel.ConfigState(null, null, viewConfig))
-                .configListener(retained::set)
-                .build();
-        view.search().applyView();
+            SearchableView view = SearchableView.builder(List.of(item))
+                    .sample(item)
+                    .configState(new SearchPanel.ConfigState(null, null, viewConfig))
+                    .configListener(retained::set)
+                    .build();
+            view.search().applyView();
 
-        SearchableView replacement = SearchableView.builder(List.of(item))
-                .sample(item)
-                .configState(retained.get())
-                .build();
+            SearchableView replacement = SearchableView.builder(List.of(item))
+                    .sample(item)
+                    .configState(retained.get())
+                    .build();
 
-        Card card = (Card) replacement.cardList().getVirtualList().buildIfNeeded(item);
-        assertTrue(componentText(card).contains("one"));
-        assertFalse(componentText(card).contains("secret"));
+            Card card = (Card) replacement.cardList().getVirtualList().buildIfNeeded(item);
+            assertTrue(componentText(card).contains("one"));
+            assertFalse(componentText(card).contains("secret"));
+            });
     }
 
     @Test void subtypeAdditionalFieldsShareOneHierarchyConfig() {
-        Item base = new Item("base", "base-secret");
-        SubItem subtype = new SubItem("sub", "sub-secret");
-        ViewConfig baseView = ViewConfig.of(Item.class);
-        baseView.setAllFields(false);
-        baseView.addField(
-                objectview.field.ViewableContractFieldSet.DISPLAY_KEY, ViewConfig.leaf());
-        ViewConfig disabledSubtype = ViewConfig.of(SubItem.class);
-        disabledSubtype.setAllFields(false);
-        SearchPanel.ConfigState state = new SearchPanel.ConfigState(
-                null, null, baseView, java.util.Map.of(), java.util.Map.of(),
-                java.util.Map.of("SubItem", disabledSubtype));
+        EdtTests.onEdt(() -> {
+            Item base = new Item("base", "base-secret");
+            SubItem subtype = new SubItem("sub", "sub-secret");
+            ViewConfig baseView = ViewConfig.of(Item.class);
+            baseView.setAllFields(false);
+            baseView.addField(
+                    objectview.field.ViewableContractFieldSet.DISPLAY_KEY, ViewConfig.leaf());
+            ViewConfig disabledSubtype = ViewConfig.of(SubItem.class);
+            disabledSubtype.setAllFields(false);
+            SearchPanel.ConfigState state = new SearchPanel.ConfigState(
+                    null, null, baseView, java.util.Map.of(), java.util.Map.of(),
+                    java.util.Map.of("SubItem", disabledSubtype));
 
-        SearchableView view = SearchableView.builder(List.of(base, subtype))
-                .sample(base)
-                .configState(state)
-                .subtypeConfigs(List.of(new SearchPanel.SubtypeConfig(
-                        "SubItem", "Item", subtype, null, Set.of("internal"),
-                        value -> value instanceof SubItem)))
-                .build();
+            SearchableView view = SearchableView.builder(List.of(base, subtype))
+                    .sample(base)
+                    .configState(state)
+                    .subtypeConfigs(List.of(new SearchPanel.SubtypeConfig(
+                            "SubItem", "Item", subtype, null, Set.of("internal"),
+                            value -> value instanceof SubItem)))
+                    .build();
 
-        Card card = (Card) view.cardList().getVirtualList().buildIfNeeded(subtype);
-        assertTrue(componentText(card).contains("sub"));
-        assertFalse(componentText(card).contains("sub-secret"));
-        assertTrue(view.search().configState().subtypeView().containsKey("SubItem"));
+            Card card = (Card) view.cardList().getVirtualList().buildIfNeeded(subtype);
+            assertTrue(componentText(card).contains("sub"));
+            assertFalse(componentText(card).contains("sub-secret"));
+            assertTrue(view.search().configState().subtypeView().containsKey("SubItem"));
+            });
     }
 
     @Test void schemaIsInstalledBeforeNullSampleDynamicConfigIsMaterialized() {
-        DynamicItem item = new DynamicItem("visible-value");
-        FieldTypeSource schema = new FieldTypeSource() {
-            @Override public FieldTypeInfo field(String name) {
-                return "detail".equals(name)
-                        ? new FieldTypeInfo("String", false, false, null, null,
-                                null, objectview.field.FieldRole.NONE,
-                                objectview.field.FieldKind.TEXT,
-                                objectview.field.FieldKind.TEXT)
-                        : null;
+        EdtTests.onEdt(() -> {
+            DynamicItem item = new DynamicItem("visible-value");
+            FieldTypeSource schema = new FieldTypeSource() {
+                @Override public FieldTypeInfo field(String name) {
+                    return "detail".equals(name)
+                            ? new FieldTypeInfo("String", false, false, null, null,
+                                    null, objectview.field.FieldRole.NONE,
+                                    objectview.field.FieldKind.TEXT,
+                                    objectview.field.FieldKind.TEXT)
+                            : null;
+                }
+
+                @Override public List<String> fieldNames() { return List.of("detail"); }
+            };
+
+            // Snapshot-backed views intentionally have no synthetic sample; fields come
+            // from their saved schema. They must still survive the initial config fold.
+            SearchableView view = SearchableView.builder(List.of(item))
+                    .fieldTypes(schema)
+                    .collapsible(true)
+                    .build();
+
+            assertTrue(view.search().getViewConfig().hasField("detail"),
+                    view.search().getViewConfig().getFields().keySet().toString());
+            Card collapsed = (Card) view.cardList().getVirtualList().buildIfNeeded(item);
+            JLabel toggle = findLabel(collapsed, "▶ ");
+            assertNotNull(toggle);
+            java.awt.event.MouseEvent click = new java.awt.event.MouseEvent(
+                    toggle, java.awt.event.MouseEvent.MOUSE_PRESSED,
+                    System.currentTimeMillis(), 0, 2, 2, 1, false,
+                    java.awt.event.MouseEvent.BUTTON1);
+            for (java.awt.event.MouseListener listener : toggle.getMouseListeners()) {
+                listener.mousePressed(click);
             }
-
-            @Override public List<String> fieldNames() { return List.of("detail"); }
-        };
-
-        // Snapshot-backed views intentionally have no synthetic sample; fields come
-        // from their saved schema. They must still survive the initial config fold.
-        SearchableView view = SearchableView.builder(List.of(item))
-                .fieldTypes(schema)
-                .collapsible(true)
-                .build();
-
-        assertTrue(view.search().getViewConfig().hasField("detail"),
-                view.search().getViewConfig().getFields().keySet().toString());
-        Card collapsed = (Card) view.cardList().getVirtualList().buildIfNeeded(item);
-        JLabel toggle = findLabel(collapsed, "▶ ");
-        assertNotNull(toggle);
-        java.awt.event.MouseEvent click = new java.awt.event.MouseEvent(
-                toggle, java.awt.event.MouseEvent.MOUSE_PRESSED,
-                System.currentTimeMillis(), 0, 2, 2, 1, false,
-                java.awt.event.MouseEvent.BUTTON1);
-        for (java.awt.event.MouseListener listener : toggle.getMouseListeners()) {
-            listener.mousePressed(click);
-        }
-        Card card = (Card) view.cardList().getVirtualList().buildIfNeeded(item);
-        assertTrue(card.getComponentCount() > 1,
-                "a saved dynamic field must not vanish before its schema is installed");
+            Card card = (Card) view.cardList().getVirtualList().buildIfNeeded(item);
+            assertTrue(card.getComponentCount() > 1,
+                    "a saved dynamic field must not vanish before its schema is installed");
+            });
     }
 
     private static String componentText(Component component) {
