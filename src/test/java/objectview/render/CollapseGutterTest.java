@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -120,6 +121,61 @@ class CollapseGutterTest {
             if (listener instanceof CollapseGutter) n++;
         }
         return n;
+    }
+
+    /**
+     * A nested expansion gets a strip of its own. Its body is the one that gets long —
+     * an expanded wbgetentities group runs for hundreds of rows — and the chip that
+     * opened it scrolls off exactly like a card header does.
+     */
+    @Test void anExpandedNestedBodyArmsItsOwnStrip() throws Exception {
+        RenderContext context = collapsibleContext();
+        Entry root = entryWithBody();
+        Entry nested = root.steps.iterator().next();
+        nested.steps.add(new Entry("request 1"));
+        context.toggleCardExpanded(root);
+        context.setExpanded(nested, true);
+
+        Card card = cardFor(context, root);
+
+        Card body = findCardFor(card, nested);
+        assertNotNull(body, "the nested entry should render an expanded body");
+        assertTrue(armed(body), "the nested body must carry its own strip");
+    }
+
+    /** The nested strip collapses the REFERENCE it belongs to. Collapsing the enclosing
+     *  card instead would take the whole log entry down with it — the opposite of what
+     *  a reader closing one sub-entry is asking for. */
+    @Test void theNestedStripCollapsesItsOwnReferenceNotTheCardAroundIt()
+            throws Exception {
+        RenderContext context = collapsibleContext();
+        Entry root = entryWithBody();
+        Entry nested = root.steps.iterator().next();
+        nested.steps.add(new Entry("request 1"));
+        context.toggleCardExpanded(root);
+        context.setExpanded(nested, true);
+        Card card = cardFor(context, root);
+        Card body = findCardFor(card, nested);
+
+        SwingUtilities.invokeAndWait(() ->
+                CollapseGutter.INSTANCE.mousePressed(pressAt(body, 3)));
+
+        assertFalse(context.isExpanded(nested, false), "the nested entry collapses");
+        assertTrue(context.isCardExpanded(root, false),
+                   "the log entry around it stays open");
+    }
+
+    private static Card findCardFor(java.awt.Component root, Entry target) {
+        if (root instanceof Card card && card.getViewable() == target) {
+            return card;
+        }
+        if (root instanceof java.awt.Container container) {
+            for (java.awt.Component child : container.getComponents()) {
+                Card found = findCardFor(child, target);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     /** A collapsed card is a single header row: there is nothing to collapse, and its

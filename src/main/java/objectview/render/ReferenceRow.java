@@ -144,6 +144,16 @@ public class ReferenceRow extends TextRow {
         menu.add(open);
     }
 
+    /** Collapses this reference. The expanded body's own collapse strip runs this, so
+     *  the strip and the triangle are two ways to the same action, not two of it. */
+    void collapse() {
+        if (renderContext == null || target == null) {
+            return;
+        }
+        renderContext.setExpanded(target, false);
+        refreshRootCard();
+    }
+
     private void toggleExpansion() {
         if (renderContext == null || target == null) {
             return;

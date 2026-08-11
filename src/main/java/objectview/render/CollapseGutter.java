@@ -40,20 +40,29 @@ final class CollapseGutter implements MouseListener, MouseMotionListener {
 
     private CollapseGutter() { }
 
-    /** Arms this card's gutter. Called only while the card is expanded — a collapsed
-     *  card has no gutter, so its whole width keeps its normal behaviour.
+    /** Where each host keeps what its strip does. The action differs by host — a root
+     *  card collapses itself, an expanded reference body collapses the chip that opened
+     *  it — so the shared handler carries none of it. */
+    private static final String ACTION = "objectview.collapseGutter.action";
+
+    /**
+     * Arms {@code host}'s gutter with the action that collapses it. Called only while
+     * something is expanded — a collapsed thing has no gutter, so its whole width keeps
+     * its normal behaviour.
      *
-     *  <p>Idempotent: a card rebuilt in place (refresh) runs its build again, and a
-     *  second registration would toggle twice per press — collapsing and instantly
-     *  re-expanding, which looks like the strip doing nothing at all. */
-    static void install(Card card) {
-        for (java.awt.event.MouseListener existing : card.getMouseListeners()) {
+     * <p>Idempotent: a card rebuilt in place runs its build again, and a second
+     * registration would toggle twice per press — collapsing and instantly re-expanding,
+     * which looks like the strip doing nothing at all.
+     */
+    static void install(JComponent host, Runnable onCollapse) {
+        host.putClientProperty(ACTION, onCollapse);
+        for (java.awt.event.MouseListener existing : host.getMouseListeners()) {
             if (existing == INSTANCE) {
                 return;
             }
         }
-        card.addMouseListener(INSTANCE);
-        card.addMouseMotionListener(INSTANCE);
+        host.addMouseListener(INSTANCE);
+        host.addMouseMotionListener(INSTANCE);
     }
 
     /** Paints the strip, from the card's own paintComponent so it sits under the
@@ -87,32 +96,35 @@ final class CollapseGutter implements MouseListener, MouseMotionListener {
 
     @Override
     public void mousePressed(MouseEvent e) {
-        if (!(e.getSource() instanceof Card card) || !inGutter(e)) {
+        if (!(e.getSource() instanceof JComponent host) || !inGutter(e)) {
+            return;
+        }
+        if (!(host.getClientProperty(ACTION) instanceof Runnable collapse)) {
             return;
         }
         e.consume();
-        hover(card, false);
-        card.toggleCollapsed();
+        hover(host, false);
+        collapse.run();
     }
 
     @Override
     public void mouseMoved(MouseEvent e) {
-        if (!(e.getSource() instanceof Card card)) {
+        if (!(e.getSource() instanceof JComponent host)) {
             return;
         }
         boolean on = inGutter(e);
-        hover(card, on);
-        card.setCursor(Cursor.getPredefinedCursor(
+        hover(host, on);
+        host.setCursor(Cursor.getPredefinedCursor(
                 on ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
-        card.setToolTipText(on ? "Collapse" : null);
+        host.setToolTipText(on ? "Collapse" : null);
     }
 
     @Override
     public void mouseExited(MouseEvent e) {
-        // Fired when the pointer leaves the card OR moves onto one of its children;
+        // Fired when the pointer leaves the host OR moves onto one of its children;
         // both mean it is no longer on the strip, so the highlight must not stick.
-        if (e.getSource() instanceof Card card) {
-            hover(card, false);
+        if (e.getSource() instanceof JComponent host) {
+            hover(host, false);
         }
     }
 

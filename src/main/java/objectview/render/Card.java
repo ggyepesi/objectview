@@ -166,6 +166,14 @@ public class Card extends JPanel implements RenderedInstanceHost {
         super.paintComponent(g);
     }
 
+    /** Gives this card a collapse strip down its left edge, running {@code onCollapse}.
+     *  The action differs by host: a root card collapses itself, an expanded reference
+     *  body collapses the chip that opened it. */
+    void armCollapseGutter(Runnable onCollapse) {
+        gutter = CollapseGutter.INSTANCE;
+        CollapseGutter.install(this, onCollapse);
+    }
+
     /** Flips this card between collapsed and expanded, exactly as its header triangle
      *  does — the gutter is a second place to reach the same action, not a second
      *  implementation of it. */
@@ -523,11 +531,10 @@ public class Card extends JPanel implements RenderedInstanceHost {
         // An expanded card gets a clickable left edge, so it can be collapsed from
         // wherever the reader has scrolled to instead of only from its header.
         if (expanded) {
-            gutter = CollapseGutter.INSTANCE;
             setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1, true),
                     BorderFactory.createEmptyBorder(4, CollapseGutter.WIDTH, 4, 4)));
-            CollapseGutter.install(this);
+            armCollapseGutter(this::toggleCollapsed);
         }
 
         add(collapsibleRootHeader(expanded),
@@ -1197,11 +1204,23 @@ public class Card extends JPanel implements RenderedInstanceHost {
                 target, fieldPath, targetConfig, true);
 
         if (inline != null) {
+            // A nested expansion collapses from its own left edge too. Its body is the
+            // one that gets long — an expanded wbgetentities group runs for hundreds of
+            // rows — and the chip that opened it scrolls off exactly like a card header.
+            int indent = 16;
+            if (inline instanceof Card body) {
+                body.setBorder(BorderFactory.createEmptyBorder(
+                        0, CollapseGutter.WIDTH, 0, 0));
+                body.armCollapseGutter(chip::collapse);
+                // The strip stands IN the indent rather than adding to it, so nesting
+                // does not drift further right with every level that gains one.
+                indent -= CollapseGutter.WIDTH;
+            }
             wrap.add(inline, GridBagUtils.gbc(
                     0, 1, 1.0, 0.0,
                     GridBagConstraints.NORTHWEST,
                     GridBagConstraints.HORIZONTAL,
-                    new Insets(0, 16, 4, 0)));
+                    new Insets(0, indent, 4, 0)));
         }
 
         return wrap;
