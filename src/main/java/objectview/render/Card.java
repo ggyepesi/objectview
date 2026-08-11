@@ -160,7 +160,18 @@ public class Card extends JPanel implements RenderedInstanceHost {
     protected void paintComponent(Graphics g) {
         InstancePaint.fillHighlight(
                 g, highlightColor, getWidth(), getHeight());
+        if (gutter != null) {
+            gutter.paint(g, this, getHeight());
+        }
         super.paintComponent(g);
+    }
+
+    /** Flips this card between collapsed and expanded, exactly as its header triangle
+     *  does — the gutter is a second place to reach the same action, not a second
+     *  implementation of it. */
+    void toggleCollapsed() {
+        renderContext.toggleCardExpanded(viewable, false);
+        renderContext.notifyCardToggled(viewable);
     }
 
     @Override
@@ -180,6 +191,9 @@ public class Card extends JPanel implements RenderedInstanceHost {
     private final Set<Object> refreshAncestorsSeed;
     private final RenderContext renderContext;
     private boolean renderedConfiguredContent = false;
+    // Non-null only while this card is an EXPANDED collapsible root: the strip down
+    // its left edge that collapses it. A collapsed card has none.
+    private CollapseGutter gutter;
 
     private final FieldPath path;
     private int firstFieldRow = 0;
@@ -506,6 +520,16 @@ public class Card extends JPanel implements RenderedInstanceHost {
     private void buildCollapsibleRoot() {
         boolean expanded = renderContext.isCardExpanded(viewable, false);
 
+        // An expanded card gets a clickable left edge, so it can be collapsed from
+        // wherever the reader has scrolled to instead of only from its header.
+        if (expanded) {
+            gutter = CollapseGutter.INSTANCE;
+            setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1, true),
+                    BorderFactory.createEmptyBorder(4, CollapseGutter.WIDTH, 4, 4)));
+            CollapseGutter.install(this);
+        }
+
         add(collapsibleRootHeader(expanded),
                 GridBagUtils.gbc(
                         0, 0,
@@ -535,8 +559,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
             @Override
             public void mousePressed(java.awt.event.MouseEvent e) {
                 e.consume();
-                renderContext.toggleCardExpanded(viewable, false);
-                renderContext.notifyCardToggled(viewable);
+                toggleCollapsed();
             }
         });
 
