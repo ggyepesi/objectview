@@ -1155,6 +1155,16 @@ public class Card extends JPanel implements RenderedInstanceHost {
                     true), target);
         }
 
+        // A reference with nothing behind it is a value, not a door. Its target's only
+        // field is its display name — which the row already shows — so the triangle
+        // opens an empty box. Rendered as a plain row it keeps selection, search
+        // highlight and copy, and stops promising content it does not have.
+        if (!targetHasContent(target)) {
+            return decoratedReference(
+                    new TextRow(fieldName, fieldPath, ReferenceRow.referenceLabel(target)),
+                    target);
+        }
+
         boolean exp = renderContext != null
                 && renderContext.isExpanded(target, defaultExpanded);
 
@@ -1201,6 +1211,49 @@ public class Card extends JPanel implements RenderedInstanceHost {
     // reference chip too, so a referenced entity surfaces its identity the SAME way a card
     // does — no bespoke identity rendering. Scoped to a non-null decoration, so a plain
     // reference (identity not actionable) stays a plain chip.
+    /**
+     * Whether {@code target} holds anything beyond its own identity.
+     *
+     * <p>A property of the OBJECT, deliberately not of the view config. A config that
+     * renders a reference as a leaf ({@link ViewConfig#leaf()}, how a table cell shows
+     * one) hides the target's fields on purpose, and that is an authoring choice the
+     * chip should still honour — the target can be opened in its own window. Having no
+     * fields at all is not a choice, it is a fact about the data, and it is the only
+     * case where an expander can promise nothing.
+     *
+     * <p>Identity and display fields do not count: the reference row already shows them.
+     * Neither does a null, blank or empty value — those render nothing.
+     */
+    private boolean targetHasContent(Viewable target) {
+        if (target == null || renderContext == null) {
+            return true;   // unknown: keep the expander rather than hide content
+        }
+        FieldSet fields = FieldSet.of(target, renderContext.fieldSchema(target));
+        for (FieldRef field : fields.fields()) {
+            if (field.role() == objectview.field.FieldRole.NONE
+                    && hasContent(fields.read(field.name()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasContent(Object value) {
+        if (value == null) {
+            return false;
+        }
+        if (value instanceof CharSequence text) {
+            return !text.toString().isBlank();
+        }
+        if (value instanceof java.util.Collection<?> items) {
+            return !items.isEmpty();
+        }
+        if (value instanceof java.util.Map<?, ?> entries) {
+            return !entries.isEmpty();
+        }
+        return true;
+    }
+
     private JComponent decoratedReference(JComponent chip, Viewable target) {
         return decorateReference(renderContext, chip, target);
     }

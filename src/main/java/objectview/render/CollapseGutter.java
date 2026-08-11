@@ -26,9 +26,12 @@ final class CollapseGutter implements MouseListener, MouseMotionListener {
     /** Width of the strip, and so the card's extra left inset while expanded. */
     static final int WIDTH = 12;
 
-    private static final Color LINE = new Color(0, 80, 180, 70);
+    // Visible at rest, not only on hover: a control nobody can see is a control
+    // nobody uses, and hover cannot advertise what the pointer has not found yet.
+    private static final Color LINE = new Color(0, 80, 180, 150);
     private static final Color LINE_HOVER = new Color(0, 80, 180);
-    private static final Color FILL_HOVER = new Color(0, 80, 180, 26);
+    private static final Color FILL = new Color(0, 80, 180, 20);
+    private static final Color FILL_HOVER = new Color(0, 80, 180, 60);
 
     static final CollapseGutter INSTANCE = new CollapseGutter();
 
@@ -38,8 +41,17 @@ final class CollapseGutter implements MouseListener, MouseMotionListener {
     private CollapseGutter() { }
 
     /** Arms this card's gutter. Called only while the card is expanded — a collapsed
-     *  card has no gutter, so its whole width keeps its normal behaviour. */
+     *  card has no gutter, so its whole width keeps its normal behaviour.
+     *
+     *  <p>Idempotent: a card rebuilt in place (refresh) runs its build again, and a
+     *  second registration would toggle twice per press — collapsing and instantly
+     *  re-expanding, which looks like the strip doing nothing at all. */
     static void install(Card card) {
+        for (java.awt.event.MouseListener existing : card.getMouseListeners()) {
+            if (existing == INSTANCE) {
+                return;
+            }
+        }
         card.addMouseListener(INSTANCE);
         card.addMouseMotionListener(INSTANCE);
     }
@@ -48,12 +60,14 @@ final class CollapseGutter implements MouseListener, MouseMotionListener {
      *  card's content and never intercepts a child's own painting. */
     void paint(Graphics g, JComponent card, int height) {
         boolean hot = card == hovered;
-        if (hot) {
-            g.setColor(FILL_HOVER);
-            g.fillRect(0, 0, WIDTH, height);
-        }
+        g.setColor(hot ? FILL_HOVER : FILL);
+        g.fillRect(0, 0, WIDTH, height);
         g.setColor(hot ? LINE_HOVER : LINE);
         g.fillRect(WIDTH / 2 - 1, 2, 2, Math.max(0, height - 4));
+        // Caps at both ends: the line alone reads as a divider between the card and
+        // whatever is left of it. Ends make it read as one object, the card's own.
+        g.fillRect(2, 2, WIDTH - 4, 2);
+        g.fillRect(2, Math.max(2, height - 4), WIDTH - 4, 2);
     }
 
     private static boolean inGutter(MouseEvent e) {

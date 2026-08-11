@@ -10,6 +10,7 @@ import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.Collection;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -79,6 +80,48 @@ class CollapseGutterTest {
                            + "must not collapse the card under the pointer");
     }
 
+    /**
+     * The press tests above drive the handler directly, so they pass even if the card
+     * never registers it — which is exactly how a strip that was armed nowhere would
+     * still look tested. This asserts the wiring itself.
+     */
+    @Test void anExpandedCardArmsTheStripAndReservesRoomForIt() throws Exception {
+        RenderContext context = collapsibleContext();
+        Entry root = entryWithBody();
+        context.toggleCardExpanded(root);
+        Card card = cardFor(context, root);
+
+        assertTrue(armed(card), "an expanded card must register the strip handler");
+        assertTrue(card.getInsets().left > CollapseGutter.WIDTH - 1,
+                   "the card must reserve the strip's width, or it paints over content");
+    }
+
+    /** A card rebuilt in place runs its build again. A second registration would
+     *  toggle twice per press — collapse then instantly re-expand, which reads as the
+     *  strip being broken rather than double-armed. */
+    @Test void rebuildingAnExpandedCardDoesNotArmTheStripTwice() throws Exception {
+        RenderContext context = collapsibleContext();
+        Entry root = entryWithBody();
+        context.toggleCardExpanded(root);
+        Card card = cardFor(context, root);
+
+        SwingUtilities.invokeAndWait(card::refresh);
+
+        assertEquals(1, armedCount(card), "the strip must be registered exactly once");
+    }
+
+    private static boolean armed(Card card) {
+        return armedCount(card) > 0;
+    }
+
+    private static int armedCount(Card card) {
+        int n = 0;
+        for (java.awt.event.MouseListener listener : card.getMouseListeners()) {
+            if (listener instanceof CollapseGutter) n++;
+        }
+        return n;
+    }
+
     /** A collapsed card is a single header row: there is nothing to collapse, and its
      *  left edge is ordinary content that must keep behaving as such. */
     @Test void aCollapsedCardHasNoStripArmed() throws Exception {
@@ -87,10 +130,7 @@ class CollapseGutterTest {
         Card card = cardFor(context, root);
 
         assertFalse(context.isCardExpanded(root, false), "starts collapsed");
-        for (java.awt.event.MouseListener listener : card.getMouseListeners()) {
-            assertFalse(listener instanceof CollapseGutter,
-                        "a collapsed card must not arm the strip");
-        }
+        assertFalse(armed(card), "a collapsed card must not arm the strip");
     }
 
     private static final class Entry extends ViewableAdapter {

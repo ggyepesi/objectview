@@ -189,6 +189,16 @@ public class ReferenceRow extends TextRow {
     }
 
     private static String name(Viewable target) {
+        return referenceLabel(target);
+    }
+
+    /** The text a reference to {@code target} shows. Shared with the plain-row form
+     *  a contentless reference falls back to, so both spell the label the same way. */
+    static java.util.List<String> referenceLabelLines(Viewable target) {
+        return List.of(referenceLabel(target));
+    }
+
+    static String referenceLabel(Viewable target) {
         String n = target == null ? null : target.getReferenceLabel();
         return n == null ? "" : n;
     }
