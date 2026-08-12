@@ -92,6 +92,28 @@ public class RenderContext {
         return viewable == null ? null : cardDecorator.apply(viewable);
     }
 
+    // A value the caller can turn into a URL. Declared links (@Link) are a property of
+    // the FIELD; this is a property of the VALUE, for the case where what a string means
+    // is only knowable outside this module — a Wikidata QID left where a name should be.
+    // Null result = not a link, which is the answer for almost every value.
+    private java.util.function.Function<Object, String> valueLinker = ignored -> null;
+
+    public void setValueLinker(java.util.function.Function<Object, String> linker) {
+        valueLinker = linker == null ? ignored -> null : linker;
+    }
+
+    /** The URL {@code value} stands for, or null. Never throws: a linker that fails on
+     *  an unexpected value must not take the card down with it. */
+    public String valueLink(Object value) {
+        if (value == null) return null;
+        try {
+            String url = valueLinker.apply(value);
+            return url == null || url.isBlank() ? null : url;
+        } catch (RuntimeException broken) {
+            return null;
+        }
+    }
+
     // Viewable references the user has opened/closed in place, keyed by identity so
     // the same target stays in sync wherever it appears in the card. Tri-state
     // (mirrors collectionExpanded): absent = use the caller's default, else the

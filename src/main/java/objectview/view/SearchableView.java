@@ -49,6 +49,7 @@ public final class SearchableView extends JPanel {
         if (b.collapsible != null) context.setCollapsibleCards(b.collapsible);
         if (b.fieldSchemas != null) context.setFieldSchemaResolver(b.fieldSchemas);
         if (b.cardDecorator != null) context.setCardDecorator(b.cardDecorator);
+        if (b.valueLinker != null) context.setValueLinker(b.valueLinker);
         if (b.selectionListener != null) {
             context.setSelectionEnabled(true);
             context.addSelectionListener(b.selectionListener);
@@ -181,6 +182,7 @@ public final class SearchableView extends JPanel {
         private FieldTypeSource fieldTypes;
         private Function<Viewable, FieldSchema> fieldSchemas;
         private Function<Viewable, JComponent> cardDecorator;
+        private Function<Object, String> valueLinker;
         private Consumer<Object> selectionListener;
         private RenderContext context;
         private Boolean collapsible;
@@ -207,6 +209,11 @@ public final class SearchableView extends JPanel {
         public Builder fieldSchemas(Function<Viewable, FieldSchema> value) {
             fieldSchemas = value; return this;
         }
+        /** Turns a value into a URL when the caller recognises it (e.g. a bare QID). */
+        public Builder valueLinker(Function<Object, String> value) {
+            valueLinker = value; return this;
+        }
+
         public Builder cardDecorator(Function<Viewable, JComponent> value) {
             cardDecorator = value; return this;
         }

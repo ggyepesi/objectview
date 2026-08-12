@@ -921,6 +921,16 @@ public class Card extends JPanel implements RenderedInstanceHost {
             return new LinkRow(fieldName, fieldPath, url, field.linkText());
         }
 
+        // Not declared a link, but the caller recognises what this value denotes. Keeps
+        // the knowledge outside this module: objectview never learns what a QID is, and
+        // every view that renders one gains the link at once.
+        if (value instanceof String text && !text.isBlank() && renderContext != null) {
+            String resolved = renderContext.valueLink(text);
+            if (resolved != null) {
+                return new LinkRow(fieldName, fieldPath, resolved, text);
+            }
+        }
+
         if (value instanceof Viewable q) {
             return collapsibleReference(
                     fieldName, fieldPath, q, false, fieldCfg);
@@ -1330,7 +1340,14 @@ public class Card extends JPanel implements RenderedInstanceHost {
         }
 
         // @Link string fields render as a dedicated clickable row rather
-        // than folding into the (drag-to-select) text block.
+        // than folding into the (drag-to-select) text block. A value the CALLER
+        // recognises leaves the block for the same reason — the batch is painted text,
+        // and a link has to be its own clickable row to be reachable at all.
+        if (renderContext != null && value instanceof String recognised
+                && !recognised.isBlank()
+                && renderContext.valueLink(recognised) != null) {
+            return false;
+        }
         if (field.link()
                 && value instanceof String s
                 && !s.isBlank()) {
