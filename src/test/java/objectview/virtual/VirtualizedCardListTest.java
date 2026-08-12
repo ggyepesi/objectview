@@ -144,6 +144,30 @@ class VirtualizedCardListTest {
     }
 
     @Test
+    void twentyThousandResultsMaterializeOnlyTheViewportBuffer() {
+        onEdt(() -> {
+            List<Item> items = makeItems(20_000);
+            AtomicInteger builds = new AtomicInteger();
+            VirtualizedCardList list = new VirtualizedCardList(q -> {
+                builds.incrementAndGet();
+                return card(q);
+            });
+            JScrollPane scroll = new JScrollPane();
+            list.install(scroll);
+
+            list.setItems(new ArrayList<>(items));
+            assertEquals(0, builds.get(),
+                    "loading a large result model must build no Swing cards eagerly");
+
+            scroll.getViewport().setSize(VIEW_W, VIEW_H);
+            assertTrue(builds.get() < 30,
+                    "only visible cards plus the small viewport buffer may materialize");
+            assertTrue(list.getComponentCount() < 30,
+                    "the component tree must stay bounded independently of result count");
+        });
+    }
+
+    @Test
     void heightEstimateMedianIsStableAndOutlierResistant() {
         VirtualizedCardList.HeightEstimate est = new VirtualizedCardList.HeightEstimate();
 
