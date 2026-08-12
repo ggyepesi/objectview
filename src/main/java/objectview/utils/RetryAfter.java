@@ -30,4 +30,19 @@ public final class RetryAfter {
         }
         return defaultMillis;
     }
+
+    /**
+     * Whether an HTTP status is worth another attempt: throttling (429) and the
+     * transient server-side failures. Here beside the header math so a client cannot
+     * honour {@code Retry-After} while disagreeing about which statuses carry it —
+     * which is how one Wikimedia client came to retry a 429 and another to give up on
+     * it after three half-second waits.
+     */
+    public static boolean isRetryableStatus(int status) {
+        return status == 429
+                || status == 500
+                || status == 502
+                || status == 503
+                || status == 504;
+    }
 }
