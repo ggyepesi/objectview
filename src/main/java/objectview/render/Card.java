@@ -72,6 +72,8 @@ import java.util.List;
 public class Card extends JPanel implements RenderedInstanceHost {
 
     private static final Logger log = LoggerFactory.getLogger(Card.class);
+    private static final String INLINE_TITLE = "objectview.inlineTitle";
+    private static final String INLINE_ITEMS = "objectview.inlineItems";
 
     // A complex collection/map field renders under a collapsible header,
     // collapsed by default (threshold 0 => no list auto-expands); click the
@@ -1042,6 +1044,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
             // number tracks the collection as it changes.
             long count = items.stream().filter(Viewable.class::isInstance).count();
             panel.setBorder(BorderFactory.createTitledBorder(fieldName + " (" + count + ")"));
+            panel.putClientProperty(INLINE_TITLE, fieldName);
+            panel.putClientProperty(INLINE_ITEMS, items);
         }
 
         int row = 0;
@@ -1073,6 +1077,30 @@ public class Card extends JPanel implements RenderedInstanceHost {
         }
 
         return row == 0 ? null : panel;
+    }
+
+    /** Updates mutable inline-collection counts without rebuilding the card. */
+    public void refreshInlineCollectionCounts() {
+        refreshInlineCollectionCounts(this);
+    }
+
+    private static void refreshInlineCollectionCounts(Container parent) {
+        for (Component component : parent.getComponents()) {
+            if (component instanceof JComponent jc
+                    && jc.getClientProperty(INLINE_TITLE) instanceof String title
+                    && jc.getClientProperty(INLINE_ITEMS) instanceof Collection<?> items
+                    && jc.getBorder() instanceof javax.swing.border.TitledBorder border) {
+                long count = items.stream().filter(Viewable.class::isInstance).count();
+                String updated = title + " (" + count + ")";
+                if (!updated.equals(border.getTitle())) {
+                    border.setTitle(updated);
+                    jc.repaint();
+                }
+            }
+            if (component instanceof Container nested) {
+                refreshInlineCollectionCounts(nested);
+            }
+        }
     }
 
     private JComponent inlineViewable(Viewable q, FieldPath fieldPath) {

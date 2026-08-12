@@ -325,6 +325,13 @@ public class CardListView {
         }
     }
 
+    /** Refreshes only mutable inline collection titles, preserving card contents. */
+    public void refreshInlineCollectionCounts(Viewable q) {
+        if (q == null || virtualList == null) return;
+        Card card = findCard(q);
+        if (card != null) card.refreshInlineCollectionCounts();
+    }
+
     /**
      * Refreshes {@code q}'s card if it already has one, otherwise adds it
      * live. Convenient for incremental feeds (e.g. a query log) that don't
