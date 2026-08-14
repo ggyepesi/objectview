@@ -512,7 +512,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
         renderedConfiguredContent = true;
 
         add(createTitleHeader(viewable),
-                GridBagUtils.gbc(
+                GridBagUtils.weighted(
                         0, 0,
                         1.0, 0.0,
                         GridBagConstraints.NORTHWEST,
@@ -540,7 +540,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
         }
 
         add(collapsibleRootHeader(expanded),
-                GridBagUtils.gbc(
+                GridBagUtils.weighted(
                         0, 0,
                         1.0, 0.0,
                         GridBagConstraints.NORTHWEST,
@@ -801,7 +801,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
         // centre the content (which left a variable gap). Nested panels are
         // content-sized, so they don't need it.
         if (path.isRoot()) {
-            add(Box.createGlue(), GridBagUtils.gbc(
+            add(Box.createGlue(), GridBagUtils.weighted(
                     0, row + 1, 1.0, 1.0,
                     GridBagConstraints.NORTHWEST,
                     GridBagConstraints.BOTH,
@@ -1067,7 +1067,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
             if (nested != null) {
                 panel.add(
                         nested,
-                        GridBagUtils.gbc(
+                        GridBagUtils.weighted(
                                 0, row++,
                                 1.0, 0.0,
                                 GridBagConstraints.NORTHWEST,
@@ -1141,7 +1141,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
     ) {
         panel.add(collapsibleReference(
                         fieldName, fieldPath, q, false, nestedConfig),
-                GridBagUtils.gbc(
+                GridBagUtils.weighted(
                         0, row,
                         1.0, 0.0,
                         GridBagConstraints.NORTHWEST,
@@ -1230,7 +1230,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
         JPanel wrap = new JPanel(new GridBagLayout());
         wrap.setOpaque(false);
 
-        wrap.add(decoratedReference(chip, target), GridBagUtils.gbc(
+        wrap.add(decoratedReference(chip, target), GridBagUtils.weighted(
                 0, 0, 1.0, 0.0,
                 GridBagConstraints.NORTHWEST,
                 GridBagConstraints.HORIZONTAL,
@@ -1254,7 +1254,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
                 // does not drift further right with every level that gains one.
                 indent -= CollapseGutter.WIDTH;
             }
-            wrap.add(inline, GridBagUtils.gbc(
+            wrap.add(inline, GridBagUtils.weighted(
                     0, 1, 1.0, 0.0,
                     GridBagConstraints.NORTHWEST,
                     GridBagConstraints.HORIZONTAL,
@@ -1470,7 +1470,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
     private void addSingle(Component comp, int row) {
         renderedConfiguredContent = true;
 
-        add(comp, GridBagUtils.gbc(
+        add(comp, GridBagUtils.weighted(
                 0, row,
                 1.0, 0.0,
                 GridBagConstraints.NORTHWEST,

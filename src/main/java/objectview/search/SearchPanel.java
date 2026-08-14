@@ -1275,7 +1275,7 @@ public class SearchPanel extends JPanel
 
         panel.add(
                 badge,
-                GridBagUtils.gbc(
+                GridBagUtils.weighted(
                         0,
                         panel.getComponentCount(),
                         1.0,

@@ -63,7 +63,7 @@ public class ExpandablePanel extends JPanel {
                 }
             });
 
-            add(header, GridBagUtils.gbc(
+            add(header, GridBagUtils.weighted(
                     0, 0,
                     1.0, 0.0,
                     GridBagConstraints.NORTHWEST,
@@ -75,7 +75,7 @@ public class ExpandablePanel extends JPanel {
             body = bodySupplier.get();
 
             if (body != null) {
-                add(body, GridBagUtils.gbc(
+                add(body, GridBagUtils.weighted(
                         0, 1,
                         1.0, 0.0,
                         GridBagConstraints.NORTHWEST,

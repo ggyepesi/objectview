@@ -73,7 +73,7 @@ public final class ValueRenderer {
     private static JComponent imageComponent(String fieldName, FieldPath fieldPath, ImagePane imagePane) {
         JPanel panel = basePanel(fieldName, fieldPath, imagePane);
 
-        panel.add(imagePane, GridBagUtils.gbc(0, 0, 1.0, 1.0, GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(2, 2, 2, 2)));
+        panel.add(imagePane, GridBagUtils.weighted(0, 0, 1.0, 1.0, GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(2, 2, 2, 2)));
 
         return panel;
     }
@@ -97,7 +97,7 @@ public final class ValueRenderer {
             return null;
         }
 
-        panel.add(nested, GridBagUtils.gbc(0, 0, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(2, 2, 2, 2)));
+        panel.add(nested, GridBagUtils.weighted(0, 0, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(2, 2, 2, 2)));
 
         return panel;
     }
@@ -124,7 +124,7 @@ public final class ValueRenderer {
                 continue;
             }
 
-            panel.add(child, GridBagUtils.gbc(0, row++, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(2, 2, 2, 2)));
+            panel.add(child, GridBagUtils.weighted(0, row++, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(2, 2, 2, 2)));
         }
 
         return row == 0 ? null : panel;
@@ -151,7 +151,7 @@ public final class ValueRenderer {
             entryPanel.add(keyLabel, BorderLayout.WEST);
             entryPanel.add(valueComponent, BorderLayout.CENTER);
 
-            panel.add(entryPanel, GridBagUtils.gbc(0, row++, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(2, 2, 2, 2)));
+            panel.add(entryPanel, GridBagUtils.weighted(0, row++, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(2, 2, 2, 2)));
         }
 
         return row == 0 ? null : panel;
@@ -203,7 +203,7 @@ public final class ValueRenderer {
             JPanel wrap = new JPanel(new GridBagLayout());
             wrap.setOpaque(false);
 
-            wrap.add(Card.decorateReference(renderContext, chip, q), GridBagUtils.gbc(
+            wrap.add(Card.decorateReference(renderContext, chip, q), GridBagUtils.weighted(
                     0, 0, 1.0, 0.0,
                     GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL,
                     new Insets(0, 0, 0, 0)));
@@ -214,7 +214,7 @@ public final class ValueRenderer {
                     visited, ancestors, renderContext, "", fieldPath, q, config, fill, true);
 
             if (inline != null) {
-                wrap.add(inline, GridBagUtils.gbc(
+                wrap.add(inline, GridBagUtils.weighted(
                         0, 1, 1.0, 0.0,
                         GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL,
                         new Insets(0, 16, 4, 0)));

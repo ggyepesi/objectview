@@ -21,8 +21,8 @@ public final class GridBagUtils {
      * the standard form padding, left-aligned and stretched horizontally. The
      * common label/field-form default — the shorthand the workbench panels reuse.
      */
-    public static GridBagConstraints gbc(int gridx, int gridy, int gridwidth) {
-        return gbc(
+    public static GridBagConstraints row(int gridx, int gridy, int gridwidth) {
+        return spanning(
                 gridx,
                 gridy,
                 gridwidth,
@@ -100,9 +100,9 @@ public final class GridBagUtils {
     }
 
     /** Adds a component spanning both form columns, with the standard row padding
-     *  and horizontal stretch (see {@link #gbc(int, int, int)}). */
+     *  and horizontal stretch (see {@link #row(int, int, int)}). */
     public static void wideRow(JPanel form, int gridy, JComponent component) {
-        form.add(component, gbc(0, gridy, 2));
+        form.add(component, row(0, gridy, 2));
     }
 
     /**
@@ -136,7 +136,15 @@ public final class GridBagUtils {
         column.add(Box.createGlue(), c);
     }
 
-    public static GridBagConstraints gbc(
+    /**
+     * Constraints for a single cell. Named for what its numbers MEAN: every parameter
+     * here is a number, and an {@code int} widens to a {@code double}, so an argument
+     * list intended for {@link #spanning} type-checks perfectly against a weight-first
+     * signature — a gridwidth silently becomes a weight, and the weight after it an
+     * anchor. AWT then reports "illegal anchor value" from the layout pass, nowhere
+     * near the call. Distinct names are what make that mistake fail to compile.
+     */
+    public static GridBagConstraints weighted(
             int gridx,
             int gridy,
             double weightx,
@@ -149,12 +157,13 @@ public final class GridBagUtils {
         gbc.gridy = gridy;
         gbc.weightx = weightx;
         gbc.weighty = weighty;
-        gbc.anchor = anchor;
-        gbc.fill = fill;
+        gbc.anchor = requireAnchor(anchor);
+        gbc.fill = requireFill(fill);
         return gbc;
     }
 
-    public static GridBagConstraints gbc(
+    /** {@link #weighted(int, int, double, double, int, int)} with explicit padding. */
+    public static GridBagConstraints weighted(
             int gridx,
             int gridy,
             double weightx,
@@ -163,12 +172,13 @@ public final class GridBagUtils {
             int fill,
             Insets insets) {
 
-        GridBagConstraints gbc = gbc(gridx, gridy, weightx, weighty, anchor, fill);
+        GridBagConstraints gbc = weighted(gridx, gridy, weightx, weighty, anchor, fill);
         gbc.insets = insets;
         return gbc;
     }
 
-    public static GridBagConstraints gbc(
+    /** A cell spanning {@code gridwidth} columns. */
+    public static GridBagConstraints spanning(
             int gridx,
             int gridy,
             int gridwidth,
@@ -178,7 +188,7 @@ public final class GridBagUtils {
             int fill,
             Insets insets) {
 
-        GridBagConstraints gbc = gbc(
+        GridBagConstraints gbc = weighted(
                 gridx,
                 gridy,
                 weightx,
@@ -192,7 +202,8 @@ public final class GridBagUtils {
         return gbc;
     }
 
-    public static GridBagConstraints gbc(
+    /** A cell spanning {@code gridwidth} columns and {@code gridheight} rows. */
+    public static GridBagConstraints spanning(
             int gridx,
             int gridy,
             int gridwidth,
@@ -203,9 +214,47 @@ public final class GridBagUtils {
             int fill,
             Insets insets) {
 
-        GridBagConstraints gbc = gbc(gridx, gridy, gridwidth, weightx, weighty,
+        GridBagConstraints gbc = spanning(gridx, gridy, gridwidth, weightx, weighty,
                                      anchor, fill, insets);
         gbc.gridheight = gridheight;
         return gbc;
+    }
+
+    private static final java.util.Set<Integer> ANCHORS = java.util.Set.of(
+            GridBagConstraints.CENTER, GridBagConstraints.NORTH,
+            GridBagConstraints.NORTHEAST, GridBagConstraints.EAST,
+            GridBagConstraints.SOUTHEAST, GridBagConstraints.SOUTH,
+            GridBagConstraints.SOUTHWEST, GridBagConstraints.WEST,
+            GridBagConstraints.NORTHWEST, GridBagConstraints.PAGE_START,
+            GridBagConstraints.PAGE_END, GridBagConstraints.LINE_START,
+            GridBagConstraints.LINE_END, GridBagConstraints.FIRST_LINE_START,
+            GridBagConstraints.FIRST_LINE_END, GridBagConstraints.LAST_LINE_START,
+            GridBagConstraints.LAST_LINE_END, GridBagConstraints.BASELINE,
+            GridBagConstraints.BASELINE_LEADING, GridBagConstraints.BASELINE_TRAILING,
+            GridBagConstraints.ABOVE_BASELINE, GridBagConstraints.ABOVE_BASELINE_LEADING,
+            GridBagConstraints.ABOVE_BASELINE_TRAILING, GridBagConstraints.BELOW_BASELINE,
+            GridBagConstraints.BELOW_BASELINE_LEADING,
+            GridBagConstraints.BELOW_BASELINE_TRAILING);
+
+    /** Rejects a non-anchor HERE, in the caller's own stack. GridBagLayout accepts any
+     *  int until it lays the container out, and then throws on the EDT with nothing to
+     *  say about where the value came from. */
+    private static int requireAnchor(int anchor) {
+        if (!ANCHORS.contains(anchor)) {
+            throw new IllegalArgumentException(anchor + " is not a GridBagConstraints "
+                    + "anchor (WEST, NORTHWEST, CENTER, …). A gridwidth or a weight "
+                    + "passed in this position is the usual cause — see spanning().");
+        }
+        return anchor;
+    }
+
+    private static int requireFill(int fill) {
+        if (fill != GridBagConstraints.NONE && fill != GridBagConstraints.BOTH
+                && fill != GridBagConstraints.HORIZONTAL
+                && fill != GridBagConstraints.VERTICAL) {
+            throw new IllegalArgumentException(fill + " is not a GridBagConstraints fill "
+                    + "(NONE, BOTH, HORIZONTAL, VERTICAL).");
+        }
+        return fill;
     }
 }

@@ -175,7 +175,7 @@ public class CardListView {
         for (RawImageEntry entry : rawImageEntries) {
             JPanel holder = new JPanel(new GridBagLayout());
             holder.add(entry.imagePane,
-                    GridBagUtils.gbc(
+                    GridBagUtils.weighted(
                             0, 0,
                             1.0, 1.0,
                             GridBagConstraints.CENTER,
@@ -185,7 +185,7 @@ public class CardListView {
                 cardsByName.putIfAbsent(entry.title, holder);
             }
             panel.add(holder,
-                    GridBagUtils.gbc(
+                    GridBagUtils.weighted(
                             0, row++,
                             1.0, 1.0,
                             GridBagConstraints.CENTER,

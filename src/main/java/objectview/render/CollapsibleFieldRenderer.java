@@ -45,11 +45,11 @@ public final class CollapsibleFieldRenderer {
 
         JPanel wrap = new JPanel(new GridBagLayout());
         wrap.setOpaque(false);
-        wrap.add(header, GridBagUtils.gbc(
+        wrap.add(header, GridBagUtils.weighted(
                 0, 0, 1.0, 0.0,
                 GridBagConstraints.NORTHWEST,
                 GridBagConstraints.HORIZONTAL, new Insets(0, 0, 0, 0)));
-        wrap.add(items, GridBagUtils.gbc(
+        wrap.add(items, GridBagUtils.weighted(
                 0, 1, 1.0, 0.0,
                 GridBagConstraints.NORTHWEST,
                 GridBagConstraints.HORIZONTAL, new Insets(0, 16, 2, 0)));
