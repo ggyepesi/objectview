@@ -113,4 +113,22 @@ public class GroupTreeView extends JPanel {
         return node != null && node.getUserObject() instanceof GroupNode groupNode
                 ? groupNode.group() : null;
     }
+
+    /** Select and optionally show a group by identity after rebuilding the tree. */
+    public boolean selectGroup(ViewableGroup<?> target, boolean show) {
+        if (target == null) return false;
+        java.util.Enumeration<?> nodes = ((DefaultMutableTreeNode) tree.getModel().getRoot())
+                .breadthFirstEnumeration();
+        while (nodes.hasMoreElements()) {
+            DefaultMutableTreeNode node = (DefaultMutableTreeNode) nodes.nextElement();
+            if (getViewableGroup(node) == target) {
+                javax.swing.tree.TreePath path = new javax.swing.tree.TreePath(node.getPath());
+                tree.setSelectionPath(path);
+                tree.scrollPathToVisible(path);
+                if (show && showGroupHandler != null) showGroupHandler.accept(target);
+                return true;
+            }
+        }
+        return false;
+    }
 }
