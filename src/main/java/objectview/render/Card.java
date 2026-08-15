@@ -1108,12 +1108,16 @@ public class Card extends JPanel implements RenderedInstanceHost {
     }
 
     // suppressTitle: the name is already shown above (the chip that expanded
-    // into this body, or a same-named wrapper), so don't repeat it as a title.
+    // into this body, a same-named wrapper, or the field row naming the PART whose
+    // owner this card is), so don't repeat it as a title.
     private JComponent inlineViewable(
             Viewable q,
             FieldPath fieldPath,
             ViewConfig nestedConfig,
             boolean suppressTitle) {
+        // A part is named for its owner and its site ("Elia Kazan — Birth Name"), which
+        // reads well in a list but says nothing new under the very row that named it.
+        boolean suppress = suppressTitle || q != null && q.isPart();
         Card nested =
                 new Card(
                         copyVisited(),
@@ -1126,7 +1130,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
                         fieldPath,
                         null,
                         null,
-                        suppressTitle);
+                        suppress);
 
         return nested.hasRenderedConfiguredContent() ? nested : null;
     }

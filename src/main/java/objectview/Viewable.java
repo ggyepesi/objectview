@@ -39,6 +39,16 @@ public interface Viewable {
      *  Java class's simple name; dynamic objects override it with their domain name. */
     default String typeName() { return getClass().getSimpleName(); }
 
+    /**
+     * Whether this object is a PART of another — it exists only within an owner, carries
+     * that owner's identity, and is read as one of its owner's aspects.
+     *
+     * <p>Declared, not inferred: a renderer showing a part INSIDE its owner has already
+     * said whose aspect it is, so repeating the part's own heading there is noise. Said
+     * plainly by the object, no view has to recognise one by shape or by name.
+     */
+    default boolean isPart() { return false; }
+
     /** Stable class component of this object's identity. Usually identical to
      * {@link #typeName()}; a dynamically reclassified instance may retain its former
      * base class here so existing typed references and curation directives still
