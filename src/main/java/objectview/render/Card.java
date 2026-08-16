@@ -1394,6 +1394,14 @@ public class Card extends JPanel implements RenderedInstanceHost {
             return false;
         }
 
+        // A value that denotes something else — a URL, or an image's address — renders as
+        // the link or the picture (see ValueRenderer.rendersAsUrl). Folded into the
+        // painted block it would be neither, so a card would show as plain text what the
+        // same value shows as an image one view-mode away.
+        if (ValueRenderer.rendersAsUrl(value)) {
+            return false;
+        }
+
         // A collection or map renders as its own bordered, collapsible group
         // ("{field} (N)" header) — never folded into the shared, drag-to-select
         // text block. This matches the dynamic-field path (which already treats

@@ -36,7 +36,7 @@ public final class ValueRenderer {
         }
 
         if (value instanceof ImagePane imagePane) {
-            return imageComponent(fieldName, fieldPath, imagePane);
+            return imageComponent(fieldName, fieldPath, renderCopy(imagePane));
         }
 
         if (value instanceof Viewable q) {
@@ -65,6 +65,11 @@ public final class ValueRenderer {
             }
 
             return mapComponent(visited, ancestors, renderContext, fieldName, fieldPath, map, config, fill);
+        }
+
+        JComponent url = automaticUrlComponent(fieldName, fieldPath, value);
+        if (url != null) {
+            return url;
         }
 
         return leafComponent(fieldName, fieldPath, value);
@@ -139,8 +144,13 @@ public final class ValueRenderer {
             JPanel entryPanel = new JPanel(new BorderLayout(6, 0));
             entryPanel.setOpaque(false);
 
-            JLabel keyLabel = new JLabel(String.valueOf(entry.getKey()));
-            keyLabel.setFont(keyLabel.getFont().deriveFont(Font.BOLD));
+            JComponent keyComponent = automaticUrlComponent(
+                    "", fieldPath, entry.getKey());
+            if (keyComponent == null) {
+                JLabel keyLabel = new JLabel(String.valueOf(entry.getKey()));
+                keyLabel.setFont(keyLabel.getFont().deriveFont(Font.BOLD));
+                keyComponent = keyLabel;
+            }
 
             JComponent valueComponent = createCollectionItemComponent(visited, ancestors, renderContext, fieldPath, entry.getValue(), config, fill);
 
@@ -148,7 +158,7 @@ public final class ValueRenderer {
                 continue;
             }
 
-            entryPanel.add(keyLabel, BorderLayout.WEST);
+            entryPanel.add(keyComponent, BorderLayout.WEST);
             entryPanel.add(valueComponent, BorderLayout.CENTER);
 
             panel.add(entryPanel, GridBagUtils.weighted(0, row++, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(2, 2, 2, 2)));
@@ -178,7 +188,7 @@ public final class ValueRenderer {
         }
 
         if (item instanceof ImagePane imagePane) {
-            return imageComponent("", fieldPath, imagePane);
+            return imageComponent("", fieldPath, renderCopy(imagePane));
         }
 
 
@@ -247,7 +257,8 @@ public final class ValueRenderer {
             return mapComponent(visited, ancestors, renderContext, "", fieldPath, map, config, fill);
         }
 
-        return leafComponent("", fieldPath, item);
+        JComponent url = automaticUrlComponent("", fieldPath, item);
+        return url != null ? url : leafComponent("", fieldPath, item);
     }
 
     private static JComponent leafComponent(String fieldName, FieldPath fieldPath, Object value) {
@@ -285,12 +296,21 @@ public final class ValueRenderer {
             if (item instanceof Map<?, ?>) {
                 return false;
             }
+
+            if (automaticUrlKind(item) != UrlKind.NONE) {
+                return false;
+            }
         }
 
         return true;
     }
 
     private static boolean isSimpleMap(Map<?, ?> map) {
+        for (Object key : map.keySet()) {
+            if (automaticUrlKind(key) != UrlKind.NONE) {
+                return false;
+            }
+        }
         for (Object value : map.values()) {
             if (value == null) {
                 continue;
@@ -311,9 +331,78 @@ public final class ValueRenderer {
             if (value instanceof Map<?, ?>) {
                 return false;
             }
+
+            if (automaticUrlKind(value) != UrlKind.NONE) {
+                return false;
+            }
         }
 
         return true;
+    }
+
+    /** A Swing component belongs to one layout. In particular, a table may impose a
+     *  thumbnail cap without mutating an ImagePane stored in the domain or displayed by
+     *  a card elsewhere. */
+    private static ImagePane renderCopy(ImagePane pane) {
+        return pane.clone(false, true);
+    }
+
+    private static JComponent automaticUrlComponent(
+            String fieldName, FieldPath fieldPath, Object value) {
+        if (!(value instanceof String raw)) return null;
+        return switch (automaticUrlKind(raw)) {
+            case IMAGE -> {
+                ImagePane pane = MediaRenderSupport.imagePane(new UrlMediaValue(raw));
+                yield pane == null ? null : imageComponent(fieldName, fieldPath, pane);
+            }
+            case LINK -> new LinkRow(fieldName, fieldPath, raw, "");
+            case NONE -> null;
+        };
+    }
+
+    /**
+     * Whether this value renders as what it POINTS AT — a link, or the picture itself —
+     * rather than as its own text. Asked by any layout that decides what to render
+     * before delegating here: a card folds ordinary values into one painted text block,
+     * and a value folded into it can never become the link or image it denotes.
+     */
+    public static boolean rendersAsUrl(Object value) {
+        return automaticUrlKind(value) != UrlKind.NONE;
+    }
+
+    private static UrlKind automaticUrlKind(Object value) {
+        if (!(value instanceof String raw) || raw.isBlank()) return UrlKind.NONE;
+        try {
+            java.net.URI uri = java.net.URI.create(raw.trim());
+            String scheme = uri.getScheme();
+            if (!("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))
+                    || uri.getHost() == null) {
+                return UrlKind.NONE;
+            }
+            String path = uri.getPath() == null
+                    ? "" : uri.getPath().toLowerCase(java.util.Locale.ROOT);
+            return IMAGE_EXTENSIONS.stream().anyMatch(path::endsWith)
+                    ? UrlKind.IMAGE : UrlKind.LINK;
+        } catch (IllegalArgumentException ignored) {
+            return UrlKind.NONE;
+        }
+    }
+
+    private static final Set<String> IMAGE_EXTENSIONS = Set.of(
+            ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".avif", ".bmp");
+
+    private enum UrlKind { NONE, LINK, IMAGE }
+
+    private record UrlMediaValue(String mediaUrl) implements MediaValue {
+        @Override public String mediaLabel() { return mediaUrl; }
+        @Override public boolean mediaSvg() {
+            try {
+                String path = java.net.URI.create(mediaUrl).getPath();
+                return path != null && path.toLowerCase(java.util.Locale.ROOT).endsWith(".svg");
+            } catch (IllegalArgumentException ignored) {
+                return false;
+            }
+        }
     }
 
     private static JPanel basePanel(String fieldName, FieldPath fieldPath, Object value) {
