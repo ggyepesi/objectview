@@ -70,6 +70,12 @@ public class ImagePane extends JPanel
     // fit, so a huge natural image doesn't blow up or collapse the card grid.
     private static final int MAX_DISPLAY_SIZE = 400;
 
+    // The cap this pane actually uses. A card can give an image the full box; a
+    // layout that cannot (a table row must not be 150px tall for one thumbnail)
+    // lowers it. The image scales to whatever box results, so a lower cap costs
+    // size and nothing else — the full picture is still one double-click away.
+    private int displayCap = MAX_DISPLAY_SIZE;
+
     private int imageWidth = 150;
     private int imageHeight = 150;
 
@@ -318,13 +324,28 @@ public class ImagePane extends JPanel
         int h = Math.max(1, imageHeight);
 
         int max = Math.max(w, h);
-        if (max > MAX_DISPLAY_SIZE) {
-            w = w * MAX_DISPLAY_SIZE / max;
-            h = h * MAX_DISPLAY_SIZE / max;
+        if (max > displayCap) {
+            w = w * displayCap / max;
+            h = h * displayCap / max;
         }
 
-        setPreferredSize(new Dimension(Math.max(150, w), Math.max(150, h)));
-        setMinimumSize(new Dimension(150, 150));
+        // The floor cannot exceed the cap, or a capped pane would be forced back to
+        // the card-sized box the cap exists to avoid.
+        int floor = Math.min(150, displayCap);
+
+        setPreferredSize(new Dimension(Math.max(floor, w), Math.max(floor, h)));
+        setMinimumSize(new Dimension(floor, floor));
+    }
+
+    /**
+     * Caps this pane's layout box, for a layout that cannot spare a card-sized image
+     * (a table row). The picture is scaled into the box, never cropped, and a
+     * double-click still opens it full size in its own window.
+     */
+    public void setDisplayCap(int pixels) {
+        displayCap = pixels <= 0 ? MAX_DISPLAY_SIZE : pixels;
+        applyDisplaySize();
+        revalidate();
     }
 
     private void loadDisplayImageAsync() {

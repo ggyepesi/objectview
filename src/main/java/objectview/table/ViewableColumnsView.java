@@ -11,6 +11,7 @@ import objectview.render.InstancePaint;
 import objectview.render.RenderedInstanceHost;
 import objectview.render.RenderContext;
 import objectview.viewconfig.ViewConfig;
+import objectview.media.ImagePane;
 import objectview.virtual.ConfigurableVirtualizedContainer;
 import objectview.virtual.SearchNavigableContainer;
 import objectview.virtual.VirtualizedCardList;
@@ -58,6 +59,10 @@ public final class ViewableColumnsView
     // Each column keeps at least this width; when the columns need more than the viewport, the
     // list widens past it and scrolls horizontally instead of squeezing them thinner.
     private static final int MIN_COLUMN_WIDTH = 160;
+    // A media cell is a THUMBNAIL. A card can give an image its full display box; a row
+    // cannot — one 150px image would set the height of every row beside it. The pane
+    // scales the picture into this box and still opens it full size on double-click.
+    private static final int MEDIA_CELL_SIZE = 64;
     private static final Color GRID = new Color(224, 224, 224);
     private static final Color HEADER_BACKGROUND = new Color(245, 245, 245);
     private static final int CELL_PAD_X = 6;
@@ -242,12 +247,27 @@ public final class ViewableColumnsView
                     q, column.path(), context::fieldSchema);
             JComponent rendered = renderResolvedCell(q, column, resolved, config);
             if (rendered != null) {
+                capMedia(rendered);
                 row.setCell(columnIndex, rendered);
             }
         }
         installSelectionListener(row);
         context.registerTopLevel(q, row);
         return row;
+    }
+
+    /** Every image in a cell — a media field, or one inside a collapsed collection —
+     *  is laid out as a thumbnail. The cell is asked once, when it is built. */
+    private static void capMedia(Component component) {
+        if (component instanceof ImagePane pane) {
+            pane.setDisplayCap(MEDIA_CELL_SIZE);
+            return;
+        }
+        if (component instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                capMedia(child);
+            }
+        }
     }
 
     /**

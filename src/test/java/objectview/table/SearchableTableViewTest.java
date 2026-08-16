@@ -177,6 +177,26 @@ class SearchableTableViewTest {
                 "the media source is never rendered as its label text");
     }
 
+    /** A card can give an image its full display box; a row cannot — one image at card
+     *  size sets the height of every row beside it. The picture is scaled into the
+     *  thumbnail, never cropped, and stays one double-click from its own window. */
+    @Test void aMediaCellIsLaidOutAsAThumbnail() {
+        MediaItem withImage = new MediaItem("Flag", new TestMedia("Flag.jpg", "http://x/Flag.jpg"));
+        ViewableColumnsView table = SearchableView.builder(List.of(withImage))
+                .mode(RenderingMode.TABLE)
+                .sample(withImage)
+                .build().table();
+
+        ImagePane pane = (ImagePane) find(table.row(withImage), ImagePane.class);
+        assertNotNull(pane);
+        assertTrue(pane.getPreferredSize().height <= 64,
+                "a media cell is a thumbnail, not a card-sized image: "
+                        + pane.getPreferredSize());
+        assertTrue(pane.getMinimumSize().height <= 64,
+                "the minimum size cannot force the row back to card height: "
+                        + pane.getMinimumSize());
+    }
+
     @Test void aSourcelessMediaCellIsEmptyRatherThanShowingItsLabel() {
         MediaItem blank = new MediaItem("Flag", new TestMedia("Flag.jpg", ""));
         ViewableColumnsView table = SearchableView.builder(List.of(blank))
