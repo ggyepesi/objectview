@@ -1,6 +1,6 @@
 package objectview.search;
 
-import objectview.Viewable;
+import objectview.field.ValueText;
 import objectview.field.ViewableFieldPaths;
 import objectview.field.FieldPath;
 
@@ -56,7 +56,7 @@ public class SearchAndSort {
 
                 fieldTextByTitle.put(
                         fp.title(),
-                        normalize(flattenForSearch(value)));
+                        normalize(flattenForSearch(fp, value)));
             }
 
             searchIndex.add(new SearchEntry(qp, fieldTextByTitle));
@@ -119,7 +119,7 @@ public class SearchAndSort {
                         extractValue(q, fp.path());
 
                 if (containsAllTokens(
-                        normalize(flattenForSearch(value)),
+                        normalize(flattenForSearch(fp, value)),
                         queryTokens)) {
 
                     if (hits == null) {
@@ -220,40 +220,21 @@ public class SearchAndSort {
         }
     }
 
-    private String flattenForSearch(Object value) {
-        if (value == null) {
-            return "";
-        }
+    /** Everything the field shows, nested objects included — what a reader can SEE on
+     *  the card is what they can find. {@link ValueText} owns the traversal; this owns
+     *  only how the pieces are joined into one haystack.
+     *
+     *  <p>An INLINE field is descended into because the card paints it that way; a
+     *  reference renders as a name chip and is read as one, at the top of a path exactly
+     *  as inside it. A dynamic field has no declared Java field to ask, and reads as a
+     *  reference. */
+    private String flattenForSearch(
+            ViewableFieldPaths.PathInfo field, Object value) {
 
-        if (value instanceof Viewable q) {
-            return q.getName();
-        }
+        int depth = objectview.ViewableAdapter.isInline(field.leafField())
+                ? ValueText.NESTED_DEPTH : 0;
 
-        if (value instanceof Collection<?> c) {
-            StringBuilder sb =
-                    new StringBuilder();
-
-            for (Object item : c) {
-                sb.append(flattenForSearch(item))
-                  .append(' ');
-            }
-
-            return sb.toString();
-        }
-
-        if (value instanceof Map<?, ?> m) {
-            StringBuilder sb =
-                    new StringBuilder();
-
-            m.forEach((key, item) -> sb.append(flattenForSearch(key))
-                    .append(' ')
-                    .append(flattenForSearch(item))
-                    .append(' '));
-
-            return sb.toString();
-        }
-
-        return String.valueOf(value);
+        return String.join(" ", ValueText.shown(value, depth));
     }
 
     private boolean containsAllTokens(
@@ -319,43 +300,17 @@ public class SearchAndSort {
         return n.isPresent() ? n.getAsDouble() : null;
     }
 
+    /** What the value is IDENTIFIED by, ordered: the same traversal as the search
+     *  haystack, stopped at depth 0 so a nested object reads as its name — a row orders
+     *  by the chip it displays, not by text hidden inside the object it points at. A
+     *  many-valued field orders by its first value. */
     private String sortableString(Object value) {
-        if (value == null) {
-            return "";
-        }
-
-        if (value instanceof Viewable q) {
-            return normalize(q.getName());
-        }
-
-        if (value instanceof Collection<?> c) {
-            return c.stream()
-                    .map(this::toSortable)
-                    .filter(s -> !s.isBlank())
-                    .sorted(String.CASE_INSENSITIVE_ORDER)
-                    .findFirst()
-                    .orElse("");
-        }
-
-        if (value instanceof Map<?, ?> m) {
-            return m.values().stream()
-                    .map(this::toSortable)
-                    .filter(s -> !s.isBlank())
-                    .sorted(String.CASE_INSENSITIVE_ORDER)
-                    .findFirst()
-                    .orElse("");
-        }
-
-        return normalize(String.valueOf(value));
-    }
-
-    private String toSortable(Object o) {
-        if (o == null) {
-            return "";
-        }
-        return o instanceof Viewable q
-                ? normalize(q.getName())
-                : normalize(String.valueOf(o));
+        return ValueText.identity(value).stream()
+                .map(this::normalize)
+                .filter(s -> !s.isBlank())
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .findFirst()
+                .orElse("");
     }
 
     private String normalize(String s) {

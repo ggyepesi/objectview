@@ -547,15 +547,11 @@ public final class ViewableFieldPaths {
                         filter,
                         out);
             } else {
-                String displayKey = ViewableContractFieldSet.displayKey(
-                        asViewableClass(nested));
-                FieldPath namePath = path.append(displayKey);
-
-                out.add(new PathInfo(
-                        title + "." + ViewableContractFieldSet.label(
-                                displayKey),
-                        namePath,
-                        field));
+                // The FIELD itself, not a synthesized path to the nested object's name.
+                // Reading the object is what makes its text reachable — ValueText takes
+                // the name for a sort key and everything the card paints for search,
+                // where appending ".name" here could only ever yield the name.
+                out.add(new PathInfo(title, path, field));
             }
 
             return;
