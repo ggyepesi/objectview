@@ -197,6 +197,78 @@ class VirtualSearchHighlightTest {
     }
 
     @ParameterizedTest
+    @EnumSource(value = RenderingMode.class, names = "CARD")
+    void highlightsDisplayLabelOfNestedValue(RenderingMode mode) {
+        EdtTests.onEdt(() -> {
+            Element item = new Element("alpha");
+            item.details = List.of(new Detail("resonant"));
+            String display = objectview.field.ViewableContractFieldSet.DISPLAY_KEY;
+            objectview.viewconfig.ViewConfig detail =
+                    objectview.viewconfig.ViewConfig.of(Detail.class);
+            detail.setAllFields(false);
+            detail.addField(display, objectview.viewconfig.ViewConfig.leaf());
+            objectview.viewconfig.ViewConfig config =
+                    objectview.viewconfig.ViewConfig.of(Element.class);
+            config.setAllFields(false);
+            config.addField("details", detail);
+
+            SearchableView view = SearchableView.builder(List.of(item))
+                    .sample(item)
+                    .mode(mode)
+                    .collapsible(true)
+                    .configState(new SearchPanel.ConfigState(config, null, config))
+                    .build();
+            materialize(view, item);
+            view.search().setFieldHighlight(true);
+            view.search().runCoordinatedSearch("resonant");
+
+            assertTrue(host(view, item).isHighlighted());
+            assertTrue(hasHighlightedPath(materialize(view, item),
+                            objectview.field.FieldPath.of("details"),
+                            List.of("resonant")),
+                    mode + ": the rendered nested label row receives the leaf highlight");
+        });
+    }
+
+    @Test void firstTopLevelHitAlsoRevealsTheSameCardsNestedHit() {
+        EdtTests.onEdt(() -> {
+            Element item = new Element("resonant");
+            item.details = List.of(new Detail("resonant"));
+            Element another = new Element("other");
+            another.details = List.of(new Detail("resonant"));
+            String display = objectview.field.ViewableContractFieldSet.DISPLAY_KEY;
+            objectview.viewconfig.ViewConfig detail =
+                    objectview.viewconfig.ViewConfig.of(Detail.class);
+            detail.setAllFields(false);
+            detail.addField(display, objectview.viewconfig.ViewConfig.leaf());
+            objectview.viewconfig.ViewConfig config =
+                    objectview.viewconfig.ViewConfig.of(Element.class);
+            config.setAllFields(false);
+            config.addField(display, objectview.viewconfig.ViewConfig.leaf());
+            config.addField("details", detail);
+
+            SearchableView view = SearchableView.builder(List.of(item, another))
+                    .sample(item)
+                    .mode(RenderingMode.CARD)
+                    .collapsible(true)
+                    .configState(new SearchPanel.ConfigState(config, null, config))
+                    .build();
+            materialize(view, item);
+            materialize(view, another);
+            view.search().setFieldHighlight(true);
+            view.search().runCoordinatedSearch("resonant");
+
+            assertTrue(hasHighlightedPath(materialize(view, item),
+                            objectview.field.FieldPath.of("details"),
+                            List.of("resonant")),
+                    "the first top-level hit reveals and highlights its nested twin");
+            assertTrue(view.renderContext().isCollectionExpanded(
+                            another.details, false),
+                    "every matching card banks expansion for all hit paths, even off-screen");
+        });
+    }
+
+    @ParameterizedTest
     @EnumSource(RenderingMode.class)
     void subtypeNestedSearchPathIsComparedWithItsSubtypeViewBranch(RenderingMode mode) {
         EdtTests.onEdt(() -> {

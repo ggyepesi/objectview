@@ -222,7 +222,12 @@ public class RenderContext {
                 root, path, this::fieldSchema);
         boolean changed = false;
         for (Viewable nested : resolved.nestedViewables()) {
-            if (!isTopLevel(nested)) changed |= setExpanded(nested, true);
+            // A nested structural/inline value may ALSO have a top-level card in a
+            // MultiView (owned Name is the canonical case). It still has to expand so
+            // the matched leaf exists for field highlighting. Ordinary top-level
+            // references ignore this flag and remain navigation links, so recording
+            // the state for every nested value is safe and removes the ambiguity here.
+            changed |= setExpanded(nested, true);
         }
         for (Object container : resolved.containers()) {
             int count = container instanceof Collection<?> collection

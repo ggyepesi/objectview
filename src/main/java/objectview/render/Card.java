@@ -84,6 +84,9 @@ public class Card extends JPanel implements RenderedInstanceHost {
     // True only for a top-level instance card (not a nested reference/value sub-card), so a
     // header decoration (e.g. an identity chip) attaches to instances, never to nested cards.
     private final boolean rootRender;
+    // Structural inline values may also be listed as top-level objects elsewhere in
+    // a MultiView. Unlike a reference, that must not suppress their embedded body.
+    private final boolean embedTopLevel;
 
     private Color highlightColor = null;
 
@@ -257,6 +260,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
         this.fill = fill;
         this.path = path == null ? FieldPath.ROOT : path;
         this.rootRender = false;
+        this.embedTopLevel = false;
         this.visited = identitySetOf();
         this.ancestors = identitySetOf();
         this.refreshVisitedSeed = identitySetOf();
@@ -372,7 +376,24 @@ public class Card extends JPanel implements RenderedInstanceHost {
                 List<Viewable> objectPath,
                 JComponent compiledView,
                 boolean suppressTitle) {
+        this(visited, ancestors, renderContext, rootRender, viewable, config, fill,
+                path, objectPath, compiledView, suppressTitle, false);
+    }
+
+    private Card(Set<Object> visited,
+                Set<Object> ancestors,
+                RenderContext renderContext,
+                boolean rootRender,
+                Viewable viewable,
+                ViewConfig config,
+                boolean fill,
+                FieldPath path,
+                List<Viewable> objectPath,
+                JComponent compiledView,
+                boolean suppressTitle,
+                boolean embedTopLevel) {
         this.suppressTitle = suppressTitle;
+        this.embedTopLevel = embedTopLevel;
         RenderStats.panel(viewable);
         // addMouseListener(new DeepComponentInspector());
 
@@ -466,7 +487,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
             addCompactReference(viewable, false);
             return;
         }
-        if (!rootRender && renderContext.isTopLevel(viewable)) {
+        if (!rootRender && !embedTopLevel && renderContext.isTopLevel(viewable)) {
             addCompactReference(viewable, true);
             return;
         }
@@ -1027,7 +1048,30 @@ public class Card extends JPanel implements RenderedInstanceHost {
             ViewConfig nestedConfig) {
 
         if (value instanceof Viewable q) {
-            return inlineViewable(q, fieldPath, nestedConfig, false);
+            ViewConfig effective = nestedConfig;
+            // Selecting an inline value as a whole means "show that value". The view
+            // editor represents an undrilled selection with a leaf config; passing it
+            // through literally produced an empty owned-value body (a label with
+            // nothing to open). References can sensibly render their identity alone,
+            // but an inline value is its fields, so fall back to its class config.
+            if (effective == null || !effective.isAllFields()
+                    && !effective.isAllMinorFields()
+                    && effective.getFields().isEmpty()) {
+                // An inline/owned value belongs to this field site. Do not borrow
+                // the shared context's class config here: in a MultiView that config
+                // describes the separate top-level section for the same class and may
+                // intentionally be a leaf. Reusing it made Person.structuredName open
+                // empty while the standalone Name card still contained its fields.
+                effective = ViewConfig.all(q.getClass())
+                        .setAddListener(config.isAddListener())
+                        .setThumb(config.isThumb());
+            }
+            // A structural/owned value is not an entity-reference edge, but it is
+            // still a nested object. Give it the same disclosure interaction without
+            // turning a top-level copy into navigation and without attaching the
+            // entity identity decoration a real reference receives.
+            return collapsibleReference(
+                    fieldName, fieldPath, q, false, effective, false, false);
         }
 
         Collection<?> items =
@@ -1115,6 +1159,15 @@ public class Card extends JPanel implements RenderedInstanceHost {
             FieldPath fieldPath,
             ViewConfig nestedConfig,
             boolean suppressTitle) {
+        return inlineViewable(q, fieldPath, nestedConfig, suppressTitle, false);
+    }
+
+    private JComponent inlineViewable(
+            Viewable q,
+            FieldPath fieldPath,
+            ViewConfig nestedConfig,
+            boolean suppressTitle,
+            boolean embedTopLevel) {
         // A part is named for its owner and its site ("Elia Kazan — Birth Name"), which
         // reads well in a list but says nothing new under the very row that named it.
         boolean suppress = suppressTitle || q != null && q.isPart();
@@ -1130,7 +1183,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
                         fieldPath,
                         null,
                         null,
-                        suppress);
+                        suppress,
+                        embedTopLevel);
 
         return nested.hasRenderedConfiguredContent() ? nested : null;
     }
@@ -1186,14 +1240,28 @@ public class Card extends JPanel implements RenderedInstanceHost {
             boolean defaultExpanded,
             ViewConfig nestedConfig) {
 
+        return collapsibleReference(fieldName, fieldPath, target,
+                defaultExpanded, nestedConfig, true, true);
+    }
+
+    private JComponent collapsibleReference(
+            String fieldName,
+            FieldPath fieldPath,
+            Viewable target,
+            boolean defaultExpanded,
+            ViewConfig nestedConfig,
+            boolean navigateToTopLevel,
+            boolean decorateIdentity) {
+
         ViewConfig targetConfig = nestedConfig == null
                 ? configForNested(target) : nestedConfig;
 
         // A reference to something that is itself a top-level card in this view
         // is a navigation link (jump to that card) rather than an expand-in-place
         // chip — so the same object never has two competing expand toggles.
-        if (renderContext != null && renderContext.isTopLevel(target)) {
-            return decoratedReference(new ReferenceRow(
+        if (navigateToTopLevel && renderContext != null
+                && renderContext.isTopLevel(target)) {
+            return maybeDecoratedReference(new ReferenceRow(
                     fieldName,
                     fieldPath,
                     target,
@@ -1201,7 +1269,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
                     targetConfig,
                     objectPathTitle(target),
                     false,
-                    true), target);
+                    true), target, decorateIdentity);
         }
 
         // A reference with nothing behind it is a value, not a door. Its target's only
@@ -1209,9 +1277,9 @@ public class Card extends JPanel implements RenderedInstanceHost {
         // opens an empty box. Rendered as a plain row it keeps selection, search
         // highlight and copy, and stops promising content it does not have.
         if (!targetHasContent(target)) {
-            return decoratedReference(
+            return maybeDecoratedReference(
                     new TextRow(fieldName, fieldPath, ReferenceRow.referenceLabel(target)),
-                    target);
+                    target, decorateIdentity);
         }
 
         boolean exp = renderContext != null
@@ -1228,13 +1296,13 @@ public class Card extends JPanel implements RenderedInstanceHost {
                         exp);
 
         if (!exp) {
-            return decoratedReference(chip, target);
+            return maybeDecoratedReference(chip, target, decorateIdentity);
         }
 
         JPanel wrap = new JPanel(new GridBagLayout());
         wrap.setOpaque(false);
 
-        wrap.add(decoratedReference(chip, target), GridBagUtils.weighted(
+        wrap.add(maybeDecoratedReference(chip, target, decorateIdentity), GridBagUtils.weighted(
                 0, 0, 1.0, 0.0,
                 GridBagConstraints.NORTHWEST,
                 GridBagConstraints.HORIZONTAL,
@@ -1243,7 +1311,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
         // The chip directly above already shows the target's name, so the
         // expanded body must not repeat it as its own title header.
         JComponent inline = inlineViewable(
-                target, fieldPath, targetConfig, true);
+                target, fieldPath, targetConfig, true, !navigateToTopLevel);
 
         if (inline != null) {
             // A nested expansion collapses from its own left edge too. Its body is the
@@ -1266,6 +1334,11 @@ public class Card extends JPanel implements RenderedInstanceHost {
         }
 
         return wrap;
+    }
+
+    private JComponent maybeDecoratedReference(
+            JComponent row, Viewable target, boolean decorateIdentity) {
+        return decorateIdentity ? decoratedReference(row, target) : row;
     }
 
     // Reuse the card-header identity decorator (e.g. TransformApp's clickable QID chip) on a

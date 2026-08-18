@@ -108,6 +108,8 @@ public class SearchPanel extends JPanel
     // on scroll-back can be re-highlighted (see cardMaterialized).
     private final java.util.Set<objectview.Viewable> virtualHits =
             java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    private List<HitGroupQ> currentVirtualGroups = List.of();
+    private Map<Viewable, List<HitGroupQ>> virtualGroupsByItem = Map.of();
     private JScrollPane targetScrollPane;
     private JDialog searchDialog;
     private JDialog sortDialog;
@@ -328,7 +330,10 @@ public class SearchPanel extends JPanel
     private void reapplyHighlightOnMaterialized(JComponent component) {
         if (component instanceof RenderedInstanceHost host
                 && virtualHits.contains(host.renderedInstance())) {
-            highlightInstance(component);
+            // Newly materialized components were built from the already-banked
+            // expansion state. Refreshing here would rematerialize table rows and
+            // recursively invoke this listener.
+            revealAndHighlightMatches(host.renderedInstance(), component, false);
         }
     }
 
@@ -1065,7 +1070,7 @@ public class SearchPanel extends JPanel
         // New query: drop the previous hit set. searchSyncVirtual repopulates it
         // for a non-empty query; an empty query leaves it cleared so stale hits
         // don't re-highlight on scroll.
-        virtualHits.clear();
+        clearVirtualSearchState();
 
         if (text.isEmpty()) {
             return;
@@ -1216,11 +1221,56 @@ public class SearchPanel extends JPanel
             return;
         }
 
-        virtualList.forEachMaterialized((item, component) -> {
-            if (virtualHits.contains(item)) {
-                highlightInstance(component);
+        // Revealing a path may refresh/re-register a virtual component. Snapshot the
+        // live map before doing that work; mutating it inside forEachMaterialized is
+        // both unsafe (table mode threw ConcurrentModificationException) and could
+        // skip a later visible card.
+        List<java.util.Map.Entry<Viewable, JComponent>> built = new ArrayList<>();
+        virtualList.forEachMaterialized((item, component) ->
+                built.add(java.util.Map.entry(item, component)));
+        for (java.util.Map.Entry<Viewable, JComponent> entry : built) {
+            if (virtualHits.contains(entry.getKey())) {
+                revealAndHighlightMatches(entry.getKey(), entry.getValue(), true);
             }
-        });
+        }
+    }
+
+    /** Makes one materialized matching instance self-contained: every path by which
+     *  it matched is visible and highlighted. Off-screen instances remain lazy and
+     *  receive the same treatment from the materialization listener when scrolled in. */
+    private void revealAndHighlightMatches(
+            Viewable item, JComponent component, boolean refreshExisting) {
+        if (!(component instanceof RenderedInstanceHost host)) return;
+        List<HitGroupQ> groups = matchingGroups(item);
+        for (HitGroupQ group : groups) {
+            host.revealPath(group.fieldPath.path());
+        }
+        // Expansion may already have been banked for this object before its existing
+        // component was refreshed, so every visible matching host gets one rebuild.
+        if (refreshExisting && !groups.isEmpty()) host.refreshRenderedContent();
+        highlightInstance(component);
+        if (!fieldHighlightBox.isSelected()) return;
+        for (HitGroupQ group : groups) {
+            List<JComponent> fieldHits = collectMatchingFieldRows(
+                    component, group.fieldPath.path(), group.queryTokens);
+            if (fieldHits.isEmpty()) {
+                addHiddenHitBadge(component, group.title);
+                continue;
+            }
+            for (JComponent hit : fieldHits) highlightField(hit);
+            highlightTextRecursively(
+                    component, group.fieldPath.path(), group.queryTokens);
+        }
+    }
+
+    private List<HitGroupQ> matchingGroups(Viewable item) {
+        return virtualGroupsByItem.getOrDefault(item, List.of());
+    }
+
+    private void clearVirtualSearchState() {
+        virtualHits.clear();
+        currentVirtualGroups = List.of();
+        virtualGroupsByItem = Map.of();
     }
 
     /** Tints ONE rendered instance. Card or table row: both are RenderedInstanceHosts,
@@ -1326,7 +1376,7 @@ public class SearchPanel extends JPanel
                     jc.getClientProperty(FIELD_VALUE_PROPERTY);
 
             if (pathObj instanceof FieldPath rowPath
-                    && rowPath.equals(selectedPath)
+                    && visuallyRepresents(rowPath, selectedPath)
                     && matchesWithTokens(val, queryTokens)) {
 
                 replaceAncestorWithDescendantIfNeeded(jc, hits);
@@ -1607,7 +1657,7 @@ public class SearchPanel extends JPanel
 
             boolean isSelectedField =
                     pathObj instanceof FieldPath rowPath
-                            && rowPath.equals(selectedPath);
+                            && visuallyRepresents(rowPath, selectedPath);
 
             if (isSelectedField) {
                 highlightLabelsUnder(jc, queryTokens);
@@ -1623,6 +1673,19 @@ public class SearchPanel extends JPanel
                         queryTokens);
             }
         }
+    }
+
+    /** A reference row is stored at the owning field path, while its painted text is
+     *  the referenced value's display-contract leaf. Search enumerates that leaf as
+     *  {@code @view:display}; rendering must bridge the one-segment difference so the
+     *  label itself receives the token highlight. */
+    private static boolean visuallyRepresents(
+            FieldPath renderedPath, FieldPath selectedPath) {
+        if (renderedPath == null || selectedPath == null) return false;
+        return renderedPath.equals(selectedPath)
+                || selectedPath.parent().equals(renderedPath)
+                && objectview.field.ViewableContractFieldSet.DISPLAY_KEY
+                        .equals(selectedPath.leaf());
     }
 
     private void highlightLabelsUnder(
@@ -2079,7 +2142,7 @@ public class SearchPanel extends JPanel
                         searchPaths());
 
         // Remember the hits so a card rebuilt on scroll-back gets re-highlighted.
-        virtualHits.clear();
+        clearVirtualSearchState();
         matchesByField.values().forEach(virtualHits::addAll);
 
         Map<String, ViewableFieldPaths.PathInfo> pathByTitle =
@@ -2102,11 +2165,33 @@ public class SearchPanel extends JPanel
             groups.put(e.getKey(), g);
         }
 
+        // Expansion belongs to each matching card, not to whichever logical hit is
+        // currently navigated. Record it without materializing off-screen cards; they
+        // will be born already open when virtualization scrolls them into view.
+        if (renderContext != null) {
+            for (HitGroupQ group : groups.values()) {
+                if (group.fieldPath == null) continue;
+                for (Viewable hit : group.hits) {
+                    renderContext.revealPath(hit, group.fieldPath.path());
+                }
+            }
+        }
+
         showSearchResultsVirtual(groups);
     }
 
     private void showSearchResultsVirtual(Map<String, HitGroupQ> groups) {
         resultsPanel.removeAll();
+        currentVirtualGroups = List.copyOf(groups.values());
+        IdentityHashMap<Viewable, List<HitGroupQ>> byItem = new IdentityHashMap<>();
+        for (HitGroupQ group : currentVirtualGroups) {
+            if (group.fieldPath == null) continue;
+            for (Viewable hit : group.hits) {
+                byItem.computeIfAbsent(hit, ignored -> new ArrayList<>()).add(group);
+            }
+        }
+        byItem.replaceAll((ignored, value) -> List.copyOf(value));
+        virtualGroupsByItem = Collections.unmodifiableMap(byItem);
 
         HitGroupQ first = null;
         for (HitGroupQ g : groups.values()) {
@@ -2184,36 +2269,14 @@ public class SearchPanel extends JPanel
             return;
         }
 
+        // One instance can match several configured paths (Elia Kazan matches both
+        // Person.Display label and structuredName.givenName.Display label). The first
+        // logical hit must still reveal every matching path on THAT card; otherwise
+        // the nested match stays hidden until Next happens to navigate to its group.
         // From here NOTHING is layout-specific: a card and a table row are both
         // RenderedInstanceHosts, and the field/text helpers below walk any component
         // subtree by field path. One highlighting path serves every render mode.
-        if (g.fieldPath != null && card instanceof RenderedInstanceHost host
-                && host.revealPath(g.fieldPath.path())) {
-            host.refreshRenderedContent();
-        }
-
-        highlightInstance(card);
-
-        if (fieldHighlightBox.isSelected() && g.fieldPath != null) {
-            List<JComponent> fieldHits =
-                    collectMatchingFieldRows(
-                            card,
-                            g.fieldPath.path(),
-                            g.queryTokens);
-
-            if (fieldHits.isEmpty()) {
-                addHiddenHitBadge(card, g.title);
-            } else {
-                for (JComponent hit : fieldHits) {
-                    highlightField(hit);
-                }
-
-                highlightTextRecursively(
-                        card,
-                        g.fieldPath.path(),
-                        g.queryTokens);
-            }
-        }
+        revealAndHighlightMatches(q, card, false);
 
         markCurrentHitVirtual(card);
 
