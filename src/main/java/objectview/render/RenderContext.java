@@ -47,6 +47,12 @@ public class RenderContext {
         }
     }
 
+    /** Detaches one virtualized section when that section is rebuilt or discarded. */
+    public void removeTopLevelResolver(
+            java.util.function.Function<Object, JComponent> resolver) {
+        topLevelResolvers.remove(resolver);
+    }
+
     private JComponent resolveTopLevel(Object object) {
         for (java.util.function.Function<Object, JComponent> resolver
                 : topLevelResolvers) {
@@ -465,6 +471,11 @@ public class RenderContext {
         if (handler != null) {
             cardToggleHandlers.add(handler);
         }
+    }
+
+    /** Detaches one virtualized section when that section is rebuilt or discarded. */
+    public void removeCardToggleHandler(java.util.function.Consumer<Viewable> handler) {
+        cardToggleHandlers.remove(handler);
     }
 
     public void notifyCardToggled(Viewable q) {

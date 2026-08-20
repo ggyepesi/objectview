@@ -29,6 +29,10 @@ public class CardListView {
     // resolve cross-references and class configs consistently.
     private RenderContext context;
     private java.util.function.Function<Viewable, ViewConfig> cardConfigResolver;
+    private RenderContext registeredContext;
+    private java.util.function.Function<Object, JComponent> topLevelResolver;
+    private java.util.function.Consumer<Viewable> cardToggleHandler;
+    private final List<CardListener> windowSearchListeners = new ArrayList<>();
 
     // Column count and trailing glue filler, remembered so a live add can
     // place the next card.
@@ -74,6 +78,10 @@ public class CardListView {
         }
     }
 
+    public void removeTargetListener(CardListener listener) {
+        targetListeners.remove(listener);
+    }
+
     public Map<String, JPanel> getCardsByName() {
         return cardsByName;
     }
@@ -97,6 +105,7 @@ public class CardListView {
     }
 
     public void createCardsPanel(int numColumns) {
+        detachContextRegistrations();
         cards.clear();
         cardsByName.clear();
         columns = Math.max(1, numColumns);
@@ -129,23 +138,7 @@ public class CardListView {
                 }
             }
         });
-        // One resolver per section; the shared context tries each, so a reference to
-        // a card in ANY section resolves (not just the last section to register).
-        context.addTopLevelResolver(o ->
-                o instanceof Viewable q ? virtualList.buildIfNeeded(q) : null);
-        // Collapsible cards toggle by rebuilding the one card fresh (factory-driven),
-        // so it re-measures at its new size instead of growing in place.
-        context.addCardToggleHandler(q -> {
-            virtualList.invalidateCard(q);
-            // On EXPAND, scroll the now-taller card fully into view. Deferred past the
-            // invalidate's relayout so the content height (and the viewport's view
-            // size) has grown first — otherwise the LAST card's expanded body extends
-            // past the old bottom and the scroll can't reach it until something else
-            // relayouts (e.g. a new entry). Collapse needs no reveal.
-            if (context.collapsibleCards() && context.isCardExpanded(q, false)) {
-                SwingUtilities.invokeLater(() -> virtualList.ensureVisible(q));
-            }
-        });
+        attachContextRegistrations();
         // Navigating to a card (e.g. a search hit) reveals it: a collapsed target
         // expands so a hit on a hidden field becomes visible. State lives in the
         // context, so it stays expanded on scroll-away-and-back.
@@ -164,6 +157,60 @@ public class CardListView {
 
         virtualList.install(cardsScrollPane);
         virtualList.setItems(new ArrayList<>(viewables));
+    }
+
+    /**
+     * Gives up this view's registrations on the shared render context, and the
+     * listeners its window's search bar installed. Safe to call more than once, and
+     * called for you when the window is closed; a view shown again re-registers.
+     */
+    public void dispose() {
+        detachContextRegistrations();
+        for (CardListener listener : windowSearchListeners) {
+            removeTargetListener(listener);
+        }
+        windowSearchListeners.clear();
+    }
+
+    /**
+     * Registers this section with the shared context: ONE resolver per section, so a
+     * reference to a card in ANY section resolves, and one toggle handler that rebuilds
+     * the single card that changed. The list and context are captured, not read from
+     * the fields, because these exact instances are what gets detached later.
+     */
+    private void attachContextRegistrations() {
+        if (context == null || virtualList == null) return;
+        detachContextRegistrations();
+        VirtualizedCardList list = virtualList;
+        RenderContext renderContext = context;
+        topLevelResolver = o ->
+                o instanceof Viewable q ? list.buildIfNeeded(q) : null;
+        renderContext.addTopLevelResolver(topLevelResolver);
+        // Collapsible cards toggle by rebuilding the one card fresh (factory-driven),
+        // so it re-measures at its new size instead of growing in place.
+        cardToggleHandler = q -> {
+            list.invalidateCard(q);
+            // On EXPAND, scroll the now-taller card fully into view. Deferred past the
+            // invalidate's relayout so the content height (and the viewport's view
+            // size) has grown first — otherwise the LAST card's expanded body extends
+            // past the old bottom and the scroll can't reach it until something else
+            // relayouts (e.g. a new entry). Collapse needs no reveal.
+            if (renderContext.collapsibleCards()
+                    && renderContext.isCardExpanded(q, false)) {
+                SwingUtilities.invokeLater(() -> list.ensureVisible(q));
+            }
+        };
+        renderContext.addCardToggleHandler(cardToggleHandler);
+        registeredContext = renderContext;
+    }
+
+    private void detachContextRegistrations() {
+        if (registeredContext == null) return;
+        registeredContext.removeTopLevelResolver(topLevelResolver);
+        registeredContext.removeCardToggleHandler(cardToggleHandler);
+        registeredContext = null;
+        topLevelResolver = null;
+        cardToggleHandler = null;
     }
 
     // The enlarged-image view: one holder per raw ImagePane, filling the frame
@@ -495,45 +542,94 @@ public class CardListView {
         if (virtualList == null) {
             createCardsPanel(numColumns);
         }
-        frame = new JFrame(
-                viewables.size() == 1
-                        ? title
-                        : (title + ", " + viewables.size()));
-
+        frame = new JFrame();
         frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        // Closing the window ends this section's part in the shared context. Without
+        // this the resolver and toggle handler stay registered for the rest of the
+        // session, answering for a virtual list nobody can see — and only a later
+        // rebuild, which may never come, would have detached them.
+        frame.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override public void windowClosed(java.awt.event.WindowEvent e) {
+                dispose();
+            }
+        });
         frame.setLayout(new BorderLayout(6, 6));
+        frame.setSize(1200, 700);
+        frame.setLocationRelativeTo(null);
+        frame.setResizable(true);
+        layOutContent(title);
+    }
+
+    /**
+     * (Re)binds the window to what this view currently holds. Rebuilding the cards
+     * makes a NEW scroll pane, and the row count belongs in the title, so a window
+     * kept open across runs has to be re-laid-out rather than merely re-shown —
+     * otherwise it goes on displaying the run it was first opened for.
+     */
+    private void layOutContent(String title) {
+        if (frame == null) return;
+        frame.setTitle(viewables.size() == 1 ? title : title + ", " + viewables.size());
+        frame.getContentPane().removeAll();
+        for (CardListener listener : windowSearchListeners) {
+            removeTargetListener(listener);
+        }
+        windowSearchListeners.clear();
 
         if (!viewables.isEmpty()) {
             CardSearchBarFactory factory = CardSearchBarFactory.active();
+            int listenerCount = targetListeners.size();
             JComponent searchBar = factory == null
                     ? null
                     : factory.createSearchBar(this, viewables.get(0).getClass());
+            // The factory owns how its bar is wired. Remember every listener it
+            // registered rather than assuming the returned component is itself the
+            // listener; a decorated/wrapped search bar remains just as detachable.
+            if (targetListeners.size() > listenerCount) {
+                windowSearchListeners.addAll(new ArrayList<>(
+                        targetListeners.subList(listenerCount, targetListeners.size())));
+            }
             if (searchBar != null) {
                 frame.add(searchBar, BorderLayout.NORTH);
             }
         }
 
         frame.add(cardsScrollPane, BorderLayout.CENTER);
+        frame.revalidate();
+        frame.repaint();
+    }
 
-        frame.setSize(1200, 700);
-        frame.setLocationRelativeTo(null);
-        frame.setResizable(true);
+    /** Replaces the rows this view shows. A view retained so its window can be reused
+     *  must be able to show the current data instead of accumulating every run's. */
+    public void setViewables(java.util.Collection<? extends Viewable> rows) {
+        viewables.clear();
+        if (rows != null) viewables.addAll(rows);
     }
 
     public void show() {
-        if (frame != null) {
-            frame.setVisible(true);
-            frame.toFront();
+        if (frame == null) return;
+        // Closing the window detached this section; showing it again restores it,
+        // whether or not the caller rebuilt the cards in between.
+        if (registeredContext == null) attachContextRegistrations();
+        // A window the reader minimized is still their window: restore it rather than
+        // raising something they cannot see.
+        if ((frame.getExtendedState() & java.awt.Frame.ICONIFIED) != 0) {
+            frame.setExtendedState(frame.getExtendedState() & ~java.awt.Frame.ICONIFIED);
         }
+        frame.setVisible(true);
+        frame.toFront();
+        frame.requestFocus();
     }
 
     public void show(String title) {
         show(title, 1);
     }
 
+    /** Shows these rows in this view's own window, reused across calls. */
     public void show(String title, int numColumns) {
         if (frame == null) {
             createFrame(title, numColumns);
+        } else {
+            layOutContent(title);
         }
 
         show();

@@ -2,6 +2,10 @@ package objectview.render;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+import java.util.function.Function;
+
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -11,6 +15,30 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * overrides default-expanded items; and an explicit per-item toggle still wins.
  */
 class RenderContextBulkExpandTest {
+
+    @Test
+    void virtualSectionRegistrationsCanBeDetachedBeforeRebuild() {
+        RenderContext c = new RenderContext();
+        Object target = new Object();
+        AtomicInteger resolutions = new AtomicInteger();
+        Function<Object, javax.swing.JComponent> resolver =
+                value -> { resolutions.incrementAndGet(); return null; };
+        AtomicInteger toggles = new AtomicInteger();
+        Consumer<objectview.Viewable> toggle = ignored -> toggles.incrementAndGet();
+
+        c.addTopLevelResolver(resolver);
+        c.addCardToggleHandler(toggle);
+        assertFalse(c.focusTopLevel(target));
+        assertTrue(resolutions.get() == 1);
+        c.notifyCardToggled(null);
+
+        c.removeTopLevelResolver(resolver);
+        c.removeCardToggleHandler(toggle);
+        assertFalse(c.focusTopLevel(target));
+        assertTrue(resolutions.get() == 1, "the detached resolver is not called again");
+        c.notifyCardToggled(null);
+        assertTrue(toggles.get() == 1, "the detached handler is not called again");
+    }
 
     @Test
     void expandThisLevelMovesCardsButNotReferencesOrCollections() {
