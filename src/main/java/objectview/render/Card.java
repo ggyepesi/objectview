@@ -604,7 +604,9 @@ public class Card extends JPanel implements RenderedInstanceHost {
 
         if (renderContext.selectionEnabled()) {
             titleLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            titleLabel.setToolTipText("Click to select · Ctrl/Cmd-click to select several");
+            titleLabel.setToolTipText(renderContext.multipleSelectionEnabled()
+                    ? "Click to select · Ctrl/Cmd-click to select several"
+                    : "Click to select");
             titleLabel.addMouseListener(new java.awt.event.MouseAdapter() {
                 @Override
                 public void mousePressed(java.awt.event.MouseEvent e) {
@@ -670,8 +672,10 @@ public class Card extends JPanel implements RenderedInstanceHost {
         // context tracks the one selected object, repaints the affected cards, and
         // notifies listeners. Double-click still opens the detail view below.
         if (renderContext != null && renderContext.selectionEnabled()) {
-            titleLabel.setToolTipText(
-                    "Click to select · Ctrl/Cmd-click to select several · double-click to open");
+            // Only promise the gesture this view actually offers.
+            titleLabel.setToolTipText(renderContext.multipleSelectionEnabled()
+                    ? "Click to select · Ctrl/Cmd-click to select several · double-click to open"
+                    : "Click to select — double-click to open");
             titleLabel.addMouseListener(new java.awt.event.MouseAdapter() {
                 @Override
                 public void mousePressed(java.awt.event.MouseEvent e) {

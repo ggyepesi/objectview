@@ -520,9 +520,13 @@ public class RenderContext {
     // selected object.
     private boolean selectionEnabled = false;
     private boolean multipleSelectionEnabled = false;
-    private Object selected;
-    private final java.util.Set<Object> selectedObjects =
-            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    // THE selection, in the order the reader built it. One list rather than a set plus
+    // a "current" field: two representations of one fact drift the first time a path
+    // updates one of them, and a card painting itself selected while selected() says
+    // otherwise is exactly that drift. Identity, not equals, because two distinct rows
+    // can be equal and only one of them was clicked; insertion order, because callers
+    // act on "the selected rows" and a set's order is arbitrary and unrepeatable.
+    private final java.util.List<Object> selectedObjects = new java.util.ArrayList<>();
     private final java.util.List<java.util.function.Consumer<Object>> selectionListeners =
             new java.util.ArrayList<>();
     private final java.util.List<java.util.function.Consumer<java.util.List<Object>>>
@@ -536,22 +540,38 @@ public class RenderContext {
         this.selectionEnabled = selectionEnabled;
     }
 
+    /** Whether Ctrl/Cmd-click selects several. A view that does not offer it must not
+     *  advertise it, so this is public: the card tooltip asks. */
+    public boolean multipleSelectionEnabled() {
+        return multipleSelectionEnabled;
+    }
+
     public void setMultipleSelectionEnabled(boolean enabled) {
         multipleSelectionEnabled = enabled;
-        if (!enabled && selectedObjects.size() > 1) select(selected);
+        if (!enabled && selectedObjects.size() > 1) select(selected());
     }
 
     public boolean isSelected(Object object) {
-        return object != null && (multipleSelectionEnabled
-                ? selectedObjects.contains(object) : object == selected);
+        return object != null && indexOf(object) >= 0;
     }
 
+    /** The object a single-selection consumer acts on: the one selected most recently,
+     *  which after a Ctrl-click is the one the reader just clicked. */
     public Object selected() {
-        return selected;
+        return selectedObjects.isEmpty()
+                ? null : selectedObjects.get(selectedObjects.size() - 1);
     }
 
+    /** The selection in the order it was made. */
     public java.util.List<Object> selectedObjects() {
         return java.util.List.copyOf(selectedObjects);
+    }
+
+    private int indexOf(Object object) {
+        for (int i = 0; i < selectedObjects.size(); i++) {
+            if (selectedObjects.get(i) == object) return i;
+        }
+        return -1;
     }
 
     public void addSelectionListener(java.util.function.Consumer<Object> listener) {
@@ -574,35 +594,25 @@ public class RenderContext {
     /** Plain selection replaces the set; Ctrl/Cmd selection toggles one object when
      * multi-selection is enabled. */
     public void select(Object object, boolean toggle) {
-        if (!multipleSelectionEnabled) {
-            if (object == selected) return;
-            Object previous = selected;
-            selected = object;
-            selectedObjects.clear();
-            if (object != null) selectedObjects.add(object);
-            repaintCard(previous);
-            repaintCard(object);
-            notifySelection();
-            return;
-        }
         java.util.List<Object> previous = java.util.List.copyOf(selectedObjects);
-        if (toggle) {
-            if (object != null && !selectedObjects.add(object)) selectedObjects.remove(object);
+        if (toggle && multipleSelectionEnabled) {
+            int at = indexOf(object);
+            if (at >= 0) selectedObjects.remove(at);
+            else if (object != null) selectedObjects.add(object);
         } else {
-            if (selectedObjects.size() == 1 && selectedObjects.contains(object)) return;
+            if (previous.size() == 1 && indexOf(object) == 0) return;
             selectedObjects.clear();
             if (object != null) selectedObjects.add(object);
         }
-        selected = selectedObjects.contains(object) ? object
-                : selectedObjects.stream().findFirst().orElse(null);
         previous.forEach(this::repaintCard);
         selectedObjects.forEach(this::repaintCard);
         notifySelection();
     }
 
     private void notifySelection() {
+        Object current = selected();
         for (java.util.function.Consumer<Object> listener : selectionListeners) {
-            listener.accept(selected);
+            listener.accept(current);
         }
         java.util.List<Object> snapshot = selectedObjects();
         for (java.util.function.Consumer<java.util.List<Object>> listener
