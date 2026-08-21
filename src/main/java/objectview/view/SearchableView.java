@@ -54,6 +54,11 @@ public final class SearchableView extends JPanel {
             context.setSelectionEnabled(true);
             context.addSelectionListener(b.selectionListener);
         }
+        if (b.selectionSetListener != null) {
+            context.setSelectionEnabled(true);
+            context.setMultipleSelectionEnabled(true);
+            context.addSelectionSetListener(b.selectionSetListener);
+        }
 
         Class<? extends Viewable> type = b.type;
         if (type == null && b.sample != null) type = viewableClass(b.sample);
@@ -184,6 +189,7 @@ public final class SearchableView extends JPanel {
         private Function<Viewable, JComponent> cardDecorator;
         private Function<Object, String> valueLinker;
         private Consumer<Object> selectionListener;
+        private Consumer<List<Object>> selectionSetListener;
         private RenderContext context;
         private Boolean collapsible;
         private boolean coordinated;
@@ -219,6 +225,10 @@ public final class SearchableView extends JPanel {
         }
         public Builder selectionListener(Consumer<Object> value) {
             selectionListener = value; return this;
+        }
+        /** Enables Ctrl/Cmd-click multi-selection and reports the complete selected set. */
+        public Builder selectionSetListener(Consumer<List<Object>> value) {
+            selectionSetListener = value; return this;
         }
         public Builder renderContext(RenderContext value) { context = value; return this; }
         public Builder collapsible(boolean value) { collapsible = value; return this; }

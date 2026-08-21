@@ -512,15 +512,21 @@ public class RenderContext {
         return bulkExpand == BulkExpand.EXPAND;
     }
 
-    // -------- Single card selection --------
-    // One selected object across all cards of this view. Like the search
+    // -------- Card selection --------
+    // One selected object by default; callers can opt into ordinary modifier-key
+    // multi-selection. Like the search
     // highlight, it's data-based (a rebuilt card re-reads isSelected), so it
     // survives virtualization. Listeners let an app (e.g. curation) act on the
     // selected object.
     private boolean selectionEnabled = false;
+    private boolean multipleSelectionEnabled = false;
     private Object selected;
+    private final java.util.Set<Object> selectedObjects =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     private final java.util.List<java.util.function.Consumer<Object>> selectionListeners =
             new java.util.ArrayList<>();
+    private final java.util.List<java.util.function.Consumer<java.util.List<Object>>>
+            selectionSetListeners = new java.util.ArrayList<>();
 
     public boolean selectionEnabled() {
         return selectionEnabled;
@@ -530,12 +536,22 @@ public class RenderContext {
         this.selectionEnabled = selectionEnabled;
     }
 
+    public void setMultipleSelectionEnabled(boolean enabled) {
+        multipleSelectionEnabled = enabled;
+        if (!enabled && selectedObjects.size() > 1) select(selected);
+    }
+
     public boolean isSelected(Object object) {
-        return object != null && object == selected;
+        return object != null && (multipleSelectionEnabled
+                ? selectedObjects.contains(object) : object == selected);
     }
 
     public Object selected() {
         return selected;
+    }
+
+    public java.util.List<Object> selectedObjects() {
+        return java.util.List.copyOf(selectedObjects);
     }
 
     public void addSelectionListener(java.util.function.Consumer<Object> listener) {
@@ -544,18 +560,54 @@ public class RenderContext {
         }
     }
 
+    public void addSelectionSetListener(
+            java.util.function.Consumer<java.util.List<Object>> listener) {
+        if (listener != null) selectionSetListeners.add(listener);
+    }
+
     /** Selects {@code object}, repainting the previously- and newly-selected
      *  cards (if built) and notifying listeners. */
     public void select(Object object) {
-        if (object == selected) {
+        select(object, false);
+    }
+
+    /** Plain selection replaces the set; Ctrl/Cmd selection toggles one object when
+     * multi-selection is enabled. */
+    public void select(Object object, boolean toggle) {
+        if (!multipleSelectionEnabled) {
+            if (object == selected) return;
+            Object previous = selected;
+            selected = object;
+            selectedObjects.clear();
+            if (object != null) selectedObjects.add(object);
+            repaintCard(previous);
+            repaintCard(object);
+            notifySelection();
             return;
         }
-        Object previous = selected;
-        selected = object;
-        repaintCard(previous);
-        repaintCard(object);
+        java.util.List<Object> previous = java.util.List.copyOf(selectedObjects);
+        if (toggle) {
+            if (object != null && !selectedObjects.add(object)) selectedObjects.remove(object);
+        } else {
+            if (selectedObjects.size() == 1 && selectedObjects.contains(object)) return;
+            selectedObjects.clear();
+            if (object != null) selectedObjects.add(object);
+        }
+        selected = selectedObjects.contains(object) ? object
+                : selectedObjects.stream().findFirst().orElse(null);
+        previous.forEach(this::repaintCard);
+        selectedObjects.forEach(this::repaintCard);
+        notifySelection();
+    }
+
+    private void notifySelection() {
         for (java.util.function.Consumer<Object> listener : selectionListeners) {
-            listener.accept(object);
+            listener.accept(selected);
+        }
+        java.util.List<Object> snapshot = selectedObjects();
+        for (java.util.function.Consumer<java.util.List<Object>> listener
+                : selectionSetListeners) {
+            listener.accept(snapshot);
         }
     }
 

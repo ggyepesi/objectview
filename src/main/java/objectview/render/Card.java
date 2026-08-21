@@ -604,12 +604,12 @@ public class Card extends JPanel implements RenderedInstanceHost {
 
         if (renderContext.selectionEnabled()) {
             titleLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            titleLabel.setToolTipText("Click to select");
+            titleLabel.setToolTipText("Click to select · Ctrl/Cmd-click to select several");
             titleLabel.addMouseListener(new java.awt.event.MouseAdapter() {
                 @Override
                 public void mousePressed(java.awt.event.MouseEvent e) {
                     if (e.getClickCount() == 1) {
-                        renderContext.select(viewable);
+                        renderContext.select(viewable, e.isControlDown() || e.isMetaDown());
                     }
                 }
             });
@@ -670,12 +670,13 @@ public class Card extends JPanel implements RenderedInstanceHost {
         // context tracks the one selected object, repaints the affected cards, and
         // notifies listeners. Double-click still opens the detail view below.
         if (renderContext != null && renderContext.selectionEnabled()) {
-            titleLabel.setToolTipText("Click to select — double-click to open");
+            titleLabel.setToolTipText(
+                    "Click to select · Ctrl/Cmd-click to select several · double-click to open");
             titleLabel.addMouseListener(new java.awt.event.MouseAdapter() {
                 @Override
                 public void mousePressed(java.awt.event.MouseEvent e) {
                     if (e.getClickCount() == 1) {
-                        renderContext.select(viewable);
+                        renderContext.select(viewable, e.isControlDown() || e.isMetaDown());
                     }
                 }
             });

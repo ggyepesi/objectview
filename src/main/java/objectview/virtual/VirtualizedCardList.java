@@ -120,6 +120,7 @@ public final class VirtualizedCardList
 
     private JViewport viewport;
     private boolean updating;
+    private boolean scrollSyncQueued;
     private int navGeneration;
 
     public VirtualizedCardList(
@@ -731,15 +732,28 @@ public final class VirtualizedCardList
         }
 
         updating = true;
+        int contentHeightBefore = contentHeight();
 
         try {
-            for (int pass = 0;
-                 pass < 8 && updateVisibleOnce();
-                 pass++) {
+            for (int pass = 0; pass < 8; pass++) {
+                boolean changed = updateVisibleOnce();
+                if (!changed) break;
                 // Allow height/layout changes to settle.
             }
         } finally {
             updating = false;
+        }
+
+        // Initial materialization replaces estimated row heights with exact, often much
+        // taller card heights. Revalidate alone leaves JViewport.viewSize and the scrollbar
+        // model stale until an unrelated resize/search/toggle occurs. Publish the settled
+        // range on the next EDT turn, after the enclosing layout has received its bounds.
+        if (contentHeight() != contentHeightBefore && !scrollSyncQueued) {
+            scrollSyncQueued = true;
+            SwingUtilities.invokeLater(() -> {
+                scrollSyncQueued = false;
+                syncScrollPaneToContent();
+            });
         }
 
         repaint();
