@@ -2,7 +2,6 @@ package objectview.viewconfig;
 
 import objectview.Viewable;
 import objectview.ViewableAdapter;
-import objectview.field.DynamicFields;
 import objectview.field.FieldPath;
 
 import javax.swing.*;
@@ -359,17 +358,27 @@ public class ViewConfigEditor extends JPanel {
     }
 
     /** The "All minor fields" bar governs a non-minor config table that HAS minor fields
-     *  to govern: a reflected class carries them via @Minor; a dynamic/snapshot sample
-     *  declares them through its {@link FieldTypeSource}. Show/hide it AND refresh its
-     *  checked state so both follow a row-source switch, not just the construction seed. */
+     *  to govern. Whether it does is ONE question either way (#87): hasMinorFields reads
+     *  the sample through its FieldSet, so a reflected class's {@code @Minor} annotations
+     *  and a snapshot sample's {@link FieldTypeSource} declarations answer it alike — a
+     *  reflected class used to skip the question and show the bar with nothing to govern.
+     *  Show/hide it AND refresh its checked state so both follow a row-source switch, not
+     *  just the construction seed. */
     private void updateMinorFieldsBar() {
-        boolean applicable = !minorOnly && usesConfigRows()
-                && (!(sample instanceof DynamicFields)
-                    || ConfigFieldRowSource.INSTANCE.hasMinorFields(rowContext()));
-        minorFieldsBar.setVisible(applicable);
-        // When it doesn't apply, force OFF so getConfig() can't read a stale 'selected'.
-        allMinorFieldsBox.setSelected(
-                applicable && sourceConfig.isAllMinorFields());
+        // Two questions, and one boolean used to answer both. Whether this table governs
+        // minor fields at all is structural; whether there are any TO govern is a
+        // property of the sample. Conflating them meant a table with no minor fields
+        // also forced the config's flag off, which is not the same statement.
+        boolean governs = !minorOnly && usesConfigRows();
+        FieldRowContext context = rowContext();
+        // Undecidable (no sample, no declared field types) keeps the bar available: a
+        // false answer there means "cannot tell", not "there are none".
+        minorFieldsBar.setVisible(governs
+                && (!ConfigFieldRowSource.INSTANCE.minorFieldsDecidable(context)
+                    || ConfigFieldRowSource.INSTANCE.hasMinorFields(context)));
+        // When this table does not govern them, force OFF so getConfig() can't read a
+        // stale 'selected'.
+        allMinorFieldsBox.setSelected(governs && sourceConfig.isAllMinorFields());
         revalidate();
         repaint();
     }

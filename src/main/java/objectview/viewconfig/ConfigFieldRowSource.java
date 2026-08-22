@@ -221,6 +221,21 @@ public final class ConfigFieldRowSource implements FieldRowSource {
      * dynamic sample, or schema-only reference alike. Lets the editor show the
      * "All minor fields" bar for a dynamic/snapshot type, not just a reflected class.
      */
+    /**
+     * Whether the minor-field question can be answered at all for {@code context}.
+     *
+     * <p>With no sample and no declared field types there is nothing to inspect, and
+     * {@link #hasMinorFields} necessarily answers false — which is "I cannot tell", not
+     * "there are none". A caller that treats the two alike hides a control the user may
+     * still need. Asking this first is what lets one question serve every backing (#87)
+     * instead of a class test standing in for it.
+     */
+    public boolean minorFieldsDecidable(FieldRowContext context) {
+        return context.sample() != null
+                || context.fieldTypes() != null
+                        && !context.fieldTypes().fieldNames().isEmpty();
+    }
+
     public boolean hasMinorFields(FieldRowContext context) {
         if (context.sample() == null
                 && context.fieldTypes() != null
