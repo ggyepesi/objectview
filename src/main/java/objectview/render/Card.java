@@ -305,6 +305,17 @@ public class Card extends JPanel implements RenderedInstanceHost {
              null, null);
     }
 
+    /** Root render in a detached frame whose title already names the object. */
+    public Card(Viewable viewable,
+                ViewConfig config,
+                RenderContext renderContext,
+                boolean fill,
+                boolean suppressTitle) {
+        this(identitySetOf(), identitySetOf(), renderContext,
+                true, viewable, config, fill, FieldPath.ROOT,
+                null, null, suppressTitle);
+    }
+
     public Card(Set<Object> visited,
                 Set<Object> ancestors,
                 RenderContext renderContext,
@@ -1646,7 +1657,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
         new CardFrame(q,
                       ViewConfig.allWithMinorFields(q.getClass())
                                     .setAddListener(config.isAddListener())
-                                    .setThumb(config.isThumb()));
+                                    .setThumb(config.isThumb()),
+                      renderContext.detachedDetailContext());
     }
 
     private String safeName(Viewable q) {

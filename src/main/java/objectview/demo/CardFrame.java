@@ -2,6 +2,7 @@ package objectview.demo;
 
 import objectview.Viewable;
 import objectview.render.Card;
+import objectview.render.RenderContext;
 import objectview.viewconfig.ViewConfig;
 
 import javax.swing.*;
@@ -18,8 +19,17 @@ public class CardFrame {
         this(q.getName(), q, cfg);
     }
 
+    public CardFrame(Viewable q, ViewConfig cfg, RenderContext context) {
+        this(q.getName(), q, cfg, context);
+    }
+
     public CardFrame(String title, Viewable viewable,
                      ViewConfig config) {
+        this(title, viewable, config, new RenderContext());
+    }
+
+    public CardFrame(String title, Viewable viewable,
+                     ViewConfig config, RenderContext context) {
         if (viewable == null) {
             return;
         }
@@ -49,7 +59,8 @@ public class CardFrame {
         });
         // The frame's own title bar already shows the name, so suppress the
         // card's title header to avoid showing the same name twice.
-        Card panel = new Card(viewable, config, true, true);
+        Card panel = new Card(viewable, config,
+                context == null ? new RenderContext() : context, true, true);
 
         JScrollPane scroll = new JScrollPane(panel);
         frame.add(scroll);

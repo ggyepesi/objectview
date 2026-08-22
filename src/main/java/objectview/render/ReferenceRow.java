@@ -195,7 +195,8 @@ public class ReferenceRow extends TextRow {
                 target,
                 ViewConfig.allWithMinorFields(target.getClass())
                           .setAddListener(true)
-                          .setThumb(true));
+                          .setThumb(true),
+                renderContext.detachedDetailContext());
     }
 
     private static String name(Viewable target) {

@@ -653,4 +653,18 @@ public class RenderContext {
 
         return null;
     }
+
+    /** Rendering services for a detached detail window, without borrowing the
+     * navigation, selection or expansion state of the originating list. Dynamic
+     * objects need the schema resolver in particular: reflection alone cannot see
+     * their map-held domain fields. */
+    public RenderContext detachedDetailContext() {
+        RenderContext detail = new RenderContext();
+        detail.fieldSchemaResolver = fieldSchemaResolver;
+        detail.cardDecorator = cardDecorator;
+        detail.valueLinker = valueLinker;
+        classConfigs.forEach((type, config) ->
+                detail.classConfigs.put(type, config.copy()));
+        return detail;
+    }
 }
