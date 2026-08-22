@@ -29,7 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class ImagePane extends JPanel
-        implements MouseListener, MouseMotionListener, ImageRef {
+        implements MouseListener, MouseMotionListener, ImageRef, MediaValue {
 
     private static final Logger log = LoggerFactory.getLogger(ImagePane.class);
 
@@ -230,6 +230,15 @@ public class ImagePane extends JPanel
 
     public CachedImage getCachedImage() {
         return cachedImage;
+    }
+
+    @Override public String mediaLabel() { return title == null ? "" : title; }
+    @Override public String mediaUrl() {
+        return cachedImage == null || cachedImage.sourceUrl() == null
+                ? "" : cachedImage.sourceUrl();
+    }
+    @Override public boolean mediaSvg() {
+        return cachedImage != null && cachedImage.isSvg();
     }
 
     /** Renders the (possibly SVG) image to PNG bytes for headless consumers. */
