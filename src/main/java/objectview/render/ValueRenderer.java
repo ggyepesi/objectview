@@ -44,6 +44,7 @@ public final class ValueRenderer {
         }
 
         if (value instanceof Collection<?> collection) {
+            collection = RenderSnapshot.collection(collection);
             if (collection.isEmpty()) {
                 return null;
             }
@@ -56,6 +57,7 @@ public final class ValueRenderer {
         }
 
         if (value instanceof Map<?, ?> map) {
+            map = RenderSnapshot.map(map);
             if (map.isEmpty()) {
                 return null;
             }
@@ -234,6 +236,7 @@ public final class ValueRenderer {
         }
 
         if (item instanceof Collection<?> collection) {
+            collection = RenderSnapshot.collection(collection);
             if (collection.isEmpty()) {
                 return null;
             }
@@ -246,6 +249,7 @@ public final class ValueRenderer {
         }
 
         if (item instanceof Map<?, ?> map) {
+            map = RenderSnapshot.map(map);
             if (map.isEmpty()) {
                 return null;
             }

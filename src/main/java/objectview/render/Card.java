@@ -939,9 +939,11 @@ public class Card extends JPanel implements RenderedInstanceHost {
 
         if (field.annotatedReference()) {
             if (isCollectionOrMap) {
-                Object v = value;
+                Object expansionKey = value;
+                Object v = RenderSnapshot.value(value);
                 ViewConfig cfg = fieldCfg;
-                return collapsibleCollectionComponent(fieldName, fieldPath, value,
+                return collapsibleCollectionComponent(fieldName, fieldPath, v,
+                        expansionKey,
                         () -> createReferenceFieldComponent(
                                 "", fieldPath, v, cfg));
             }
@@ -981,8 +983,10 @@ public class Card extends JPanel implements RenderedInstanceHost {
 
         if (isCollectionOrMap) {
             ViewConfig cfg = fieldCfg;
-            Object collValue = value;
-            return collapsibleCollectionComponent(fieldName, fieldPath, value,
+            Object expansionKey = value;
+            Object collValue = RenderSnapshot.value(value);
+            return collapsibleCollectionComponent(fieldName, fieldPath, collValue,
+                    expansionKey,
                     () -> ValueRenderer.createFieldComponent(
                             copyVisited(), copyAncestors(), renderContext,
                             "", fieldPath, collValue, cfg, fill));
@@ -1009,10 +1013,11 @@ public class Card extends JPanel implements RenderedInstanceHost {
             String fieldName,
             FieldPath fieldPath,
             Object value,
+            Object expansionKey,
             java.util.function.Supplier<JComponent> body) {
 
         return CollapsibleFieldRenderer.create(
-                fieldName, fieldPath, value, value, renderContext, body);
+                fieldName, fieldPath, value, expansionKey, renderContext, body);
     }
 
     private JComponent createReferenceFieldComponent(
