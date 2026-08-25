@@ -1291,7 +1291,7 @@ public class ViewConfigEditor extends JPanel {
                     config,
                     nestedDefaultNameOnly,
                     true,
-                    null,
+                    sample,
                     nestedContributorFor(state.row),
                     ConfigFieldRowSource.INSTANCE);
         }

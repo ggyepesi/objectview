@@ -41,6 +41,7 @@ public final class ConfigFieldRowSource implements FieldRowSource {
                 && context.fieldTypes() != null
                 && !context.fieldTypes().fieldNames().isEmpty()) {
             addSchemaRows(result, context);
+            addMinorBlock(result, context);
             return List.copyOf(result);
         }
 
@@ -52,10 +53,46 @@ public final class ConfigFieldRowSource implements FieldRowSource {
             if (cls != null) {
                 addReflectedClassRows(result, context, cls);
             }
+            addMinorBlock(result, context);
             return List.copyOf(result);
         }
         addFieldSetRows(result, context);
+        addMinorBlock(result, context);
         return List.copyOf(result);
+    }
+
+    private void addMinorBlock(List<FieldRow> result, FieldRowContext context) {
+        if (!context.minorOnly() && hasBlockGovernedMinorFields(context)) {
+            result.add(FieldRow.minorBlock());
+        }
+    }
+
+    /**
+     * Whether this context has minor fields the BLOCK row governs — which is not the
+     * same question as {@link #hasMinorFields}, and deliberately so.
+     *
+     * <p>{@link #hasMinorFields} answers "is there anything for the 'All minor fields'
+     * checkbox to govern", and a schema-declared minor field counts: that checkbox is
+     * exactly how a dynamic instance's minor fields are governed. The block row is the
+     * other control — it stands for the minor set as a configurable group — and offering
+     * it for schema-declared fields would put two controls on the same fields. So the
+     * block follows the fields a class DECLARES minor, and a schema-declared one is
+     * left to the checkbox alone.
+     *
+     * <p>With no sample there is nothing declaring anything, so the answer is no.
+     */
+    private static boolean hasBlockGovernedMinorFields(FieldRowContext context) {
+        if (context.sample() == null) {
+            return false;
+        }
+        for (FieldRef field : FieldSet.of(context.sample()).fields()) {
+            if (!context.hiddenFields().contains(field.name())
+                    && !field.structural()
+                    && field.minor()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Enumerates a class's configurable fields with NO instance — the type label comes
