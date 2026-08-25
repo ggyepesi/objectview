@@ -76,6 +76,11 @@ public class LinkRow extends TextRow {
     }
 
     @Override
+    protected void valueClickedAt(Point point) {
+        if (isPointOverValue(point)) valueClicked(null);
+    }
+
+    @Override
     protected void addExtraCopyMenuItems(JPopupMenu menu) {
         menu.addSeparator();
 

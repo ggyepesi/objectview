@@ -195,8 +195,27 @@ public class TextRow extends JComponent implements TextSelectable {
         pressPoint = null;
         if (click) {
             selectAll();
-            valueClicked(null);
+            valueClickedAt(p);
         }
+    }
+
+    /** Click dispatch is value-sensitive: subclasses such as LinkRow may decline a
+     * click in the row's padding or field-label area. */
+    protected void valueClickedAt(Point point) {
+        valueClicked(null);
+    }
+
+    boolean isPointOverValue(Point point) {
+        if (point == null) return false;
+        FontMetrics metrics = getFontMetrics(valueFont());
+        for (PaintLine line : computePaintLines(getWidth())) {
+            if (point.y >= line.top() && point.y <= line.bottom()
+                    && point.x >= line.x()
+                    && point.x <= line.x() + metrics.stringWidth(line.text())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static final boolean NAV_DEBUG = Boolean.getBoolean("quiz.nav.debug");

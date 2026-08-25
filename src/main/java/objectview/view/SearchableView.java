@@ -93,7 +93,7 @@ public final class SearchableView extends JPanel {
                 () -> controlsHeader(false),
                 () -> controlsHeader(true),
                 () -> search);
-        add(controls, BorderLayout.NORTH);
+        add(new HeightBoundControls(controls), BorderLayout.NORTH);
         installContainer();
     }
 
@@ -145,6 +145,31 @@ public final class SearchableView extends JPanel {
         label.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
         label.setToolTipText(expanded ? "Collapse controls" : "Expand controls");
         return label;
+    }
+
+    /** BorderLayout gives NORTH its full preferred height before assigning the
+     * remainder to CENTER. SearchPanel deliberately prefers room for its own hit
+     * list, but in a short split-pane tab that could reduce the result viewport to
+     * zero. Both regions scroll independently, so cap the controls at half of the
+     * height currently available to this searchable view. */
+    private static final class HeightBoundControls extends JPanel {
+        HeightBoundControls(JComponent controls) {
+            super(new BorderLayout());
+            setOpaque(false);
+            add(controls, BorderLayout.CENTER);
+            setMinimumSize(new java.awt.Dimension(0, 0));
+        }
+
+        @Override public java.awt.Dimension getPreferredSize() {
+            java.awt.Dimension preferred = super.getPreferredSize();
+            java.awt.Container parent = getParent();
+            int available = parent == null ? 0 : parent.getHeight();
+            if (available > 0) {
+                preferred.height = Math.min(preferred.height,
+                        Math.max(32, available / 2));
+            }
+            return preferred;
+        }
     }
 
     private void switchMode(RenderingMode next) {

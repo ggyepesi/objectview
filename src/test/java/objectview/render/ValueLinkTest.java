@@ -11,6 +11,8 @@ import java.awt.Container;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * A value the caller recognises renders as a link.
@@ -59,6 +61,22 @@ class ValueLinkTest {
         context.setValueLinker(value -> { throw new IllegalStateException("boom"); });
 
         assertNull(context.valueLink("Q42"));
+    }
+
+    @Test void onlyThePaintedLinkTextIsAHotspot() {
+        LinkRow row = new LinkRow("source", objectview.field.FieldPath.of("source"),
+                "https://example.test", "Wikipedia");
+        row.setSize(320, row.getPreferredSize().height);
+
+        assertFalse(row.isPointOverValue(new java.awt.Point(1, row.getHeight() / 2)));
+        boolean foundText = false;
+        for (int x = 1; x < row.getWidth(); x++) {
+            if (row.isPointOverValue(new java.awt.Point(x, row.getHeight() / 2))) {
+                foundText = true;
+                break;
+            }
+        }
+        assertTrue(foundText, "the underlined value itself remains clickable");
     }
 
     private static Card cardFor(Film film, RenderContext context) throws Exception {

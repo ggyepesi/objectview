@@ -455,6 +455,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
         }
 
         buildConfiguredContent();
+        installCardSelectionListeners(this);
     }
 
     public boolean hasRenderedConfiguredContent() {
@@ -483,6 +484,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
 
         restoreTraversalContext();
         buildConfiguredContent();
+        installCardSelectionListeners(this);
 
         revalidate();
         repaint();
@@ -1661,6 +1663,51 @@ public class Card extends JPanel implements RenderedInstanceHost {
                 }
             }
         });
+    }
+
+    private final java.awt.event.MouseAdapter cardSelectionListener =
+            new java.awt.event.MouseAdapter() {
+                @Override public void mousePressed(java.awt.event.MouseEvent event) {
+                    if (!rootRender || renderContext == null
+                            || !renderContext.selectionEnabled()
+                            || !SwingUtilities.isLeftMouseButton(event)
+                            || event.getClickCount() != 1
+                            || isIndependentAction(event)) {
+                        return;
+                    }
+                    renderContext.select(viewable,
+                            event.isControlDown() || event.isMetaDown());
+                }
+            };
+
+    /** Swing mouse events do not bubble. Install one shared listener across the root
+     * card, while leaving the actual painted hyperlink and other controls to their
+     * own actions. */
+    private void installCardSelectionListeners(Component component) {
+        if (!rootRender || renderContext == null || !renderContext.selectionEnabled()) {
+            return;
+        }
+        if (component instanceof JComponent jc
+                && !Boolean.TRUE.equals(jc.getClientProperty("objectview.cardSelection"))) {
+            jc.putClientProperty("objectview.cardSelection", Boolean.TRUE);
+            component.addMouseListener(cardSelectionListener);
+        }
+        if (component instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                installCardSelectionListeners(child);
+            }
+        }
+    }
+
+    private static boolean isIndependentAction(java.awt.event.MouseEvent event) {
+        Component source = event.getComponent();
+        if (source instanceof LinkRow link && link.isPointOverValue(event.getPoint())) {
+            return true;
+        }
+        return source instanceof AbstractButton
+                || source instanceof ReferenceRow
+                || source instanceof CollectionHeader
+                || source instanceof objectview.media.ImagePane;
     }
 
     private void openInFrame(Viewable q) {

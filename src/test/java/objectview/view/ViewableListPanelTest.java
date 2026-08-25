@@ -88,6 +88,28 @@ class ViewableListPanelTest {
         });
     }
 
+    @Test void expandedControlsCannotConsumeTheCardViewportInAShortPanel() {
+        onEdt(() -> {
+            SearchableView view = SearchableView.builder(List.of(new Item("one")))
+                    .controlsExpanded(true)
+                    .build();
+            view.setSize(520, 220);
+            layoutTree(view);
+
+            org.junit.jupiter.api.Assertions.assertTrue(
+                    view.cardList().getCardsScrollPane().getHeight() > 0,
+                    "the virtual cards must retain a visible scroll viewport");
+            view.dispose();
+        });
+    }
+
+    private static void layoutTree(java.awt.Container container) {
+        container.doLayout();
+        for (java.awt.Component child : container.getComponents()) {
+            if (child instanceof java.awt.Container nested) layoutTree(nested);
+        }
+    }
+
     private static void onEdt(Runnable work) {
         try {
             javax.swing.SwingUtilities.invokeAndWait(work);
