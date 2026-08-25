@@ -27,10 +27,14 @@ public interface FieldTypeSource {
     /**
      * @param typeLabel        what the "Type" column shows (e.g. "List&lt;Category&gt;")
      * @param structural       true to hide the field (schema plumbing)
-     * @param minor            true to segregate the field under the "Minor fields"
-     *                         block, governed wholesale by "All minor fields" — the
-     *                         dynamic/schema counterpart of the {@code @Minor}
-     *                         annotation a reflected field carries
+     * @param minor            true to keep the field out of the ordinary table and
+     *                         under "All minor fields", which governs it wholesale.
+     *                         Unlike a reflected {@code @Minor} field it raises no
+     *                         minor BLOCK row: the block stands for a minor set as a
+     *                         configurable group and follows what a class declares,
+     *                         so a schema-declared field answering to the checkbox
+     *                         too would sit under two controls that can disagree.
+     *                         See ConfigFieldRowSource.hasBlockGovernedMinorFields.
      * @param nestedClassName  the referenced class's display name, for the expand
      *                         dialog caption (or null — falls back to the sample class)
      * @param nested           the source for the referenced object's fields (or null)
