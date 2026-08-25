@@ -43,6 +43,13 @@ public class ExpandablePanel extends JPanel {
         localRelayout();
     }
 
+    /** Rebuild the header/body without changing expansion state. Useful when a
+     * supplier's label depends on mutable metadata such as a tab count. */
+    public void refresh() {
+        rebuildLocal();
+        localRelayout();
+    }
+
     private void rebuildLocal() {
         removeAll();
 

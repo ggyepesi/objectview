@@ -6,6 +6,7 @@ import objectview.search.SearchPanel;
 import objectview.viewconfig.ViewConfig;
 
 import javax.swing.JPanel;
+import javax.swing.JComponent;
 import java.awt.BorderLayout;
 import java.util.Collection;
 import java.util.List;
@@ -38,9 +39,14 @@ public final class ViewableListPanel extends JPanel implements AutoCloseable {
     private SearchPanel.ConfigState configState;
     private String searchText = "";
     private boolean sorted;
+    private boolean searchFocused;
+    private int searchCaretPosition;
+    private Viewable configSample;
     private SearchableView view;
     private Viewable selected;
     private List<Viewable> currentItems = List.of();
+    private final JPanel externalControlsHost = new JPanel(new BorderLayout());
+    private boolean externalControls;
 
     public ViewableListPanel(Class<? extends Viewable> type, String emptyMessage) {
         super(new BorderLayout());
@@ -83,6 +89,18 @@ public final class ViewableListPanel extends JPanel implements AutoCloseable {
 
     public boolean controlsExpanded() { return controlsExpanded; }
 
+    /** A stable host for this panel's Search/Sort/View controls. Calling this opts
+     * the panel out of inline controls; subsequent result replacement swaps only
+     * the host's contents, so a surrounding tab never has to be rebuilt. */
+    public JComponent externalControls() {
+        if (!externalControls) {
+            externalControls = true;
+            externalControlsHost.setMinimumSize(new java.awt.Dimension(0, 0));
+            setViewables(currentItems);
+        }
+        return externalControlsHost;
+    }
+
     public void setControlsExpanded(boolean expanded) {
         controlsExpanded = expanded;
         if (view != null) view.setControlsExpanded(expanded);
@@ -94,15 +112,17 @@ public final class ViewableListPanel extends JPanel implements AutoCloseable {
         List<Viewable> items = members == null ? List.of() : List.copyOf(members);
         disposeView();
         currentItems = items;
+        if (!items.isEmpty()) configSample = items.get(0);
         selected = null;
         selectionListener.accept(null);
         if (selectionSetListener != null) selectionSetListener.accept(List.of());
         SearchableView.Builder builder = SearchableView.builder(items)
                 .type(type)
-                .sample(items.isEmpty() ? null : items.get(0))
+                .sample(configSample)
                 .mode(mode)
                 .configState(configState)
                 .configListener(state -> configState = state)
+                .inlineControls(!externalControls)
                 .collapsible(false)
                 .emptyMessage(emptyMessage)
                 .hiddenFields(hiddenFields)
@@ -119,18 +139,23 @@ public final class ViewableListPanel extends JPanel implements AutoCloseable {
         }
         view = builder.build();
         view.setMinimumSize(new java.awt.Dimension(0, 0));
+        updateExternalControls();
         add(view, BorderLayout.CENTER);
         revalidate();
         repaint();
         view.restoreInteraction(searchText, sorted);
         javax.swing.SwingUtilities.invokeLater(() -> {
-            if (view != null) view.refreshViewport();
+            if (view != null) {
+                view.refreshViewport();
+                view.restoreSearchFocus(searchFocused, searchCaretPosition);
+            }
         });
     }
 
     @Override public void close() {
         disposeView();
         selected = null;
+        externalControlsHost.removeAll();
         removeAll();
     }
 
@@ -148,8 +173,24 @@ public final class ViewableListPanel extends JPanel implements AutoCloseable {
         configState = view.configState();
         searchText = view.searchText();
         sorted = view.sorted();
+        searchFocused = view.searchFieldFocused();
+        searchCaretPosition = view.searchCaretPosition();
         view.dispose();
         remove(view);
         view = null;
+    }
+
+    private void updateExternalControls() {
+        if (!externalControls) return;
+        externalControlsHost.removeAll();
+        JComponent controls = view == null ? null : view.controlsComponent();
+        if (controls != null) {
+            externalControlsHost.add(controls, BorderLayout.CENTER);
+        } else {
+            externalControlsHost.add(new javax.swing.JLabel("   " + emptyMessage),
+                    BorderLayout.NORTH);
+        }
+        externalControlsHost.revalidate();
+        externalControlsHost.repaint();
     }
 }

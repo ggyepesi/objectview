@@ -69,7 +69,17 @@ public final class SearchableView extends JPanel {
         if (type == null && b.sample != null) type = viewableClass(b.sample);
         if (type == null && !b.members.isEmpty()) type = viewableClass(b.members.get(0));
 
-        if (type == null || b.members.isEmpty()) {
+        if (type == null) {
+            search = null;
+            controls = null;
+            if (b.emptyMessage != null && !b.emptyMessage.isBlank()) {
+                add(new JLabel("   " + b.emptyMessage), BorderLayout.NORTH);
+            }
+            return;
+        }
+
+        boolean empty = b.members.isEmpty();
+        if (empty && b.inlineControls) {
             search = null;
             controls = null;
             if (b.emptyMessage != null && !b.emptyMessage.isBlank()) {
@@ -88,12 +98,22 @@ public final class SearchableView extends JPanel {
         modeCombo.addActionListener(e -> switchMode((RenderingMode) modeCombo.getSelectedItem()));
         search.setRenderingModeControl(modeCombo);
 
-        controls = new ExpandablePanel(
-                b.controlsExpanded,
-                () -> controlsHeader(false),
-                () -> controlsHeader(true),
-                () -> search);
-        add(new HeightBoundControls(controls), BorderLayout.NORTH);
+        if (b.inlineControls) {
+            controls = new ExpandablePanel(
+                    b.controlsExpanded,
+                    () -> controlsHeader(false),
+                    () -> controlsHeader(true),
+                    () -> search);
+            add(new HeightBoundControls(controls), BorderLayout.NORTH);
+        } else {
+            controls = null;
+        }
+        if (empty) {
+            if (b.emptyMessage != null && !b.emptyMessage.isBlank()) {
+                add(new JLabel("   " + b.emptyMessage), BorderLayout.NORTH);
+            }
+            return;
+        }
         installContainer();
     }
 
@@ -102,12 +122,21 @@ public final class SearchableView extends JPanel {
     }
 
     public SearchPanel search() { return search; }
+    /** The controls surface for a host that requested external placement. It is
+     *  created once with this result set and must have exactly one Swing parent. */
+    public JComponent controlsComponent() { return search; }
     public RenderContext renderContext() { return context; }
     public RenderingMode mode() { return mode; }
     public SearchPanel.ConfigState configState() {
         return search == null ? builder.configState : search.configState();
     }
     public String searchText() { return search == null ? "" : search.searchText(); }
+    public boolean searchFieldFocused() {
+        return search != null && search.searchFieldFocused();
+    }
+    public int searchCaretPosition() {
+        return search == null ? 0 : search.searchCaretPosition();
+    }
     public boolean sorted() { return search != null && search.sorted(); }
     public boolean controlsExpanded() {
         return controls == null ? builder.controlsExpanded : controls.isExpanded();
@@ -120,6 +149,10 @@ public final class SearchableView extends JPanel {
     public void restoreInteraction(String query, boolean wasSorted) {
         if (search == null) return;
         search.restoreInteraction(query, wasSorted);
+    }
+
+    public void restoreSearchFocus(boolean focused, int caretPosition) {
+        if (search != null) search.restoreSearchFocus(focused, caretPosition);
     }
 
     /** Detach registrations owned by this view before discarding it. */
@@ -278,6 +311,7 @@ public final class SearchableView extends JPanel {
         private Consumer<SearchPanel.ConfigState> configListener;
         private List<SearchPanel.SubtypeConfig> subtypeConfigs = List.of();
         private boolean controlsExpanded = true;
+        private boolean inlineControls = true;
 
         private Builder(Collection<? extends Viewable> members) {
             if (members != null) this.members.addAll(members);
@@ -319,6 +353,11 @@ public final class SearchableView extends JPanel {
         public Builder coordinated(boolean value) { coordinated = value; return this; }
         public Builder controlsExpanded(boolean value) {
             controlsExpanded = value; return this;
+        }
+        /** Keep false only when an owning component mounts {@link #controlsComponent()}
+         *  in a separate configuration surface. Inline remains the compatibility default. */
+        public Builder inlineControls(boolean value) {
+            inlineControls = value; return this;
         }
         public Builder columns(int value) { columns = Math.max(1, value); return this; }
         public Builder emptyMessage(String value) { emptyMessage = value; return this; }

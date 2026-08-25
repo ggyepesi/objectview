@@ -103,6 +103,56 @@ class ViewableListPanelTest {
         });
     }
 
+    @Test void externalControlsKeepAStableHostAcrossResultReplacement() {
+        onEdt(() -> {
+            ViewableListPanel panel = new ViewableListPanel(Item.class, "None");
+            javax.swing.JComponent host = panel.externalControls();
+            panel.setViewables(List.of(new Item("first")));
+            assertSame(host, panel.externalControls());
+            org.junit.jupiter.api.Assertions.assertEquals(1, host.getComponentCount());
+            java.awt.Component firstControls = host.getComponent(0);
+
+            panel.setViewables(List.of(new Item("second")));
+
+            assertSame(host, panel.externalControls());
+            org.junit.jupiter.api.Assertions.assertEquals(1, host.getComponentCount());
+            org.junit.jupiter.api.Assertions.assertNotSame(
+                    firstControls, host.getComponent(0));
+            panel.close();
+        });
+    }
+
+    @Test void combinedControlsAreCollapsedIndependentlyOfTheirResultPanels() {
+        onEdt(() -> {
+            ViewableListPanel first = new ViewableListPanel(Item.class, "None");
+            first.setViewables(List.of(new Item("first")));
+            ViewableListPanel second = new ViewableListPanel(Item.class, "None");
+            second.setViewables(List.of(new Item("second")));
+            SearchControlsTabs controls =
+                    new SearchControlsTabs("Search / sort / view", false);
+            controls.addTab("First", first);
+            controls.addTab("Second", second);
+
+            assertFalse(controls.isExpanded());
+            org.junit.jupiter.api.Assertions.assertTrue(
+                    labels(controls).stream().anyMatch(text -> text.contains("(2)")),
+                    "the collapsed header must refresh as tabs are registered");
+            controls.setExpanded(true);
+            org.junit.jupiter.api.Assertions.assertTrue(controls.isExpanded());
+            first.close();
+            second.close();
+        });
+    }
+
+    private static java.util.List<String> labels(java.awt.Container root) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (java.awt.Component child : root.getComponents()) {
+            if (child instanceof javax.swing.JLabel label) out.add(label.getText());
+            if (child instanceof java.awt.Container nested) out.addAll(labels(nested));
+        }
+        return out;
+    }
+
     private static void layoutTree(java.awt.Container container) {
         container.doLayout();
         for (java.awt.Component child : container.getComponents()) {

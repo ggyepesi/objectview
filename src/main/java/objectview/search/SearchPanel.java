@@ -887,6 +887,21 @@ public class SearchPanel extends JPanel
         return searchField.getText();
     }
 
+    public boolean searchFieldFocused() {
+        return searchField.isFocusOwner();
+    }
+
+    public int searchCaretPosition() {
+        return searchField.getCaretPosition();
+    }
+
+    public void restoreSearchFocus(boolean focused, int caretPosition) {
+        if (!focused) return;
+        searchField.setCaretPosition(Math.max(0,
+                Math.min(caretPosition, searchField.getDocument().getLength())));
+        searchField.requestFocusInWindow();
+    }
+
     public boolean sorted() {
         return sorted;
     }
