@@ -883,6 +883,20 @@ public class SearchPanel extends JPanel
                 classConfigs(viewEditor, subtypeViewEditors));
     }
 
+    public String searchText() {
+        return searchField.getText();
+    }
+
+    public boolean sorted() {
+        return sorted;
+    }
+
+    /** Restore the transient state that is not part of the three field configs. */
+    public void restoreInteraction(String query, boolean wasSorted) {
+        if (wasSorted) sortTargetPanels();
+        runCoordinatedSearch(query == null ? "" : query);
+    }
+
     private static java.util.Map<String, ViewConfig> classConfigs(
             ViewConfigEditor base,
             java.util.Map<String, ViewConfigEditor> fallback) {

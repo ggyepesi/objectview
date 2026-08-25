@@ -4,6 +4,7 @@ import objectview.Viewable;
 import objectview.field.FieldSchema;
 import objectview.field.ViewableFieldPaths;
 import objectview.render.CardListView;
+import objectview.render.ExpandablePanel;
 import objectview.render.RenderContext;
 import objectview.render.RenderingMode;
 import objectview.search.SearchPanel;
@@ -36,10 +37,12 @@ public final class SearchableView extends JPanel {
     private final Builder builder;
     private final RenderContext context;
     private final SearchPanel search;
+    private final ExpandablePanel controls;
     private RenderingMode mode;
     private JComponent center;
     private CardListView cardList;        // active when mode == CARD
     private ViewableColumnsView table;    // active when mode == TABLE
+    private final Runnable removeActivationRegistration;
 
     private SearchableView(Builder b) {
         super(new BorderLayout(4, 4));
@@ -50,6 +53,8 @@ public final class SearchableView extends JPanel {
         if (b.fieldSchemas != null) context.setFieldSchemaResolver(b.fieldSchemas);
         if (b.cardDecorator != null) context.setCardDecorator(b.cardDecorator);
         if (b.valueLinker != null) context.setValueLinker(b.valueLinker);
+        removeActivationRegistration = context.addActivationHandler(
+                b.members, b.activationListener);
         if (b.selectionListener != null) {
             context.setSelectionEnabled(true);
             context.addSelectionListener(b.selectionListener);
@@ -66,6 +71,7 @@ public final class SearchableView extends JPanel {
 
         if (type == null || b.members.isEmpty()) {
             search = null;
+            controls = null;
             if (b.emptyMessage != null && !b.emptyMessage.isBlank()) {
                 add(new JLabel("   " + b.emptyMessage), BorderLayout.NORTH);
             }
@@ -82,7 +88,12 @@ public final class SearchableView extends JPanel {
         modeCombo.addActionListener(e -> switchMode((RenderingMode) modeCombo.getSelectedItem()));
         search.setRenderingModeControl(modeCombo);
 
-        add(search, BorderLayout.NORTH);
+        controls = new ExpandablePanel(
+                b.controlsExpanded,
+                () -> controlsHeader(false),
+                () -> controlsHeader(true),
+                () -> search);
+        add(controls, BorderLayout.NORTH);
         installContainer();
     }
 
@@ -93,6 +104,48 @@ public final class SearchableView extends JPanel {
     public SearchPanel search() { return search; }
     public RenderContext renderContext() { return context; }
     public RenderingMode mode() { return mode; }
+    public SearchPanel.ConfigState configState() {
+        return search == null ? builder.configState : search.configState();
+    }
+    public String searchText() { return search == null ? "" : search.searchText(); }
+    public boolean sorted() { return search != null && search.sorted(); }
+    public boolean controlsExpanded() {
+        return controls == null ? builder.controlsExpanded : controls.isExpanded();
+    }
+    public void setControlsExpanded(boolean expanded) {
+        if (controls != null && controls.isExpanded() != expanded) controls.toggle();
+    }
+
+    /** Restore interaction state after an owning browser replaces the result set. */
+    public void restoreInteraction(String query, boolean wasSorted) {
+        if (search == null) return;
+        search.restoreInteraction(query, wasSorted);
+    }
+
+    /** Detach registrations owned by this view before discarding it. */
+    public void dispose() {
+        removeActivationRegistration.run();
+        if (cardList != null) cardList.dispose();
+    }
+
+    /** Re-measure a newly installed virtual list after its host receives real bounds. */
+    public void refreshViewport() {
+        revalidate();
+        if (cardList != null && cardList.getVirtualList() != null) {
+            cardList.getVirtualList().rebuild();
+            cardList.getCardsScrollPane().revalidate();
+        } else if (table != null) {
+            table.scrollPane().revalidate();
+        }
+        repaint();
+    }
+
+    private static JLabel controlsHeader(boolean expanded) {
+        JLabel label = new JLabel((expanded ? "▼ " : "▶ ") + "Search / sort / view");
+        label.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+        label.setToolTipText(expanded ? "Collapse controls" : "Expand controls");
+        return label;
+    }
 
     private void switchMode(RenderingMode next) {
         if (next == null || next == mode || search == null) return;
@@ -188,6 +241,7 @@ public final class SearchableView extends JPanel {
         private Function<Viewable, FieldSchema> fieldSchemas;
         private Function<Viewable, JComponent> cardDecorator;
         private Function<Object, String> valueLinker;
+        private Consumer<Viewable> activationListener;
         private Consumer<Object> selectionListener;
         private Consumer<List<Object>> selectionSetListener;
         private RenderContext context;
@@ -198,6 +252,7 @@ public final class SearchableView extends JPanel {
         private SearchPanel.ConfigState configState;
         private Consumer<SearchPanel.ConfigState> configListener;
         private List<SearchPanel.SubtypeConfig> subtypeConfigs = List.of();
+        private boolean controlsExpanded = true;
 
         private Builder(Collection<? extends Viewable> members) {
             if (members != null) this.members.addAll(members);
@@ -219,6 +274,10 @@ public final class SearchableView extends JPanel {
         public Builder valueLinker(Function<Object, String> value) {
             valueLinker = value; return this;
         }
+        /** Replaces generic double-click detail inspection with a host action. */
+        public Builder activationListener(Consumer<Viewable> value) {
+            activationListener = value; return this;
+        }
 
         public Builder cardDecorator(Function<Viewable, JComponent> value) {
             cardDecorator = value; return this;
@@ -233,6 +292,9 @@ public final class SearchableView extends JPanel {
         public Builder renderContext(RenderContext value) { context = value; return this; }
         public Builder collapsible(boolean value) { collapsible = value; return this; }
         public Builder coordinated(boolean value) { coordinated = value; return this; }
+        public Builder controlsExpanded(boolean value) {
+            controlsExpanded = value; return this;
+        }
         public Builder columns(int value) { columns = Math.max(1, value); return this; }
         public Builder emptyMessage(String value) { emptyMessage = value; return this; }
         public Builder configState(SearchPanel.ConfigState value) {

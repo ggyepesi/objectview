@@ -276,6 +276,16 @@ public class RenderContext {
     // instead of opening a new detail frame. Shared across the views that
     // use this context, which is what makes cross-view navigation work.
     private boolean inPlaceNavigation = false;
+    // Optional host meaning for activating a top-level card. When present, a
+    // double-click is navigation/action rather than generic detail inspection.
+    private final java.util.List<ActivationRegistration> activationHandlers =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    private record ActivationRegistration(
+            java.util.Set<Viewable> members,
+            java.util.function.Consumer<Viewable> handler) {
+        boolean owns(Viewable value) { return members.contains(value); }
+    }
 
     public RenderContext() {
     }
@@ -286,6 +296,39 @@ public class RenderContext {
 
     public void setInPlaceNavigation(boolean inPlaceNavigation) {
         this.inPlaceNavigation = inPlaceNavigation;
+    }
+
+    /** Register a host action for one view's top-level members. The returned remover
+     *  belongs to that view's disposal lifecycle. Identity membership prevents a
+     *  shared context from activating an unrelated sibling view. */
+    public Runnable addActivationHandler(
+            java.util.Collection<? extends Viewable> members,
+            java.util.function.Consumer<Viewable> handler) {
+        if (handler == null) return () -> { };
+        java.util.Set<Viewable> owned = java.util.Collections.newSetFromMap(
+                new java.util.IdentityHashMap<>());
+        if (members != null) owned.addAll(members);
+        ActivationRegistration registration =
+                new ActivationRegistration(owned, handler);
+        activationHandlers.add(registration);
+        return () -> activationHandlers.remove(registration);
+    }
+
+    public boolean canActivate(Viewable viewable) {
+        return viewable != null && activationHandlers.stream()
+                .anyMatch(handler -> handler.owns(viewable));
+    }
+
+    public boolean activate(Viewable viewable) {
+        if (viewable == null) return false;
+        boolean handled = false;
+        for (ActivationRegistration registration : activationHandlers) {
+            if (registration.owns(viewable)) {
+                registration.handler().accept(viewable);
+                handled = true;
+            }
+        }
+        return handled;
     }
 
     public RenderContext(Collection<? extends Viewable> viewables) {

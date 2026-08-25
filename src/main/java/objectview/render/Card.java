@@ -667,9 +667,12 @@ public class Card extends JPanel implements RenderedInstanceHost {
         titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD));
         titleLabel.setForeground(new Color(0, 80, 180));
         titleLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        titleLabel.setToolTipText(
-                focusTopLevel
-                        ? "Click to focus existing panel"
+        boolean hostActivation = rootRender && renderContext != null
+                && renderContext.canActivate(q);
+        titleLabel.setToolTipText(focusTopLevel
+                ? "Click to focus existing panel"
+                : hostActivation
+                        ? "Double-click to activate"
                         : "Double-click to open full view");
 
         titleLabel.putClientProperty(FieldProperties.FIELD_NAME_PROPERTY,
@@ -684,9 +687,11 @@ public class Card extends JPanel implements RenderedInstanceHost {
         // notifies listeners. Double-click still opens the detail view below.
         if (renderContext != null && renderContext.selectionEnabled()) {
             // Only promise the gesture this view actually offers.
+            String doubleClick = hostActivation ? "activate" : "open";
             titleLabel.setToolTipText(renderContext.multipleSelectionEnabled()
-                    ? "Click to select · Ctrl/Cmd-click to select several · double-click to open"
-                    : "Click to select — double-click to open");
+                    ? "Click to select · Ctrl/Cmd-click to select several · double-click to "
+                            + doubleClick
+                    : "Click to select — double-click to " + doubleClick);
             titleLabel.addMouseListener(new java.awt.event.MouseAdapter() {
                 @Override
                 public void mousePressed(java.awt.event.MouseEvent e) {
@@ -1652,7 +1657,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
                 }
                 if (e.getClickCount() == 2) {
                     e.consume();
-                    openInFrame(q);
+                    if (!(rootRender && renderContext.activate(q))) openInFrame(q);
                 }
             }
         });
