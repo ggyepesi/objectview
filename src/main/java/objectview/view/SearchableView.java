@@ -98,7 +98,13 @@ public final class SearchableView extends JPanel {
         modeCombo.addActionListener(e -> switchMode((RenderingMode) modeCombo.getSelectedItem()));
         search.setRenderingModeControl(modeCombo);
 
-        if (b.inlineControls) {
+        if (b.coordinated) {
+            // MultiView owns the one visible search/config bar.  A section keeps
+            // this SearchPanel only as its search engine. MultiSearchBar also mounts
+            // its per-field hit navigator globally; an instance section contains
+            // cards and their real scrollbar only.
+            controls = null;
+        } else if (b.inlineControls) {
             controls = new ExpandablePanel(
                     b.controlsExpanded,
                     () -> controlsHeader(false),

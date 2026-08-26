@@ -29,9 +29,10 @@ public class MultiSearchBar extends JPanel {
     private final JTextField field = new JTextField(30);
     private final JCheckBox fieldHighlight = new JCheckBox("Highlight fields");
     private final javax.swing.Timer debounce;
+    private final JScrollPane navigatorScroll;
 
     public MultiSearchBar(List<SearchPanel> engines) {
-        super(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        super(new BorderLayout(0, 4));
         this.engines = new ArrayList<>(engines);
         for (SearchPanel e : this.engines) {
             e.setCoordinated(true);
@@ -64,18 +65,34 @@ public class MultiSearchBar extends JPanel {
         viewCfg.addActionListener(e -> openConfig("View Configuration",
                                                   SearchPanel::viewEditor, SearchPanel::applyView));
 
-        add(field);
-        add(fieldHighlight);
-        add(searchCfg);
-        add(sortCfg);
-        add(viewCfg);
+        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        toolbar.add(field);
+        toolbar.add(fieldHighlight);
+        toolbar.add(searchCfg);
+        toolbar.add(sortCfg);
+        toolbar.add(viewCfg);
+        add(toolbar, BorderLayout.NORTH);
+
+        // Hit rows are one result of the global query, just like the global input
+        // and configuration. Keeping their class-owned engines here prevents every
+        // instance section from growing a misleading second Search/Sort/View pane.
+        JPanel navigators = new JPanel();
+        navigators.setLayout(new BoxLayout(navigators, BoxLayout.Y_AXIS));
+        for (SearchPanel engine : this.engines) navigators.add(engine);
+        navigatorScroll = new JScrollPane(navigators);
+        navigatorScroll.setPreferredSize(new Dimension(640, 210));
+        navigatorScroll.getVerticalScrollBar().setUnitIncrement(16);
+        navigatorScroll.setVisible(false);
+        add(navigatorScroll, BorderLayout.CENTER);
     }
 
     private void runSearch() {
         String query = field.getText();
+        navigatorScroll.setVisible(query != null && !query.isBlank());
         for (SearchPanel e : engines) {
             e.runCoordinatedSearch(query);
         }
+        revalidate();
     }
 
     // Single config dialog with one tab per class (classes as roots): each tab

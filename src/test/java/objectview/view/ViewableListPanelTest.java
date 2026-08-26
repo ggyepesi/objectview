@@ -144,6 +144,40 @@ class ViewableListPanelTest {
         });
     }
 
+    @Test void coordinatedSectionHasNoSecondCollapsibleControlsSurface() {
+        onEdt(() -> {
+            SearchableView view = SearchableView.builder(List.of(new Item("one")))
+                    .coordinated(true)
+                    .build();
+
+            org.junit.jupiter.api.Assertions.assertFalse(
+                    descendants(view, objectview.render.ExpandablePanel.class),
+                    "the shared MultiSearchBar is the only controls surface");
+            org.junit.jupiter.api.Assertions.assertFalse(descendants(
+                    view, objectview.search.SearchPanel.class),
+                    "the section must contain cards and their scrollbar only");
+            assertFalse(view.search().isVisible(),
+                    "an idle per-section hit navigator must consume no space");
+
+            view.search().runCoordinatedSearch("one");
+            org.junit.jupiter.api.Assertions.assertTrue(view.search().isVisible());
+            view.search().runCoordinatedSearch("");
+            assertFalse(view.search().isVisible());
+            view.dispose();
+        });
+    }
+
+    private static boolean descendants(
+            java.awt.Container root, Class<? extends java.awt.Component> type) {
+        for (java.awt.Component child : root.getComponents()) {
+            if (type.isInstance(child)) return true;
+            if (child instanceof java.awt.Container nested && descendants(nested, type)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static java.util.List<String> labels(java.awt.Container root) {
         java.util.List<String> out = new java.util.ArrayList<>();
         for (java.awt.Component child : root.getComponents()) {

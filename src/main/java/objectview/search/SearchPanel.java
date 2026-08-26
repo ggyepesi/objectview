@@ -966,21 +966,29 @@ public class SearchPanel extends JPanel
         if (topControls != null) {
             topControls.setVisible(!coordinated);
         }
+        if (coordinated) {
+            setBorder(BorderFactory.createTitledBorder(sectionTypeName()));
+            setVisible(false);
+        }
     }
 
     /** Runs the query against this section synchronously (highlighting its
      *  cards) without stealing navigation. Keeps the (hidden) field in sync so
      *  live-add re-search uses the right text. */
     public void runCoordinatedSearch(String query) {
+        String normalized = query == null ? "" : query;
+        setVisible(!normalized.isBlank());
         suppressSearchEvents = true;
         try {
-            searchField.setText(query == null ? "" : query);
+            searchField.setText(normalized);
         } finally {
             suppressSearchEvents = false;
         }
         clearHighlights();
         rebuildSearchIndex();
-        searchSync(query == null ? "" : query);
+        searchSync(normalized);
+        revalidate();
+        if (getParent() != null) getParent().revalidate();
     }
 
     /** The class this section searches (for the shared config's per-class tab). */
