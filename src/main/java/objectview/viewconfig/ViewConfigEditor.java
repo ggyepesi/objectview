@@ -457,13 +457,25 @@ public class ViewConfigEditor extends JPanel {
      *  depth cap and a cycle guard (a nested type already on the chain stops). */
     private void buildTree(FieldPath parentPath, int depth,
                            FieldRowContext context, Set<String> chain) {
+        buildTree(parentPath, depth, context, chain, false);
+    }
+
+    private void buildTree(FieldPath parentPath, int depth,
+                           FieldRowContext context, Set<String> chain,
+                           boolean minorBranch) {
         for (FieldRow raw : rowSource.rows(context)) {
             if (raw.isMinorBlock()) {
-                // Multi-check reflection keeps the minor-fields block as a top-level row
-                // (its own small dialog); single-select tables omit it.
+                // Minor fields use the same inline disclosure as nested references.
+                // Their real paths remain top-level because the block is presentation,
+                // not a segment in ViewConfig.
                 if (depth == 0 && contributor.selectionMode()
                         == FieldTableContributor.SelectionMode.MULTI_CHECK) {
                     allRows.add(new RowState(raw));
+                    FieldRowContext minors = new FieldRowContext(
+                            context.config(), context.sample(), true,
+                            context.hideMedia(), context.hiddenFields(),
+                            context.fieldTypes());
+                    buildTree(parentPath, depth + 1, minors, chain, true);
                 }
                 continue;
             }
@@ -475,6 +487,7 @@ public class ViewConfigEditor extends JPanel {
                     : parentPath.append(raw.path());
             FieldRow placed = raw.at(full, depth);
             RowState state = new RowState(placed);
+            state.minorBranch = minorBranch;
             state.use = !placed.isClassBranch() && checkedInSource(placed);
             allRows.add(state);
 
@@ -491,7 +504,8 @@ public class ViewConfigEditor extends JPanel {
                     Set<String> next = new java.util.HashSet<>(chain);
                     next.add(cycleKey);
                     buildTree(full, depth + 1,
-                            childContext(nested, full, placed.isClassBranch()), next);
+                            childContext(nested, full, placed.isClassBranch()), next,
+                            minorBranch);
                 }
             }
         }
@@ -531,7 +545,9 @@ public class ViewConfigEditor extends JPanel {
             }
             config = child;
         }
-        return config.showsFieldByName(segments.get(segments.size() - 1));
+        return row.field() != null
+                ? config.showsField(row.field())
+                : config.showsFieldByName(segments.get(segments.size() - 1));
     }
 
     private FieldRowContext childContext(
@@ -627,6 +643,10 @@ public class ViewConfigEditor extends JPanel {
     }
 
     private boolean isVisible(RowState state) {
+        if (state.minorBranch
+                && !expandedPaths.contains(FieldRow.minorBlockPath())) {
+            return false;
+        }
         FieldPath ancestor = state.row.path().parent();
         while (!ancestor.isRoot()) {
             if (!expandedPaths.contains(ancestor)) {
@@ -828,28 +848,6 @@ public class ViewConfigEditor extends JPanel {
                     childConfigFor(state));
         }
 
-        if (!minorOnly) {
-            RowState minorBlock = findMinorBlock();
-            if (minorBlock != null
-                    && minorBlock.childEditor != null) {
-                ViewConfig minorConfig =
-                        minorBlock.childEditor.getConfig();
-
-                result.setAllMinorFields(
-                        result.isAllMinorFields()
-                                || minorConfig
-                                .isAllMinorFields());
-
-                for (Map.Entry<String, ViewConfig> entry
-                        : minorConfig.getFields()
-                        .entrySet()) {
-                    result.addField(
-                            entry.getKey(),
-                            entry.getValue());
-                }
-            }
-        }
-
         return result;
     }
 
@@ -915,7 +913,9 @@ public class ViewConfigEditor extends JPanel {
             if (row.isMinorBlock()) {
                 continue;
             }
-            int depth = row.depth();
+            // Minor fields are visually indented under a presentation-only block;
+            // structurally they still attach directly to the surrounding config.
+            int depth = state.minorBranch ? row.depth() - 1 : row.depth();
             String name = row.configName();
             if (row.nested() != null) {
                 // Seed from the reference's saved config HEADER so its own metadata
@@ -960,20 +960,6 @@ public class ViewConfigEditor extends JPanel {
                 attach = ref.explicit != null ? ref.explicit : ViewConfig.of(ref.type);
             }
             ref.parent.addField(ref.name, attach);
-        }
-
-        if (!minorOnly) {
-            RowState minorBlock = findMinorBlock();
-            if (minorBlock != null && minorBlock.childEditor != null) {
-                ViewConfig minorConfig = minorBlock.childEditor.getConfig();
-                result.setAllMinorFields(
-                        result.isAllMinorFields()
-                                || minorConfig.isAllMinorFields());
-                for (Map.Entry<String, ViewConfig> entry
-                        : minorConfig.getFields().entrySet()) {
-                    result.addField(entry.getKey(), entry.getValue());
-                }
-            }
         }
 
         return result;
@@ -1277,66 +1263,9 @@ public class ViewConfigEditor extends JPanel {
                 || s.path().parent().equals(t.path().parent());
     }
 
-    private void openMinorEditor(RowState state) {
-        if (!state.row.isMinorBlock()) {
-            return;
-        }
-
-        if (state.childEditor == null) {
-            ViewConfig config = sourceConfig.copy();
-            config.setAllMinorFields(
-                    allMinorFieldsBox.isSelected());
-
-            state.childEditor = new ViewConfigEditor(
-                    config,
-                    nestedDefaultNameOnly,
-                    true,
-                    sample,
-                    nestedContributorFor(state.row),
-                    ConfigFieldRowSource.INSTANCE);
-        }
-
-        JDialog dialog = new JDialog(
-                SwingUtilities.getWindowAncestor(this),
-                "Minor fields : "
-                        + sourceConfig.getCls().getSimpleName(),
-                Dialog.ModalityType.APPLICATION_MODAL);
-
-        dialog.setLayout(new BorderLayout(8, 8));
-        dialog.add(
-                state.childEditor,
-                BorderLayout.CENTER);
-
-        JButton okButton = new JButton("OK");
-        okButton.addActionListener(e -> {
-            ViewConfig config =
-                    state.childEditor.getConfig();
-            allMinorFieldsBox.setSelected(
-                    config.isAllMinorFields());
-            dialog.dispose();
-            tableModel.fireTableDataChanged();
-            fireConfigChanged();
-        });
-
-        JPanel buttons =
-                new JPanel(
-                        new FlowLayout(
-                                FlowLayout.RIGHT));
-        buttons.add(okButton);
-
-        dialog.add(buttons, BorderLayout.SOUTH);
-        dialog.setSize(800, 600);
-        dialog.setLocationRelativeTo(this);
-        dialog.setVisible(true);
-    }
-
     private void openChildEditor(RowState state) {
         FieldRow row = state.row;
 
-        if (row.isMinorBlock()) {
-            openMinorEditor(state);
-            return;
-        }
         if (!row.isField() || row.nested() == null) {
             return;
         }
@@ -1454,15 +1383,6 @@ public class ViewConfigEditor extends JPanel {
         return config;
     }
 
-    private RowState findMinorBlock() {
-        for (RowState state : rows) {
-            if (state.row.isMinorBlock()) {
-                return state;
-            }
-        }
-        return null;
-    }
-
     private int countSelectedMinorFields() {
         if (sourceConfig.isAllMinorFields()) {
             return -1;
@@ -1481,23 +1401,6 @@ public class ViewConfigEditor extends JPanel {
                     && sourceConfig.getFieldConfig(
                             field.getName()) != null) {
                 count++;
-            }
-        }
-
-        RowState minorBlock = findMinorBlock();
-        if (minorBlock != null
-                && minorBlock.childEditor != null) {
-            ViewConfig config =
-                    minorBlock.childEditor.getConfig();
-            count = 0;
-
-            for (Field field
-                    : ViewableAdapter.getAllFields(cls)) {
-                if (ViewableAdapter.isMinorField(field)
-                        && config.getFieldConfig(
-                                field.getName()) != null) {
-                    count++;
-                }
             }
         }
 
@@ -1596,7 +1499,8 @@ public class ViewConfigEditor extends JPanel {
                                     + " selected";
                     case USE ->
                             allMinorFieldsBox.isSelected();
-                    case TREE, EXPAND -> "Open...";
+                    case TREE, EXPAND -> expandedPaths.contains(row.path())
+                            ? "▾" : "▸";
                     default -> "";
                 };
             }
@@ -1859,14 +1763,7 @@ public class ViewConfigEditor extends JPanel {
                 if (row.isMinorBlock()
                         && (col.kind == ColKind.EXPAND
                                 || col.kind == ColKind.TREE)) {
-                    opening = true;
-                    SwingUtilities.invokeLater(() -> {
-                        try {
-                            openMinorEditor(state);
-                        } finally {
-                            opening = false;
-                        }
-                    });
+                    SwingUtilities.invokeLater(() -> toggleExpand(row.path()));
                     return;
                 }
 
@@ -1952,6 +1849,9 @@ public class ViewConfigEditor extends JPanel {
         // path (cycle) or hits the depth cap — surfaced as an explanatory UI tag so the
         // truncation is never silent.
         String cutNote;
+        // A minor field is displayed under the synthetic Minor fields disclosure,
+        // while its ViewConfig path remains the real top-level field path.
+        boolean minorBranch;
 
         RowState(FieldRow row) {
             this.row = row;

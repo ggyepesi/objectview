@@ -14,6 +14,9 @@ import java.util.Objects;
  */
 public final class FieldRow {
 
+    private static final FieldPath MINOR_BLOCK_PATH =
+            FieldPath.of("Minor fields");
+
     public enum Kind {
         FIELD,
         CLASS,
@@ -102,13 +105,18 @@ public final class FieldRow {
     public static FieldRow minorBlock() {
         return new FieldRow(
                 Kind.MINOR_BLOCK,
-                FieldPath.of("Minor fields"),
+                MINOR_BLOCK_PATH,
                 "Minor fields",
                 "Minor fields",
                 "",
                 0,
                 null,
                 null);
+    }
+
+    /** Stable presentation path shared by the block row and its disclosure state. */
+    public static FieldPath minorBlockPath() {
+        return MINOR_BLOCK_PATH;
     }
 
     /** A virtual class branch in a field hierarchy. It behaves like an expandable

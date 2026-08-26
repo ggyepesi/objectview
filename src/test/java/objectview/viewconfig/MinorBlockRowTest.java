@@ -4,6 +4,11 @@ import objectview.ViewableAdapter;
 import objectview.annotations.Minor;
 import org.junit.jupiter.api.Test;
 
+import javax.swing.JButton;
+import javax.swing.JTable;
+import javax.swing.SwingUtilities;
+import java.awt.Component;
+import java.awt.Container;
 import java.util.List;
 import java.util.Set;
 
@@ -99,5 +104,53 @@ class MinorBlockRowTest {
         assertTrue(ConfigFieldRowSource.INSTANCE.hasMinorFields(context),
                 "the 'All minor fields' checkbox must still appear for a schema minor");
         assertFalse(hasBlock(ConfigFieldRowSource.INSTANCE.rows(context)));
+    }
+
+    @Test void declaredMinorFieldsExpandInlineInTheMainTable() throws Exception {
+        ViewConfigEditor[] editor = new ViewConfigEditor[1];
+        JTable[] table = new JTable[1];
+        SwingUtilities.invokeAndWait(() -> {
+            editor[0] = new ViewConfigEditor(ViewConfig.all(Town.class), new Town());
+            table[0] = findTable(editor[0]);
+            assertTrue(table[0] != null);
+            assertFalse(tableContains(table[0], "postcode"),
+                    "minor fields start collapsed");
+
+            for (int row = 0; row < table[0].getRowCount(); row++) {
+                for (int column = 0; column < table[0].getColumnCount(); column++) {
+                    if (!"▸".equals(table[0].getValueAt(row, column))) continue;
+                    assertTrue(table[0].editCellAt(row, column));
+                    Component component = table[0].getEditorComponent();
+                    assertTrue(component instanceof JButton);
+                    ((JButton) component).doClick();
+                    return;
+                }
+            }
+            throw new AssertionError("Minor fields disclosure was not found");
+        });
+        // The disclosure action rebuilds the visible tree on the next EDT turn.
+        SwingUtilities.invokeAndWait(() -> assertTrue(tableContains(table[0], "postcode"),
+                "the minor field belongs in the same table, not a dialog"));
+    }
+
+    private static JTable findTable(Container root) {
+        for (Component component : root.getComponents()) {
+            if (component instanceof JTable table) return table;
+            if (component instanceof Container child) {
+                JTable found = findTable(child);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static boolean tableContains(JTable table, String value) {
+        for (int row = 0; row < table.getRowCount(); row++) {
+            for (int column = 0; column < table.getColumnCount(); column++) {
+                Object cell = table.getValueAt(row, column);
+                if (cell != null && value.equals(cell.toString().trim())) return true;
+            }
+        }
+        return false;
     }
 }
