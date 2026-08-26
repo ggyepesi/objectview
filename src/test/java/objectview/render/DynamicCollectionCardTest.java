@@ -135,6 +135,46 @@ class DynamicCollectionCardTest {
                 "a reference whose decoration is non-null carries the identity chip");
     }
 
+    @Test
+    void aLongCardTitleYieldsSpaceToItsIdentityDecoration() throws Exception {
+        DynamicThing value = new DynamicThing(
+                "Joseph II, Holy Roman Emperor — Apostolic King of Hungary (1780–1790)");
+        JLabel idChip = new JLabel("Q76555");
+        RenderContext context = new RenderContext();
+        context.setCardDecorator(ignored -> idChip);
+
+        Card[] card = new Card[1];
+        javax.swing.SwingUtilities.invokeAndWait(() -> {
+            card[0] = new Card(value, ViewConfig.all(DynamicThing.class), context, false);
+            card[0].setSize(260, 120);
+            layoutTree(card[0]);
+        });
+
+        JLabel title = findTitleLabel(card[0], idChip);
+        assertNotNull(title);
+        assertTrue(title.getX() + title.getWidth() <= idChip.getX(),
+                "the title's allocated bounds must end before the QID chip begins");
+    }
+
+    private static JLabel findTitleLabel(Component root, JLabel decoration) {
+        if (root instanceof JLabel label && root != decoration
+                && label.getFont().isBold()) return label;
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                JLabel found = findTitleLabel(child, decoration);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static void layoutTree(Container container) {
+        container.doLayout();
+        for (Component child : container.getComponents()) {
+            if (child instanceof Container nested) layoutTree(nested);
+        }
+    }
+
     private static boolean contains(Component root, Component target) {
         if (root == target) return true;
         if (root instanceof Container container) {

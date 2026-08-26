@@ -716,7 +716,10 @@ public class Card extends JPanel implements RenderedInstanceHost {
         header.setOpaque(false);
         header.setBorder(BorderFactory.createMatteBorder(
                 0, 0, 1, 0, Color.LIGHT_GRAY));
-        header.add(titleLabel, BorderLayout.WEST);
+        // CENTER receives only the width left after the trailing decoration. A title
+        // in WEST keeps its full preferred width and can paint underneath an EAST QID
+        // chip when a derived statement name is long.
+        header.add(titleLabel, BorderLayout.CENTER);
         attachDecoration(header);
 
         return header;
