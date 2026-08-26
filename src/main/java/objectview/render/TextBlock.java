@@ -388,9 +388,14 @@ public class TextBlock extends JComponent implements TextSelectable {
     }
 
     public boolean hasMatchingRow(FieldPath path, List<String> tokens) {
+        return hasMatchingRow(path, tokens, false);
+    }
+
+    public boolean hasMatchingRow(
+            FieldPath path, List<String> tokens, boolean exact) {
         for (Row row : rows) {
             if (samePath(row.fieldPath(), path)
-                    && matches(row.value(), tokens)) {
+                    && matches(row.value(), tokens, exact)) {
                 return true;
             }
         }
@@ -752,10 +757,13 @@ public class TextBlock extends JComponent implements TextSelectable {
                 : row.fieldName() + ":";
     }
 
-    private boolean matches(Object value, List<String> tokens) {
+    private boolean matches(Object value, List<String> tokens, boolean exact) {
         if (value == null) return false;
 
-        String s = String.valueOf(value).toLowerCase();
+        String s = String.valueOf(value).toLowerCase().trim();
+        if (exact) {
+            return s.equals(String.join(" ", tokens).toLowerCase().trim());
+        }
 
         for (String tok : tokens) {
             if (!s.contains(tok.toLowerCase())) {

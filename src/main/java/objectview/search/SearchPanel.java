@@ -14,7 +14,6 @@ import objectview.viewconfig.FieldTableContributor;
 import objectview.viewconfig.FieldTypeSource;
 import objectview.viewconfig.ViewConfig;
 import objectview.viewconfig.ViewConfigEditor;
-import objectview.virtual.CardStackLayout;
 import objectview.virtual.ConfigurableVirtualizedContainer;
 import objectview.virtual.SearchNavigableContainer;
 import objectview.virtual.VirtualizedContainer;
@@ -91,9 +90,6 @@ public class SearchPanel extends JPanel
     private final List<Viewable> originalViewables =
             new ArrayList<>();
 
-    private final List<Component> originalTargetOrder =
-            new ArrayList<>();
-
     private final SearchAndSort searchAndSort =
             new SearchAndSort();
 
@@ -129,12 +125,15 @@ public class SearchPanel extends JPanel
     // section keeps only its own per-field results/navigation.
     private JComponent topControls;
 
-    private int cachedColumnCount = 1;
-
     // True once the user has applied a sort and not yet restored order, so
     // live-added cards can be slotted into the sorted order rather than
     // appended at the end.
     private boolean sorted = false;
+    private boolean exactMatch;
+    private final JButton viewConfigButton = new JButton("View Config...");
+    private final JButton sortConfigButton = new JButton("Sort Config...");
+    private final JButton sortButton = new JButton("Sort");
+    private final JButton restoreOrderButton = new JButton("Restore Order");
     private Consumer<ConfigState> configListener;
     private final java.util.List<SubtypeConfig> subtypeConfigs;
     private final FieldTypeSource rootFieldTypes;
@@ -252,9 +251,8 @@ public class SearchPanel extends JPanel
         }
         this.targetScrollPane = targetScrollPane;
 
-        cachedColumnCount = detectColumnCount();
-
         rememberOriginalTargetsFromCurrentPanel();
+        updateTargetCapabilities();
         rebuildSearchIndex();
         clearResults();
 
@@ -277,14 +275,10 @@ public class SearchPanel extends JPanel
             return;
         }
 
-        cachedColumnCount = detectColumnCount();
-
-        for (Card qp : added) {
-            if (qp == null) {
-                continue;
+        if (virtualList != null) {
+            for (Card qp : added) {
+                if (qp != null) originalViewables.add(qp.getViewable());
             }
-            originalViewables.add(qp.getViewable());
-            originalTargetOrder.add(qp);
         }
 
         rebuildSearchIndex();
@@ -338,7 +332,7 @@ public class SearchPanel extends JPanel
     }
 
     private void sortTargetPanels() {
-        if (targetPanel == null) {
+        if (targetPanel == null || virtualList == null) {
             return;
         }
 
@@ -349,80 +343,17 @@ public class SearchPanel extends JPanel
             return;
         }
 
-        // Virtualized: sort the DATA (all fields of every viewable), then re-render
-        // the visible window in the new order — O(N) on data + O(visible) render,
-        // no component shuffle.
-        if (virtualList != null) {
-            // Keep your place across the resort: anchor on the highlighted search
-            // hit if any, else the card currently at the top of the viewport, and
-            // re-pin it at the top in the new order.
-            Viewable anchor = currentHit instanceof Card qp
-                    ? qp.getViewable()
-                    : virtualList.topVisibleItem();
-
-            List<Viewable> ordered =
-                    searchAndSort.sortViewables(virtualList.items(), sortPaths);
-            virtualList.setItems(ordered);
-            if (anchor != null) {
-                virtualList.navigateToTop(anchor);
-            }
-            sorted = true;
-            return;
-        }
-
-        List<Card> panels =
-                new ArrayList<>();
-
-        for (Component c : targetPanel.getComponents()) {
-            if (c instanceof Card qp) {
-                panels.add(qp);
-            }
-        }
-
-        panels = searchAndSort.sortPanels(panels, sortPaths);
-        applyTargetOrder(panels);
+        // Sort the DATA, never Swing children. A component layout is presentation;
+        // it is not an ordering contract and cannot safely answer how re-adding a
+        // child changes its visual position.
+        Viewable anchor = currentHit instanceof Card qp
+                ? qp.getViewable()
+                : virtualList.topVisibleItem();
+        List<Viewable> ordered =
+                searchAndSort.sortViewables(virtualList.items(), sortPaths);
+        virtualList.setItems(ordered);
+        if (anchor != null) virtualList.navigateToTop(anchor);
         sorted = true;
-
-        // Don't call maybeRefreshSearch() — highlights are still valid
-        // because no panels were recreated, only repositioned.
-    }
-
-    // CardStackLayout lays out in component order, so reordering for sort is just
-    // re-adding the cards in the new order (cheap — the layout is O(n) arithmetic).
-    private void applyTargetOrder(List<? extends Component> order) {
-        if (targetPanel == null) {
-            return;
-        }
-
-        List<Component> filtered = new ArrayList<>();
-        for (Component c : order) {
-            if (c instanceof Card) {
-                filtered.add(c);
-            }
-        }
-
-        // Skip if the order hasn't changed (avoid a needless removeAll/relayout).
-        Component[] current = targetPanel.getComponents();
-        if (current.length == filtered.size()) {
-            boolean same = true;
-            for (int i = 0; i < current.length; i++) {
-                if (current[i] != filtered.get(i)) {
-                    same = false;
-                    break;
-                }
-            }
-            if (same) {
-                return;
-            }
-        }
-
-        targetPanel.removeAll();
-        for (Component c : filtered) {
-            targetPanel.add(c);
-        }
-
-        targetPanel.revalidate();
-        targetPanel.repaint();
     }
 
 
@@ -547,6 +478,8 @@ public class SearchPanel extends JPanel
 
         searchField.setBorder(
                 BorderFactory.createTitledBorder("Search"));
+        searchField.setToolTipText(
+                "Prefix with = for an exact field-value match, for example =P39");
         searchField.setColumns(32);
         searchField.setPreferredSize(new Dimension(420, searchField.getPreferredSize().height));
 
@@ -568,10 +501,6 @@ public class SearchPanel extends JPanel
                     }
                 });
 
-        JButton viewConfigButton = new JButton("View Config...");
-        JButton sortConfigButton = new JButton("Sort Config...");
-        JButton sortButton = new JButton("Sort");
-        JButton restoreOrderButton = new JButton("Restore Order");
         JButton searchConfigButton = new JButton("Search Config...");
 
         backButton.setEnabled(false);
@@ -618,6 +547,7 @@ public class SearchPanel extends JPanel
                 e -> restoreOriginalTargetOrder());
 
         fieldHighlightBox.addActionListener(e -> refreshSearch());
+        updateTargetCapabilities();
     }
 
     private ViewConfig nameOnlyConfig(
@@ -650,25 +580,32 @@ public class SearchPanel extends JPanel
 
     private void rememberOriginalTargetsFromCurrentPanel() {
         originalViewables.clear();
-        originalTargetOrder.clear();
 
-        // Virtualized: the baseline is the full data list (most cards aren't built).
         if (virtualList != null) {
             originalViewables.addAll(virtualList.items());
-            return;
-        }
-
-        if (targetPanel == null) {
-            return;
-        }
-
-        for (Component c : targetPanel.getComponents()) {
-            if (c instanceof Card qp) {
-                originalViewables.add(qp.getViewable());
-                originalTargetOrder.add(qp);
-            }
         }
     }
+
+    /** Mutation controls follow semantic target capabilities, never Swing layout. */
+    private void updateTargetCapabilities() {
+        boolean dataBacked = virtualList != null;
+        boolean configurable = virtualList instanceof ConfigurableVirtualizedContainer;
+        sortConfigButton.setEnabled(dataBacked);
+        sortButton.setEnabled(dataBacked);
+        restoreOrderButton.setEnabled(dataBacked);
+        viewConfigButton.setEnabled(configurable);
+        String sortWhy = dataBacked ? null
+                : "Sorting requires a data-backed ObjectView target";
+        sortConfigButton.setToolTipText(sortWhy);
+        sortButton.setToolTipText(sortWhy);
+        restoreOrderButton.setToolTipText(sortWhy);
+        viewConfigButton.setToolTipText(configurable ? null
+                : "View configuration requires a configurable data-backed target");
+        if (!dataBacked) sorted = false;
+    }
+
+    boolean sortAvailable() { return sortButton.isEnabled(); }
+    boolean viewConfigurationAvailable() { return viewConfigButton.isEnabled(); }
 
     public ViewConfig getSearchConfig() {
         return searchEditor.getConfig();
@@ -1093,6 +1030,10 @@ public class SearchPanel extends JPanel
 
         String text =
                 normalize(query == null ? "" : query);
+        exactMatch = text.startsWith("=");
+        if (exactMatch) {
+            text = normalize(text.substring(1));
+        }
 
         clearHighlights();
         clearResults();
@@ -1120,7 +1061,7 @@ public class SearchPanel extends JPanel
         }
 
         Map<String, List<Card>> matchesByField =
-                searchAndSort.search(queryTokens);
+                searchAndSort.search(queryTokens, exactMatch);
 
         Map<String, HitGroup> groups =
                 new LinkedHashMap<>();
@@ -1390,7 +1331,7 @@ public class SearchPanel extends JPanel
             List<JComponent> hits) {
 
         if (root instanceof TextBlock block) {
-            if (block.hasMatchingRow(selectedPath, queryTokens)) {
+            if (block.hasMatchingRow(selectedPath, queryTokens, exactMatch)) {
                 replaceAncestorWithDescendantIfNeeded(block, hits);
             }
 
@@ -1482,108 +1423,22 @@ public class SearchPanel extends JPanel
             return;
         }
 
-        // A grouped/virtual target owns its card factory and can discard/rebuild
-        // materialized cards lazily. Do not replace its structural child panels.
-        if (virtualList != null) {
-            if (virtualList instanceof ConfigurableVirtualizedContainer configurable) {
-                configurable.setViewConfigResolver(q -> effectiveConfig(
-                        viewEditor, subtypeViewEditors, q));
-            }
-
-            rebuildSearchIndex();
-
-            if (searchAfter) {
-                maybeRefreshSearch();
-            }
+        if (!(virtualList instanceof ConfigurableVirtualizedContainer configurable)) {
             return;
         }
-
-        List<Card> panels =
-                new ArrayList<>();
-
-        List<Viewable> viewables =
-                originalViewables.isEmpty()
-                        ? collectViewablesFromCurrentTarget()
-                        : new ArrayList<>(originalViewables);
-
-        RenderContext context =
-                new RenderContext(viewables);
-
-        for (Viewable q : viewables) {
-            if (q == null) {
-                continue;
-            }
-
-            ViewConfig viewCfg = effectiveConfig(
-                    viewEditor, subtypeViewEditors, q);
-
-            if (viewCfg.getCls() == null) {
-                viewCfg.setCls(q.getClass());
-            }
-
-            context.putClassConfig(q.getClass(), viewCfg);
-
-            Card panel =
-                    new Card(q, viewCfg, context, false);
-
-            context.registerTopLevel(q, panel);
-
-            if (panel.hasRenderedConfiguredContent()) {
-                panels.add(panel);
-            }
-        }
-
-        originalViewables.clear();
-        originalViewables.addAll(viewables);
-
-        originalTargetOrder.clear();
-        originalTargetOrder.addAll(panels);
-
-        applyTargetOrder(panels);
+        configurable.setViewConfigResolver(q -> effectiveConfig(
+                viewEditor, subtypeViewEditors, q));
         rebuildSearchIndex();
-
-        // EDGE CASE: this recreates the cards in original order, visually
-        // un-sorting, but deliberately leaves the `sorted` flag untouched.
-        // Consequence: if a sort was active, the next live add
-        // (cardsAdded) will re-impose it. That re-sort is the
-        // intended behavior; if you ever want View Config to clear the
-        // sort instead, set `sorted = false` here — but then a live add
-        // after a view change won't restore the user's sort. Decide
-        // explicitly rather than letting it drift.
         if (searchAfter) {
             maybeRefreshSearch();
         }
     }
 
-    private List<Viewable> collectViewablesFromCurrentTarget() {
-        List<Viewable> out =
-                new ArrayList<>();
-
-        if (targetPanel == null) {
-            return out;
-        }
-
-        for (Component c : targetPanel.getComponents()) {
-            if (c instanceof Card qp) {
-                out.add(qp.getViewable());
-            }
-        }
-
-        return out;
-    }
-
     private void restoreOriginalTargetOrder() {
         sorted = false;
 
-        // Virtualized: restore the original data order (a data swap, not a
-        // component shuffle).
-        if (virtualList != null) {
-            virtualList.setItems(originalViewables);
-            maybeRefreshSearch();
-            return;
-        }
-
-        applyTargetOrder(originalTargetOrder);
+        if (virtualList == null) return;
+        virtualList.setItems(originalViewables);
         maybeRefreshSearch();
     }
 
@@ -1591,13 +1446,6 @@ public class SearchPanel extends JPanel
         if (!searchField.getText().isBlank()) {
             asyncSearch();
         }
-    }
-
-    private int detectColumnCount() {
-        return targetPanel != null
-                && targetPanel.getLayout() instanceof CardStackLayout csl
-                ? csl.columns()
-                : 1;
     }
 
     private boolean matchesWithTokens(
@@ -1633,13 +1481,9 @@ public class SearchPanel extends JPanel
                                   ? q.getName()
                                   : value.toString());
 
-        for (String tok : tokens) {
-            if (!s.contains(tok)) {
-                return false;
-            }
-        }
-
-        return true;
+        return exactMatch
+                ? s.equals(String.join(" ", tokens))
+                : tokens.stream().allMatch(s::contains);
     }
 
     private String normalize(String s) {
@@ -1672,7 +1516,7 @@ public class SearchPanel extends JPanel
             List<String> queryTokens) {
 
         if (root instanceof TextBlock block) {
-            if (block.hasMatchingRow(selectedPath, queryTokens)) {
+            if (block.hasMatchingRow(selectedPath, queryTokens, exactMatch)) {
                 remember(block);
                 block.setHighlightTokens(selectedPath, queryTokens);
             }
@@ -2168,7 +2012,8 @@ public class SearchPanel extends JPanel
                 searchAndSort.searchViewables(
                         virtualList.items(),
                         queryTokens,
-                        searchPaths());
+                        searchPaths(),
+                        exactMatch);
 
         // Remember the hits so a card rebuilt on scroll-back gets re-highlighted.
         clearVirtualSearchState();

@@ -35,6 +35,25 @@ class VirtualSearchHighlightTest {
 
     @ParameterizedTest
     @EnumSource(RenderingMode.class)
+    void equalsPrefixMatchesOneCompleteFieldValue(RenderingMode mode) {
+        EdtTests.onEdt(() -> {
+            Element p39 = new Element("P39");
+            Element p390 = new Element("P390");
+            Element decorated = new Element("property P39");
+            List<Element> items = List.of(p39, p390, decorated);
+            SearchableView view = build(items, p39, mode);
+            materializeAll(view, items);
+
+            view.search().runCoordinatedSearch("=P39");
+
+            assertTrue(host(view, p39).isHighlighted());
+            assertFalse(host(view, p390).isHighlighted());
+            assertFalse(host(view, decorated).isHighlighted());
+        });
+    }
+
+    @ParameterizedTest
+    @EnumSource(RenderingMode.class)
     void highlightsEveryAlreadyBuiltHit(RenderingMode mode) {
         EdtTests.onEdt(() -> {
             Element neptunium = new Element("neptunium");

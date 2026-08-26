@@ -47,7 +47,7 @@ public class SearchAndSort {
                 continue;
             }
 
-            Map<String, String> fieldTextByTitle =
+            Map<String, SearchText> fieldTextByTitle =
                     new LinkedHashMap<>();
 
             for (ViewableFieldPaths.PathInfo fp : paths) {
@@ -56,7 +56,7 @@ public class SearchAndSort {
 
                 fieldTextByTitle.put(
                         fp.title(),
-                        normalize(flattenForSearch(fp, value)));
+                        searchText(fp, value));
             }
 
             searchIndex.add(new SearchEntry(qp, fieldTextByTitle));
@@ -65,6 +65,11 @@ public class SearchAndSort {
 
     public Map<String, List<Card>> search(
             List<String> queryTokens) {
+        return search(queryTokens, false);
+    }
+
+    public Map<String, List<Card>> search(
+            List<String> queryTokens, boolean exact) {
 
         Map<String, List<Card>> out =
                 new LinkedHashMap<>();
@@ -74,10 +79,10 @@ public class SearchAndSort {
         }
 
         for (SearchEntry entry : searchIndex) {
-            for (Map.Entry<String, String> field
+            for (Map.Entry<String, SearchText> field
                     : entry.fieldTextByTitle.entrySet()) {
 
-                if (!containsAllTokens(field.getValue(), queryTokens)) {
+                if (!matches(field.getValue(), queryTokens, exact)) {
                     continue;
                 }
 
@@ -99,6 +104,14 @@ public class SearchAndSort {
             List<objectview.Viewable> viewables,
             List<String> queryTokens,
             List<ViewableFieldPaths.PathInfo> paths) {
+        return searchViewables(viewables, queryTokens, paths, false);
+    }
+
+    public Map<String, List<objectview.Viewable>> searchViewables(
+            List<objectview.Viewable> viewables,
+            List<String> queryTokens,
+            List<ViewableFieldPaths.PathInfo> paths,
+            boolean exact) {
 
         Map<String, List<objectview.Viewable>> out =
                 new LinkedHashMap<>();
@@ -118,9 +131,7 @@ public class SearchAndSort {
                 Object value =
                         extractValue(q, fp.path());
 
-                if (containsAllTokens(
-                        normalize(flattenForSearch(fp, value)),
-                        queryTokens)) {
+                if (matches(searchText(fp, value), queryTokens, exact)) {
 
                     if (hits == null) {
                         hits = new ArrayList<>();
@@ -228,13 +239,20 @@ public class SearchAndSort {
      *  reference renders as a name chip and is read as one, at the top of a path exactly
      *  as inside it. A dynamic field has no declared Java field to ask, and reads as a
      *  reference. */
-    private String flattenForSearch(
+    private SearchText searchText(
             ViewableFieldPaths.PathInfo field, Object value) {
-
         int depth = objectview.ViewableAdapter.isInline(field.leafField())
                 ? ValueText.NESTED_DEPTH : 0;
+        List<String> atoms = ValueText.shown(value, depth).stream()
+                .map(this::normalize).filter(s -> !s.isBlank()).toList();
+        return new SearchText(String.join(" ", atoms), atoms);
+    }
 
-        return String.join(" ", ValueText.shown(value, depth));
+    private boolean matches(SearchText text, List<String> tokens, boolean exact) {
+        if (text == null || tokens == null || tokens.isEmpty()) return false;
+        if (!exact) return containsAllTokens(text.flattened(), tokens);
+        String wanted = String.join(" ", tokens);
+        return text.atoms().stream().anyMatch(wanted::equals);
     }
 
     private boolean containsAllTokens(
@@ -319,7 +337,14 @@ public class SearchAndSort {
 
     private record SearchEntry(
             Card panel,
-            Map<String, String> fieldTextByTitle) {
+            Map<String, SearchText> fieldTextByTitle) {
+    }
+
+    private record SearchText(String flattened, List<String> atoms) {
+        private SearchText {
+            flattened = flattened == null ? "" : flattened;
+            atoms = atoms == null ? List.of() : List.copyOf(atoms);
+        }
     }
 
     private record PanelSortKey(
