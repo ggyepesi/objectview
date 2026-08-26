@@ -116,6 +116,7 @@ public class SearchPanel extends JPanel
     // shared MultiSearchBar (shared input + config), while it keeps its own
     // per-field results panel + per-panel navigation + highlighting.
     private boolean suppressSearchEvents = false;
+    private boolean coordinated;
 
     // The class this section searches (for the shared config's per-class tab).
     private Class<? extends Viewable> searchClass;
@@ -963,12 +964,20 @@ public class SearchPanel extends JPanel
      *  + config toolbar (the bar owns those), while it keeps its own per-field
      *  results panel and per-panel navigation. */
     public void setCoordinated(boolean coordinated) {
+        this.coordinated = coordinated;
         if (topControls != null) {
             topControls.setVisible(!coordinated);
         }
         if (coordinated) {
             setBorder(BorderFactory.createTitledBorder(sectionTypeName()));
             setVisible(false);
+        } else {
+            // SearchPanel instances also live in ordinary replaceable lists.  Do not
+            // let the engine-only visibility used by MultiView leak into that mode:
+            // its ExpandablePanel owns visibility by parenting, not by hiding the
+            // body itself.
+            setBorder(null);
+            setVisible(true);
         }
     }
 
@@ -977,7 +986,7 @@ public class SearchPanel extends JPanel
      *  live-add re-search uses the right text. */
     public void runCoordinatedSearch(String query) {
         String normalized = query == null ? "" : query;
-        setVisible(!normalized.isBlank());
+        if (coordinated) setVisible(!normalized.isBlank());
         suppressSearchEvents = true;
         try {
             searchField.setText(normalized);

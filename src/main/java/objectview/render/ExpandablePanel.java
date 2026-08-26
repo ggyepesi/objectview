@@ -95,15 +95,13 @@ public class ExpandablePanel extends JPanel {
     }
 
     private void localRelayout() {
-        invalidate();
-        doLayout();
+        revalidate();
         repaint();
 
         Container p = getParent();
         while (p instanceof JComponent jc
                 && !(p instanceof JViewport)) {
-            jc.invalidate();
-            jc.doLayout();
+            jc.revalidate();
             jc.repaint();
             p = p.getParent();
         }

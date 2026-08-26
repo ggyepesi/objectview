@@ -103,6 +103,68 @@ class ViewableListPanelTest {
         });
     }
 
+    @Test void collapsedInlineControlsCanBeExpandedAfterLayout() {
+        onEdt(() -> {
+            SearchableView view = SearchableView.builder(List.of(new Item("one")))
+                    .controlsExpanded(false)
+                    .build();
+            view.setSize(700, 500);
+            layoutTree(view);
+
+            view.setControlsExpanded(true);
+            view.validate();
+            layoutTree(view);
+
+            org.junit.jupiter.api.Assertions.assertTrue(view.controlsExpanded());
+            org.junit.jupiter.api.Assertions.assertTrue(view.search().isShowing()
+                            || view.search().getHeight() > 0,
+                    "expansion must give the Search/Sort/View body layout space");
+            view.dispose();
+        });
+    }
+
+    @Test void replaceablePropertyStyleListKeepsExpandableInlineControls() {
+        onEdt(() -> {
+            ViewableListPanel panel = new ViewableListPanel(Item.class, "None");
+            panel.setViewables(java.util.stream.IntStream.range(0, 200)
+                    .mapToObj(i -> new Item("item " + i)).toList());
+            panel.setSize(900, 700);
+            layoutTree(panel);
+            objectview.search.SearchPanel initialSearch = descendant(
+                    panel, objectview.search.SearchPanel.class);
+            org.junit.jupiter.api.Assertions.assertNotNull(initialSearch);
+            org.junit.jupiter.api.Assertions.assertTrue(initialSearch.isVisible(),
+                    "ordinary inline search starts visible");
+            panel.setControlsExpanded(false);
+            org.junit.jupiter.api.Assertions.assertTrue(initialSearch.isVisible(),
+                    "collapsing removes the body without poisoning its visibility");
+            layoutTree(panel);
+            panel.setControlsExpanded(true);
+            panel.validate();
+            layoutTree(panel);
+
+            objectview.search.SearchPanel search = descendant(
+                    panel, objectview.search.SearchPanel.class);
+            org.junit.jupiter.api.Assertions.assertNotNull(search);
+            org.junit.jupiter.api.Assertions.assertTrue(search.isVisible());
+            org.junit.jupiter.api.Assertions.assertTrue(search.getHeight() >= 160,
+                    "the loaded list must show the toolbar and hit navigator, not only the disclosure row");
+            panel.close();
+        });
+    }
+
+    private static <T extends java.awt.Component> T descendant(
+            java.awt.Container root, Class<T> type) {
+        for (java.awt.Component child : root.getComponents()) {
+            if (type.isInstance(child)) return type.cast(child);
+            if (child instanceof java.awt.Container nested) {
+                T found = descendant(nested, type);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
     @Test void externalControlsKeepAStableHostAcrossResultReplacement() {
         onEdt(() -> {
             ViewableListPanel panel = new ViewableListPanel(Item.class, "None");
