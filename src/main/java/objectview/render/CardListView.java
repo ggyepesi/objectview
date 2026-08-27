@@ -610,14 +610,9 @@ public class CardListView {
         // Closing the window detached this section; showing it again restores it,
         // whether or not the caller rebuilt the cards in between.
         if (registeredContext == null) attachContextRegistrations();
-        // A window the reader minimized is still their window: restore it rather than
-        // raising something they cannot see.
-        if ((frame.getExtendedState() & java.awt.Frame.ICONIFIED) != 0) {
-            frame.setExtendedState(frame.getExtendedState() & ~java.awt.Frame.ICONIFIED);
-        }
-        frame.setVisible(true);
-        frame.toFront();
-        frame.requestFocus();
+        // Restoring a minimized window, raising a hidden one and surviving activation
+        // still leaving a window that is closing are one policy, owned in one place.
+        objectview.utils.swing.SwingWindowActivation.showAndFocus(frame);
     }
 
     public void show(String title) {

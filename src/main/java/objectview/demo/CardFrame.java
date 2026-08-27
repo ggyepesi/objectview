@@ -36,9 +36,7 @@ public class CardFrame {
         JFrame existing = getExistingFrame(viewable);
 
         if (existing != null) {
-            existing.setVisible(true);
-            existing.toFront();
-            existing.requestFocus();
+            objectview.utils.swing.SwingWindowActivation.showAndFocus(existing);
             return;
         }
 
