@@ -618,16 +618,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
         if (renderContext.selectionEnabled()) {
             titleLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             titleLabel.setToolTipText(renderContext.multipleSelectionEnabled()
-                    ? "Click to select · Ctrl/Cmd-click to select several"
+                    ? "Click to select · Ctrl/Cmd-click to toggle · Shift-click for a range"
                     : "Click to select");
-            titleLabel.addMouseListener(new java.awt.event.MouseAdapter() {
-                @Override
-                public void mousePressed(java.awt.event.MouseEvent e) {
-                    if (e.getClickCount() == 1) {
-                        renderContext.select(viewable, e.isControlDown() || e.isMetaDown());
-                    }
-                }
-            });
         } else if (config.isAddListener()) {
             addOpenListener(titleLabel, viewable);
         }
@@ -691,17 +683,9 @@ public class Card extends JPanel implements RenderedInstanceHost {
             // Only promise the gesture this view actually offers.
             String doubleClick = hostActivation ? "activate" : "open";
             titleLabel.setToolTipText(renderContext.multipleSelectionEnabled()
-                    ? "Click to select · Ctrl/Cmd-click to select several · double-click to "
+                    ? "Click to select · Ctrl/Cmd-click to toggle · Shift-click for a range · double-click to "
                             + doubleClick
                     : "Click to select — double-click to " + doubleClick);
-            titleLabel.addMouseListener(new java.awt.event.MouseAdapter() {
-                @Override
-                public void mousePressed(java.awt.event.MouseEvent e) {
-                    if (e.getClickCount() == 1) {
-                        renderContext.select(viewable, e.isControlDown() || e.isMetaDown());
-                    }
-                }
-            });
         }
 
         if (config.isAddListener()) {
@@ -1679,7 +1663,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
                         return;
                     }
                     renderContext.select(viewable,
-                            event.isControlDown() || event.isMetaDown());
+                            event.isControlDown() || event.isMetaDown(), event.isShiftDown());
                 }
             };
 

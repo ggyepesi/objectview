@@ -64,6 +64,8 @@ public final class SearchableView extends JPanel {
             context.setMultipleSelectionEnabled(true);
             context.addSelectionSetListener(b.selectionSetListener);
         }
+        context.setSelectionOrder(b.members);
+        if (context.multipleSelectionEnabled()) installSelectAllShortcuts();
 
         Class<? extends Viewable> type = b.type;
         if (type == null && b.sample != null) type = viewableClass(b.sample);
@@ -177,6 +179,22 @@ public final class SearchableView extends JPanel {
             table.scrollPane().revalidate();
         }
         repaint();
+    }
+
+    private void installSelectAllShortcuts() {
+        String actionKey = "objectview.selectAllCards";
+        getActionMap().put(actionKey, new javax.swing.AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent event) {
+                context.selectAll();
+            }
+        });
+        int condition = JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT;
+        getInputMap(condition).put(javax.swing.KeyStroke.getKeyStroke(
+                java.awt.event.KeyEvent.VK_A, java.awt.event.InputEvent.CTRL_DOWN_MASK),
+                actionKey);
+        getInputMap(condition).put(javax.swing.KeyStroke.getKeyStroke(
+                java.awt.event.KeyEvent.VK_A, java.awt.event.InputEvent.META_DOWN_MASK),
+                actionKey);
     }
 
     private static JLabel controlsHeader(boolean expanded) {

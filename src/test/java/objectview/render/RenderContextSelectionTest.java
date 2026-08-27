@@ -61,4 +61,24 @@ class RenderContextSelectionTest {
         assertEquals(1, context.selectedObjects().size());
         assertEquals(4, reports.size());
     }
+
+    @Test
+    void shiftSelectsAVisualIntervalAndSelectAllUsesTheCurrentOrder() {
+        RenderContext context = new RenderContext();
+        context.setSelectionEnabled(true);
+        context.setMultipleSelectionEnabled(true);
+        Object first = new Object();
+        Object second = new Object();
+        Object third = new Object();
+        Object fourth = new Object();
+        context.setSelectionOrder(List.of(first, second, third, fourth));
+
+        context.select(second, false, false);
+        context.select(fourth, false, true);
+        assertEquals(List.of(second, third, fourth), context.selectedObjects());
+
+        context.setSelectionOrder(List.of(fourth, third, second, first));
+        context.selectAll();
+        assertEquals(List.of(fourth, third, second, first), context.selectedObjects());
+    }
 }

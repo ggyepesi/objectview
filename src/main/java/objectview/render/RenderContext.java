@@ -570,6 +570,8 @@ public class RenderContext {
     // can be equal and only one of them was clicked; insertion order, because callers
     // act on "the selected rows" and a set's order is arbitrary and unrepeatable.
     private final java.util.List<Object> selectedObjects = new java.util.ArrayList<>();
+    private final java.util.List<Object> selectionOrder = new java.util.ArrayList<>();
+    private Object selectionAnchor;
     private final java.util.List<java.util.function.Consumer<Object>> selectionListeners =
             new java.util.ArrayList<>();
     private final java.util.List<java.util.function.Consumer<java.util.List<Object>>>
@@ -592,6 +594,14 @@ public class RenderContext {
     public void setMultipleSelectionEnabled(boolean enabled) {
         multipleSelectionEnabled = enabled;
         if (!enabled && selectedObjects.size() > 1) select(selected());
+    }
+
+    /** Visual row order used by Shift-click and Select All. Identity semantics match
+     * card selection, and sorting may replace this order without replacing selection. */
+    public void setSelectionOrder(java.util.Collection<?> objects) {
+        selectionOrder.clear();
+        if (objects != null) objects.stream().filter(java.util.Objects::nonNull)
+                .forEach(selectionOrder::add);
     }
 
     public boolean isSelected(Object object) {
@@ -637,19 +647,62 @@ public class RenderContext {
     /** Plain selection replaces the set; Ctrl/Cmd selection toggles one object when
      * multi-selection is enabled. */
     public void select(Object object, boolean toggle) {
+        select(object, toggle, false);
+    }
+
+    /** Standard list selection: plain click replaces, Ctrl/Cmd toggles, and Shift
+     * selects the visual interval from the anchor. Ctrl/Cmd+Shift adds that interval. */
+    public void select(Object object, boolean toggle, boolean interval) {
         java.util.List<Object> previous = java.util.List.copyOf(selectedObjects);
-        if (toggle && multipleSelectionEnabled) {
+        if (interval && multipleSelectionEnabled && selectInterval(object, toggle)) {
+            // selectInterval performed the mutation.
+        } else if (toggle && multipleSelectionEnabled) {
             int at = indexOf(object);
             if (at >= 0) selectedObjects.remove(at);
             else if (object != null) selectedObjects.add(object);
+            selectionAnchor = object;
         } else {
             if (previous.size() == 1 && indexOf(object) == 0) return;
             selectedObjects.clear();
             if (object != null) selectedObjects.add(object);
+            selectionAnchor = object;
         }
         previous.forEach(this::repaintCard);
         selectedObjects.forEach(this::repaintCard);
         notifySelection();
+    }
+
+    private boolean selectInterval(Object object, boolean additive) {
+        int end = identityIndex(selectionOrder, object);
+        int start = identityIndex(selectionOrder,
+                selectionAnchor == null ? selected() : selectionAnchor);
+        if (start < 0 || end < 0) return false;
+        if (!additive) selectedObjects.clear();
+        int low = Math.min(start, end);
+        int high = Math.max(start, end);
+        for (int i = low; i <= high; i++) {
+            Object candidate = selectionOrder.get(i);
+            if (indexOf(candidate) < 0) selectedObjects.add(candidate);
+        }
+        return true;
+    }
+
+    public void selectAll() {
+        if (!multipleSelectionEnabled) return;
+        java.util.List<Object> previous = java.util.List.copyOf(selectedObjects);
+        selectedObjects.clear();
+        selectedObjects.addAll(selectionOrder);
+        if (!selectionOrder.isEmpty()) selectionAnchor = selectionOrder.get(0);
+        previous.forEach(this::repaintCard);
+        selectedObjects.forEach(this::repaintCard);
+        notifySelection();
+    }
+
+    private static int identityIndex(java.util.List<Object> values, Object sought) {
+        for (int i = 0; i < values.size(); i++) {
+            if (values.get(i) == sought) return i;
+        }
+        return -1;
     }
 
     private void notifySelection() {

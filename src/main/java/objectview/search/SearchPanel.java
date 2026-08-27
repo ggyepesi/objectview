@@ -353,6 +353,7 @@ public class SearchPanel extends JPanel
         List<Viewable> ordered =
                 searchAndSort.sortViewables(virtualList.items(), sortPaths);
         virtualList.setItems(ordered);
+        if (renderContext != null) renderContext.setSelectionOrder(ordered);
         if (anchor != null) virtualList.navigateToTop(anchor);
         sorted = true;
     }
@@ -1456,6 +1457,7 @@ public class SearchPanel extends JPanel
 
         if (virtualList == null) return;
         virtualList.setItems(originalViewables);
+        if (renderContext != null) renderContext.setSelectionOrder(originalViewables);
         maybeRefreshSearch();
     }
 

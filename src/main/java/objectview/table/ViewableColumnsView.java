@@ -615,7 +615,7 @@ public final class ViewableColumnsView
                     RenderedInstanceHost.hostOf(event.getComponent());
             if (host != null && host.renderedInstance() != null) {
                 context.select(host.renderedInstance(),
-                        event.isControlDown() || event.isMetaDown());
+                        event.isControlDown() || event.isMetaDown(), event.isShiftDown());
             }
         }
     };
