@@ -144,10 +144,11 @@ public final class ViewableListPanel extends JPanel implements AutoCloseable {
         revalidate();
         repaint();
         view.restoreInteraction(searchText, sorted);
+        SearchableView installedView = view;
         javax.swing.SwingUtilities.invokeLater(() -> {
-            if (view != null) {
-                view.refreshViewport();
-                view.restoreSearchFocus(searchFocused, searchCaretPosition);
+            if (this.view == installedView) {
+                installedView.refreshViewport();
+                installedView.restoreSearchFocus(searchFocused, searchCaretPosition);
             }
         });
     }
