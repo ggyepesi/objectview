@@ -88,7 +88,7 @@ public final class ValueText {
                 // The card descends into an inline object and paints its fields; a
                 // reference is drawn as a name chip, and reads as one here.
                 collect(fields.read(field.name()),
-                        field.inline() ? depth - 1 : 0, labels, visited, out);
+                        field.embedded() ? depth - 1 : 0, labels, visited, out);
             }
 
             return;

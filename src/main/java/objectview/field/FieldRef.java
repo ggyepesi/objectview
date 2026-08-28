@@ -7,7 +7,7 @@ package objectview.field;
  * or a dynamic property map ({@link DynamicFields}). The rendering / search /
  * sort / config machinery reads this instead of re-deriving field metadata two ways.
  *
- * <p>The <b>render hints</b> ({@link #inline()}, {@link #link()},
+ * <p>The <b>render hints</b> ({@link #inline()}, {@link #embedded()}, {@link #link()},
  * {@link #annotatedReference()}) are annotation-derived and so only a <i>declared</i>
  * field can carry them — a dynamic map value has no annotations and reports them all
  * false / empty. A single render builder reads these hints first, then falls back to
@@ -63,8 +63,13 @@ public interface FieldRef {
 
     // --- render hints (annotation-derived; a dynamic field reports false / "") ------
 
-    /** {@code @Inline} — render the referent(s) fully expanded inline. */
+    /** Render an ordinary scalar/media value in the owning card rather than as a
+     * reference. This is distinct from embedding a structured object. */
     boolean inline();
+
+    /** {@code @Inline} on a structured value — render the referent(s) fully expanded
+     * inside the owning card. */
+    default boolean embedded() { return reference() && inline(); }
 
     /** {@code @Link} — the (String) value is an external URL to render as a link. */
     boolean link();
@@ -116,12 +121,28 @@ public interface FieldRef {
                               boolean structural, boolean minor,
                               boolean inline, boolean link, String linkText,
                               boolean annotatedReference) {
+        return described(name, label, role, kind, valueKind, typeLabel,
+                reference, collection, targetType, structural, minor,
+                inline && !reference, inline && reference,
+                link, linkText, annotatedReference);
+    }
+
+    /** Complete description with scalar-inline and structured-embedding represented
+     * independently. */
+    static FieldRef described(String name, String label, FieldRole role,
+                              FieldKind kind, FieldKind valueKind,
+                              String typeLabel, boolean reference,
+                              boolean collection, String targetType,
+                              boolean structural, boolean minor,
+                              boolean inline, boolean embedded,
+                              boolean link, String linkText,
+                              boolean annotatedReference) {
         return new Impl(name, label == null ? name : label,
                 role == null ? FieldRole.NONE : role,
                 kind == null ? FieldKind.UNKNOWN : kind,
                 valueKind == null ? FieldKind.UNKNOWN : valueKind,
                 typeLabel, reference, collection, targetType, structural, minor,
-                inline, link, linkText == null ? "" : linkText,
+                inline, embedded, link, linkText == null ? "" : linkText,
                 annotatedReference);
     }
 
@@ -131,6 +152,7 @@ public interface FieldRef {
                 field.kind(), field.valueKind(),
                 field.typeLabel(), field.reference(), field.collection(),
                 field.targetType(), structural, field.minor(), field.inline(),
+                field.embedded(),
                 field.link(), field.linkText(), field.annotatedReference());
     }
 
@@ -139,7 +161,7 @@ public interface FieldRef {
         return described(name, field.label(), field.role(),
                 field.kind(), field.valueKind(), field.typeLabel(),
                 field.reference(), field.collection(), field.targetType(),
-                field.structural(), field.minor(), field.inline(), field.link(),
+                field.structural(), field.minor(), field.inline(), field.embedded(), field.link(),
                 field.linkText(), field.annotatedReference());
     }
 
@@ -171,7 +193,7 @@ public interface FieldRef {
                 FieldKind kind, FieldKind valueKind,
                 String typeLabel, boolean reference, boolean collection,
                 String targetType, boolean structural, boolean minor,
-                boolean inline, boolean link, String linkText,
+                boolean inline, boolean embedded, boolean link, String linkText,
                 boolean annotatedReference) implements FieldRef {}
 
     /** A COMPUTED/virtual field: ordinary metadata plus a semantic {@link FieldRole}, with no
@@ -202,6 +224,7 @@ public interface FieldRef {
         @Override public boolean structural() { return false; }
         @Override public boolean minor() { return false; }
         @Override public boolean inline() { return false; }
+        @Override public boolean embedded() { return false; }
         @Override public boolean link() { return false; }
         @Override public String linkText() { return ""; }
         @Override public boolean annotatedReference() { return false; }

@@ -945,11 +945,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
                     fieldName, fieldPath, value, fieldCfg);
         }
 
-        // INLINE describes structural Viewables. A scalar/media field may also carry
-        // the model's INLINE presentation flag, but routing a Collection<MediaValue>
-        // through createInlineFieldComponent drops every member because that renderer
-        // intentionally accepts Viewables only.
-        if (field.inline() && containsViewable(value)) {
+        if (field.embedded() && containsViewable(value)) {
             return createInlineFieldComponent(
                     fieldName, fieldPath, value, fieldCfg);
         }
