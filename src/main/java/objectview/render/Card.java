@@ -1662,6 +1662,11 @@ public class Card extends JPanel implements RenderedInstanceHost {
                             || isIndependentAction(event)) {
                         return;
                     }
+                    // Cards are the list rows. Give the clicked row keyboard focus so
+                    // the enclosing SearchableView's Cmd/Ctrl-A binding wins over a
+                    // stale focus left in the search text field.
+                    Card.this.setFocusable(true);
+                    Card.this.requestFocusInWindow();
                     renderContext.select(viewable,
                             event.isControlDown() || event.isMetaDown(), event.isShiftDown());
                 }

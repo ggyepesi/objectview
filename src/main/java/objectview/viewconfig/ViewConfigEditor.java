@@ -789,7 +789,8 @@ public class ViewConfigEditor extends JPanel {
                                  List<FieldPath> result) {
         if (treeMode) {
             for (RowState state : allRows) {
-                if (state.row.isField() && state.use) {
+                if (state.row.isField() && state.use
+                        && ancestorsSelected(state.row.path())) {
                     result.add(prefix.isRoot()
                             ? state.row.path()
                             : prefix.append(state.row.path()));
@@ -944,7 +945,10 @@ public class ViewConfigEditor extends JPanel {
         for (int i = refs.size() - 1; i >= 0; i--) {
             RefEntry ref = refs.get(i);
             boolean hasChild = !ref.cfg.getFields().isEmpty();
-            if (!ref.use && !hasChild && !ref.classBranch) {
+            // Descendant checks are remembered while the reference is off, but an
+            // unchecked parent suppresses the whole subtree in the effective config.
+            // Rechecking it reactivates those unchanged descendant choices.
+            if (!ref.use && !ref.classBranch) {
                 continue;
             }
             ViewConfig attach;
@@ -1588,10 +1592,6 @@ public class ViewConfigEditor extends JPanel {
             }
 
             state.use = Boolean.TRUE.equals(value);
-            if (!state.use) {
-                state.childEditor = null;
-                state.customConfigured = false;
-            }
 
             fireTableRowsUpdated(
                     rowIndex,
@@ -1619,6 +1619,25 @@ public class ViewConfigEditor extends JPanel {
                 default -> String.class;
             };
         }
+    }
+
+    private boolean ancestorsSelected(FieldPath path) {
+        FieldPath ancestor = path.parent();
+        while (!ancestor.isRoot()) {
+            RowState parent = stateAt(ancestor);
+            if (parent != null && parent.row.nested() != null && !parent.use) {
+                return false;
+            }
+            ancestor = ancestor.parent();
+        }
+        return true;
+    }
+
+    private RowState stateAt(FieldPath path) {
+        for (RowState state : allRows) {
+            if (state.row.path().equals(path)) return state;
+        }
+        return null;
     }
 
     private class RowRenderer
