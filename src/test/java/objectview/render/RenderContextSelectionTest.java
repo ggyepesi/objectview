@@ -80,5 +80,10 @@ class RenderContextSelectionTest {
         context.setSelectionOrder(List.of(fourth, third, second, first));
         context.selectAll();
         assertEquals(List.of(fourth, third, second, first), context.selectedObjects());
+
+        context.clearSelection();
+        assertTrue(context.selectedObjects().isEmpty());
+        context.select(third, false, true); // no stale interval anchor after clear
+        assertEquals(List.of(third), context.selectedObjects());
     }
 }

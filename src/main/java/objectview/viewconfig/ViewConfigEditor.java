@@ -71,7 +71,7 @@ public class ViewConfigEditor extends JPanel {
         }
     };
     private final JCheckBox allMinorFieldsBox =
-            new JCheckBox("All minor fields");
+            new JCheckBox("Show minor fields");
     private final JPanel minorFieldsBar =
             new JPanel(new FlowLayout(FlowLayout.LEFT));
 
@@ -185,7 +185,16 @@ public class ViewConfigEditor extends JPanel {
         // Always install the "All minor fields" bar + wire it once; its VISIBILITY and
         // checked state track the current row source (updated on every switch).
         allMinorFieldsBox.addActionListener(e -> {
-            tableModel.fireTableDataChanged();
+            if (treeMode) {
+                if (allMinorFieldsBox.isSelected()) {
+                    expandedPaths.add(FieldRow.minorBlockPath());
+                } else {
+                    expandedPaths.remove(FieldRow.minorBlockPath());
+                }
+                rebuildVisible();
+            } else {
+                tableModel.fireTableDataChanged();
+            }
             fireConfigChanged();
         });
         minorFieldsBar.add(allMinorFieldsBox);
@@ -373,6 +382,7 @@ public class ViewConfigEditor extends JPanel {
         FieldRowContext context = rowContext();
         // Undecidable (no sample, no declared field types) keeps the bar available: a
         // false answer there means "cannot tell", not "there are none".
+        // One top-level gate governs the schema-derived minor rows in every editor.
         minorFieldsBar.setVisible(governs
                 && (!ConfigFieldRowSource.INSTANCE.minorFieldsDecidable(context)
                     || ConfigFieldRowSource.INSTANCE.hasMinorFields(context)));
@@ -428,6 +438,16 @@ public class ViewConfigEditor extends JPanel {
                     state.customConfigured = snapshot.customConfigured;
                 }
             }
+            if (!preserveState) {
+                Boolean rememberedGate = sourceConfig.minorFieldsVisible();
+                boolean showMinor = rememberedGate != null ? rememberedGate
+                        : sourceConfig.isAllMinorFields()
+                            || allRows.stream().anyMatch(state ->
+                                    state.minorBranch && state.use);
+                allMinorFieldsBox.setSelected(showMinor);
+                if (showMinor) expandedPaths.add(FieldRow.minorBlockPath());
+                else expandedPaths.remove(FieldRow.minorBlockPath());
+            }
             rebuildVisible();
             return;
         }
@@ -468,9 +488,11 @@ public class ViewConfigEditor extends JPanel {
                 // Minor fields use the same inline disclosure as nested references.
                 // Their real paths remain top-level because the block is presentation,
                 // not a segment in ViewConfig.
-                if (depth == 0 && contributor.selectionMode()
+                if (contributor.selectionMode()
                         == FieldTableContributor.SelectionMode.MULTI_CHECK) {
-                    allRows.add(new RowState(raw));
+                    // There is one visible top-level gate, but every class/reference
+                    // branch contributes its schema-minor rows beneath that gate.
+                    if (depth == 0) allRows.add(new RowState(raw));
                     FieldRowContext minors = new FieldRowContext(
                             context.config(), context.sample(), true,
                             context.hideMedia(), context.hiddenFields(),
@@ -541,13 +563,18 @@ public class ViewConfigEditor extends JPanel {
         for (int i = 0; i < segments.size() - 1; i++) {
             ViewConfig child = config.getFieldConfig(segments.get(i));
             if (child == null) {
+                child = config.getRememberedFieldConfig(segments.get(i));
+            }
+            if (child == null) {
                 return config.isAllFields();
             }
             config = child;
         }
+        String leaf = segments.get(segments.size() - 1);
+        if (config.getRememberedFieldConfig(leaf) != null) return true;
         return row.field() != null
                 ? config.showsField(row.field())
-                : config.showsFieldByName(segments.get(segments.size() - 1));
+                : config.showsFieldByName(leaf);
     }
 
     private FieldRowContext childContext(
@@ -643,6 +670,9 @@ public class ViewConfigEditor extends JPanel {
     }
 
     private boolean isVisible(RowState state) {
+        // The synthetic node supplies tree ancestry only; the top-level checkbox is
+        // the sole user-facing control.
+        if (state.row.isMinorBlock()) return false;
         if (state.minorBranch
                 && !expandedPaths.contains(FieldRow.minorBlockPath())) {
             return false;
@@ -658,6 +688,15 @@ public class ViewConfigEditor extends JPanel {
     }
 
     private void toggleExpand(FieldPath path) {
+        if (FieldRow.minorBlockPath().equals(path)) {
+            boolean show = !expandedPaths.contains(path);
+            allMinorFieldsBox.setSelected(show);
+            if (show) expandedPaths.add(path);
+            else expandedPaths.remove(path);
+            rebuildVisible();
+            fireConfigChanged();
+            return;
+        }
         if (!expandedPaths.remove(path)) {
             expandedPaths.add(path);
         }
@@ -790,6 +829,7 @@ public class ViewConfigEditor extends JPanel {
         if (treeMode) {
             for (RowState state : allRows) {
                 if (state.row.isField() && state.use
+                        && (!state.minorBranch || allMinorFieldsBox.isSelected())
                         && ancestorsSelected(state.row.path())) {
                     result.add(prefix.isRoot()
                             ? state.row.path()
@@ -896,8 +936,12 @@ public class ViewConfigEditor extends JPanel {
     private ViewConfig buildTreeConfig() {
         ViewConfig result = copyHeader(sourceConfig);
         result.setAllFields(false);
-        result.setAllMinorFields(
-                !minorOnly && allMinorFieldsBox.isSelected());
+        // In the inline tree, the Minor fields switch is a visibility/admission
+        // gate. Each minor field remains an ordinary explicit selection, so turning
+        // the gate off can hide the set without erasing those remembered choices.
+        boolean hasMinorBranch = allRows.stream().anyMatch(state -> state.minorBranch);
+        result.setAllMinorFields(hasMinorBranch ? false : sourceConfig.isAllMinorFields());
+        result.minorFieldsVisible(allMinorFieldsBox.isSelected());
         result.getFields().clear();
 
         int maxDepth = 0;
@@ -912,6 +956,9 @@ public class ViewConfigEditor extends JPanel {
         for (RowState state : allRows) {
             FieldRow row = state.row;
             if (row.isMinorBlock()) {
+                continue;
+            }
+            if (state.minorBranch && !allMinorFieldsBox.isSelected()) {
                 continue;
             }
             // Minor fields are visually indented under a presentation-only block;
@@ -949,6 +996,9 @@ public class ViewConfigEditor extends JPanel {
             // unchecked parent suppresses the whole subtree in the effective config.
             // Rechecking it reactivates those unchanged descendant choices.
             if (!ref.use && !ref.classBranch) {
+                ViewConfig remembered = hasChild ? ref.cfg
+                        : ref.explicit != null ? ref.explicit : ref.cfg;
+                ref.parent.rememberField(ref.name, remembered);
                 continue;
             }
             ViewConfig attach;
@@ -964,6 +1014,16 @@ public class ViewConfigEditor extends JPanel {
                 attach = ref.explicit != null ? ref.explicit : ViewConfig.of(ref.type);
             }
             ref.parent.addField(ref.name, attach);
+        }
+
+        // A closed Minor fields gate changes only the effective config. Bank the
+        // individually selected rows separately so a ConfigState rebuild can reopen
+        // the gate without inventing defaults or losing nested child configuration.
+        for (RowState state : allRows) {
+            if (!state.minorBranch || !state.row.isField() || !state.use) continue;
+            ViewConfig remembered = explicitConfigFor(state, state.row.path());
+            result.rememberField(state.row.configName(), remembered != null
+                    ? remembered : ViewConfig.leaf());
         }
 
         return result;
@@ -1000,7 +1060,8 @@ public class ViewConfigEditor extends JPanel {
             if (cfg == null) {
                 return null;
             }
-            cfg = cfg.getFieldConfig(seg);
+            ViewConfig active = cfg.getFieldConfig(seg);
+            cfg = active != null ? active : cfg.getRememberedFieldConfig(seg);
         }
         return cfg == null ? null : cfg.copy();
     }
@@ -1039,6 +1100,7 @@ public class ViewConfigEditor extends JPanel {
         result.setThumb(source.isThumb());
         result.setAnswerType(source.getAnswerType());
         result.setBlurImages(source.isBlurImages());
+        result.minorFieldsVisible(source.minorFieldsVisible());
         return result;
     }
 
@@ -1388,26 +1450,18 @@ public class ViewConfigEditor extends JPanel {
     }
 
     private int countSelectedMinorFields() {
-        if (sourceConfig.isAllMinorFields()) {
-            return -1;
+        if (treeMode) {
+            return (int) allRows.stream()
+                    .filter(state -> state.minorBranch && state.row.isField()
+                            && state.use).count();
         }
-
         int count = 0;
-        Class<? extends Viewable> cls =
-                sourceConfig.getCls();
-        if (cls == null) {
-            return 0;
-        }
-
-        for (Field field
-                : ViewableAdapter.getAllFields(cls)) {
+        Class<? extends Viewable> cls = sourceConfig.getCls();
+        if (cls == null) return 0;
+        for (Field field : ViewableAdapter.getAllFields(cls)) {
             if (ViewableAdapter.isMinorField(field)
-                    && sourceConfig.getFieldConfig(
-                            field.getName()) != null) {
-                count++;
-            }
+                    && sourceConfig.getFieldConfig(field.getName()) != null) count++;
         }
-
         return count;
     }
 
@@ -1496,11 +1550,7 @@ public class ViewConfigEditor extends JPanel {
             if (row.isMinorBlock()) {
                 return switch (col.kind) {
                     case FIELD -> "Minor fields";
-                    case TYPE ->
-                            allMinorFieldsBox.isSelected()
-                                    ? "all"
-                                    : countSelectedMinorFields()
-                                    + " selected";
+                    case TYPE -> countSelectedMinorFields() + " selected";
                     case USE ->
                             allMinorFieldsBox.isSelected();
                     case TREE, EXPAND -> expandedPaths.contains(row.path())
@@ -1582,11 +1632,11 @@ public class ViewConfigEditor extends JPanel {
             }
 
             if (row.isMinorBlock()) {
-                allMinorFieldsBox.setSelected(
-                        Boolean.TRUE.equals(value));
-                fireTableRowsUpdated(
-                        rowIndex,
-                        rowIndex);
+                boolean show = Boolean.TRUE.equals(value);
+                allMinorFieldsBox.setSelected(show);
+                if (show) expandedPaths.add(FieldRow.minorBlockPath());
+                else expandedPaths.remove(FieldRow.minorBlockPath());
+                rebuildVisible();
                 fireConfigChanged();
                 return;
             }

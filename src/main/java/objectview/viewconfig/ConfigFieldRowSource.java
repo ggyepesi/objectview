@@ -2,6 +2,7 @@ package objectview.viewconfig;
 
 import objectview.Viewable;
 import objectview.ViewableAdapter;
+import objectview.field.DynamicFields;
 import objectview.field.FieldRef;
 import objectview.field.FieldSet;
 import objectview.field.FieldKind;
@@ -62,37 +63,9 @@ public final class ConfigFieldRowSource implements FieldRowSource {
     }
 
     private void addMinorBlock(List<FieldRow> result, FieldRowContext context) {
-        if (!context.minorOnly() && hasBlockGovernedMinorFields(context)) {
+        if (!context.minorOnly() && hasMinorFields(context)) {
             result.add(FieldRow.minorBlock());
         }
-    }
-
-    /**
-     * Whether this context has minor fields the BLOCK row governs — which is not the
-     * same question as {@link #hasMinorFields}, and deliberately so.
-     *
-     * <p>{@link #hasMinorFields} answers "is there anything for the 'All minor fields'
-     * checkbox to govern", and a schema-declared minor field counts: that checkbox is
-     * exactly how a dynamic instance's minor fields are governed. The block row is the
-     * other control — it stands for the minor set as a configurable group — and offering
-     * it for schema-declared fields would put two controls on the same fields. So the
-     * block follows the fields a class DECLARES minor, and a schema-declared one is
-     * left to the checkbox alone.
-     *
-     * <p>With no sample there is nothing declaring anything, so the answer is no.
-     */
-    private static boolean hasBlockGovernedMinorFields(FieldRowContext context) {
-        if (context.sample() == null) {
-            return false;
-        }
-        for (FieldRef field : FieldSet.of(context.sample()).fields()) {
-            if (!context.hiddenFields().contains(field.name())
-                    && !field.structural()
-                    && field.minor()) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /** Enumerates a class's configurable fields with NO instance — the type label comes
@@ -254,11 +227,6 @@ public final class ConfigFieldRowSource implements FieldRowSource {
     }
 
     /**
-     * Whether {@code context} has any minor field to segregate — reflected (annotation),
-     * dynamic sample, or schema-only reference alike. Lets the editor show the
-     * "All minor fields" bar for a dynamic/snapshot type, not just a reflected class.
-     */
-    /**
      * Whether the minor-field question can be answered at all for {@code context}.
      *
      * <p>With no sample and no declared field types there is nothing to inspect, and
@@ -270,7 +238,18 @@ public final class ConfigFieldRowSource implements FieldRowSource {
     public boolean minorFieldsDecidable(FieldRowContext context) {
         return context.sample() != null
                 || context.fieldTypes() != null
-                        && !context.fieldTypes().fieldNames().isEmpty();
+                        && !context.fieldTypes().fieldNames().isEmpty()
+                || declaresItsOwnFields(context.config().getCls());
+    }
+
+    /**
+     * Whether a class answers the minor question by itself. A reflected class declares
+     * its fields, so its answer is the whole truth. A {@link DynamicFields} carrier
+     * holds them on the INSTANCE, so reflecting over it finds none and would report
+     * "there are no minor fields" when the honest answer is "no sample, cannot tell".
+     */
+    private static boolean declaresItsOwnFields(Class<? extends Viewable> cls) {
+        return cls != null && !DynamicFields.class.isAssignableFrom(cls);
     }
 
     public boolean hasMinorFields(FieldRowContext context) {
@@ -280,6 +259,13 @@ public final class ConfigFieldRowSource implements FieldRowSource {
             return anyMinor(context.fieldTypes().fieldNames(), context);
         }
         if (context.sample() == null) {
+            Class<? extends Viewable> cls = context.config().getCls();
+            if (!declaresItsOwnFields(cls)) return false;
+            for (Field field : ViewableAdapter.getAllFields(cls)) {
+                if (!context.hiddenFields().contains(field.getName())
+                        && !Modifier.isStatic(field.getModifiers())
+                        && ViewableAdapter.isMinorField(field)) return true;
+            }
             return false;
         }
         for (FieldRef field : FieldSet.of(context.sample()).fields()) {

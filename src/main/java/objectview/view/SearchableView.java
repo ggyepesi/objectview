@@ -195,6 +195,12 @@ public final class SearchableView extends JPanel {
         getInputMap(condition).put(javax.swing.KeyStroke.getKeyStroke(
                 java.awt.event.KeyEvent.VK_A, java.awt.event.InputEvent.META_DOWN_MASK),
                 actionKey);
+        getInputMap(condition).put(javax.swing.KeyStroke.getKeyStroke(
+                java.awt.event.KeyEvent.VK_A, java.awt.event.InputEvent.CTRL_DOWN_MASK
+                        | java.awt.event.InputEvent.SHIFT_DOWN_MASK), actionKey);
+        getInputMap(condition).put(javax.swing.KeyStroke.getKeyStroke(
+                java.awt.event.KeyEvent.VK_A, java.awt.event.InputEvent.META_DOWN_MASK
+                        | java.awt.event.InputEvent.SHIFT_DOWN_MASK), actionKey);
     }
 
     private static JLabel controlsHeader(boolean expanded) {

@@ -698,6 +698,15 @@ public class RenderContext {
         notifySelection();
     }
 
+    /** Clear the current card selection while preserving the visual ordering. */
+    public void clearSelection() {
+        java.util.List<Object> previous = java.util.List.copyOf(selectedObjects);
+        selectedObjects.clear();
+        selectionAnchor = null;
+        previous.forEach(this::repaintCard);
+        notifySelection();
+    }
+
     private static int identityIndex(java.util.List<Object> values, Object sought) {
         for (int i = 0; i < values.size(); i++) {
             if (values.get(i) == sought) return i;

@@ -2,6 +2,7 @@ package objectview.render;
 
 import objectview.field.FieldPath;
 import objectview.media.ImagePane;
+import objectview.media.MediaValueData;
 import objectview.viewconfig.ViewConfig;
 import org.junit.jupiter.api.Test;
 
@@ -69,6 +70,15 @@ class ValueRendererDispatchTest {
                 "ordinary values still share the painted, drag-to-select block");
     }
 
+    @Test void inlineMediaCollectionIsNotMistakenForStructuralViewables() {
+        Card card = new Card(new Illustrated(), ViewConfig.all(Illustrated.class),
+                new RenderContext(List.of()), false);
+
+        assertNotNull(find(card, ImagePane.class),
+                "INLINE media is still value data; the structural inline renderer "
+                        + "must not discard its non-Viewable members");
+    }
+
     private static final class Linked extends objectview.ViewableAdapter {
         @objectview.annotations.DisplayField
         private final String name = "one";
@@ -76,6 +86,15 @@ class ValueRendererDispatchTest {
         private final String photo = "https://example.com/photo.jpg";
         private final String page = "https://example.com/page";
 
+        @Override public String getIdentifier() { return name; }
+        @Override public String getDisplayName() { return name; }
+    }
+
+    private static final class Illustrated extends objectview.ViewableAdapter {
+        @objectview.annotations.DisplayField private final String name = "one";
+        @objectview.annotations.Inline
+        private final List<MediaValueData> image = List.of(
+                new MediaValueData("portrait", "https://example.com/photo.jpg", false));
         @Override public String getIdentifier() { return name; }
         @Override public String getDisplayName() { return name; }
     }

@@ -49,6 +49,7 @@ public class ViewConfigJsonIO {
         j.className = cfg.getCls() == null ? null : cfg.getCls().getName();
         j.allFields = cfg.isAllFields();
         j.allMinorFields = cfg.isAllMinorFields();
+        j.minorFieldsVisible = cfg.minorFieldsVisible();
         j.addListener = cfg.isAddListener();
         j.thumb = cfg.isThumb();
         j.blurImages = cfg.isBlurImages();
@@ -56,6 +57,9 @@ public class ViewConfigJsonIO {
 
         for (Map.Entry<String, ViewConfig> e : cfg.getFields().entrySet()) {
             j.fields.put(e.getKey(), toJson(e.getValue()));
+        }
+        for (Map.Entry<String, ViewConfig> e : cfg.getRememberedFields().entrySet()) {
+            j.rememberedFields.put(e.getKey(), toJson(e.getValue()));
         }
 
         return j;
@@ -65,10 +69,12 @@ public class ViewConfigJsonIO {
         public String className;
         public boolean allFields;
         public boolean allMinorFields;
+        public Boolean minorFieldsVisible;
         public boolean addListener;
         public boolean thumb;
         public boolean blurImages;
         public String answerType;
         public Map<String, JsonConfig> fields = new LinkedHashMap<>();
+        public Map<String, JsonConfig> rememberedFields = new LinkedHashMap<>();
     }
 }

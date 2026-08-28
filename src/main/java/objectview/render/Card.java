@@ -945,9 +945,23 @@ public class Card extends JPanel implements RenderedInstanceHost {
                     fieldName, fieldPath, value, fieldCfg);
         }
 
-        if (field.inline()) {
+        // INLINE describes structural Viewables. A scalar/media field may also carry
+        // the model's INLINE presentation flag, but routing a Collection<MediaValue>
+        // through createInlineFieldComponent drops every member because that renderer
+        // intentionally accepts Viewables only.
+        if (field.inline() && containsViewable(value)) {
             return createInlineFieldComponent(
                     fieldName, fieldPath, value, fieldCfg);
+        }
+
+        // A media collection is one visual value (one or several portraits), not a
+        // potentially huge data list. Render its thumbnails immediately; otherwise
+        // the generic collection policy hides every image behind an "image (N)"
+        // disclosure and a populated image field looks empty.
+        if (containsMedia(value)) {
+            return ValueRenderer.createFieldComponent(
+                    copyVisited(), copyAncestors(), renderContext,
+                    fieldName, fieldPath, value, fieldCfg, fill);
         }
 
         if (field.link()
@@ -995,6 +1009,30 @@ public class Card extends JPanel implements RenderedInstanceHost {
                 value,
                 fieldCfg,
                 fill);
+    }
+
+    private static boolean containsViewable(Object value) {
+        if (value instanceof Viewable) return true;
+        if (value instanceof Collection<?> values) {
+            return values.stream().anyMatch(Viewable.class::isInstance);
+        }
+        if (value instanceof Map<?, ?> values) {
+            return values.values().stream().anyMatch(Viewable.class::isInstance);
+        }
+        return false;
+    }
+
+    private static boolean containsMedia(Object value) {
+        if (value instanceof ImagePane || value instanceof MediaValue) return true;
+        if (value instanceof Collection<?> values) {
+            return values.stream().anyMatch(item ->
+                    item instanceof ImagePane || item instanceof MediaValue);
+        }
+        if (value instanceof Map<?, ?> values) {
+            return values.values().stream().anyMatch(item ->
+                    item instanceof ImagePane || item instanceof MediaValue);
+        }
+        return false;
     }
 
     // Renders a complex collection/map field as a collapsible group: a clickable

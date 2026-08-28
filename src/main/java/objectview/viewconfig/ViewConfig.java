@@ -12,6 +12,9 @@ public class ViewConfig {
 
     // Explicitly configured fields. These are shown regardless of minor/non-minor.
     private final Map<String, ViewConfig> fields = new LinkedHashMap<>();
+    // Editor memory for fields hidden by a parent gate. Rendering deliberately ignores
+    // these; reopening/rebuilding an editor can restore the exact child choices.
+    private final Map<String, ViewConfig> rememberedFields = new LinkedHashMap<>();
     private Class<? extends Viewable> cls;
 
     private transient final Map<Class<?>, List<Field>> visibleFieldsCache =
@@ -22,6 +25,9 @@ public class ViewConfig {
 
     // Means: include all @Minor fields by default too.
     private boolean allMinorFields = false;
+    // Editor-only gate state. Null means migrate from the legacy allMinorFields /
+    // explicit-field representation; rendering uses only the effective fields above.
+    private Boolean minorFieldsVisible;
 
     private boolean addListener = true;
     private boolean thumb = false;
@@ -57,6 +63,7 @@ public class ViewConfig {
         c.cls = this.cls;
         c.allFields = this.allFields;
         c.allMinorFields = this.allMinorFields;
+        c.minorFieldsVisible = this.minorFieldsVisible;
         c.addListener = this.addListener;
         c.thumb = this.thumb;
         c.blurImages = this.blurImages;
@@ -64,6 +71,9 @@ public class ViewConfig {
 
         for (Map.Entry<String, ViewConfig> e : fields.entrySet()) {
             c.fields.put(e.getKey(), e.getValue().copy());
+        }
+        for (Map.Entry<String, ViewConfig> e : rememberedFields.entrySet()) {
+            c.rememberedFields.put(e.getKey(), e.getValue().copy());
         }
 
         return c;
@@ -104,6 +114,9 @@ public class ViewConfig {
             if (child != null) {
                 child.clearCache();
             }
+        }
+        for (ViewConfig child : rememberedFields.values()) {
+            if (child != null) child.clearCache();
         }
     }
 
@@ -214,6 +227,18 @@ public class ViewConfig {
         return fields;
     }
 
+    public ViewConfig getRememberedFieldConfig(String name) {
+        return name == null ? null : rememberedFields.get(name);
+    }
+
+    public void rememberField(String name, ViewConfig config) {
+        if (name != null && config != null) rememberedFields.put(name, config);
+    }
+
+    public Map<String, ViewConfig> getRememberedFields() {
+        return rememberedFields;
+    }
+
     public boolean isAllFields() {
         return allFields;
     }
@@ -228,6 +253,15 @@ public class ViewConfig {
 
     public ViewConfig setAllMinorFields(boolean allMinorFields) {
         this.allMinorFields = allMinorFields;
+        return this;
+    }
+
+    public Boolean minorFieldsVisible() {
+        return minorFieldsVisible;
+    }
+
+    public ViewConfig minorFieldsVisible(Boolean visible) {
+        minorFieldsVisible = visible;
         return this;
     }
 
