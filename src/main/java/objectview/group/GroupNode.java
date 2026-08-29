@@ -11,6 +11,6 @@ public record GroupNode(ViewableGroup<?> group) {
 
     @Override
     public String toString() {
-        return group.getDisplayName();
+        return group.getDisplayName() + " (" + group.getMembers().size() + ")";
     }
 }

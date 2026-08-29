@@ -2,6 +2,7 @@ package objectview.render;
 
 import objectview.ViewableAdapter;
 import objectview.group.DefaultViewableGroup;
+import objectview.group.GroupNode;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.JLabel;
@@ -31,6 +32,7 @@ class GroupMembersViewTest {
         assertTrue(view.selectGroup(child, true));
         assertEquals("Entity relations", selected.get());
         assertEquals("Entity relations", rendered.get());
+        assertEquals("Entity relations (1)", new GroupNode(child).toString());
     }
 
     private static final class Group extends DefaultViewableGroup<Item, Group> {
