@@ -572,6 +572,14 @@ public class ViewConfigEditor extends JPanel {
         }
         String leaf = segments.get(segments.size() - 1);
         if (config.getRememberedFieldConfig(leaf) != null) return true;
+        // A reference stored as a bare leaf says nothing about what is in it, and that
+        // has always MEANT all of it: the renderer draws such a reference as its
+        // display name, and buildTreeConfig writes it back as the leaf it was. Asking
+        // showsFieldByName instead answered "no fields", so every row under a
+        // leaf-stored reference read as unchecked while the reference read as checked —
+        // an object shown as included, naming nothing included in it. Found on the
+        // Oscars search config as nominee checked with its display name unchecked.
+        if (config.getFields().isEmpty() && !config.isAllFields()) return true;
         return row.field() != null
                 ? config.showsField(row.field())
                 : config.showsFieldByName(leaf);
@@ -723,9 +731,13 @@ public class ViewConfigEditor extends JPanel {
         RowState state = new RowState(row);
 
         if (row.isField()) {
-            state.use = row.field() != null
-                    ? sourceConfig.showsField(row.field())
-                    : sourceConfig.showsFieldByName(row.path().leaf());
+            // Along the PATH, not by leaf name against the root. A nested row asked the
+            // root config whether it showed a field of that name, so under an explicit
+            // root config every nested row answered for a field one or more levels up:
+            // nominee.@view:display asked the root about "@view:display" and came back
+            // unchecked while nominee was checked, and a nested "type" inherited the
+            // answer for the root's own "type". The owning config is the one that says.
+            state.use = checkedInSource(row);
 
             ViewConfig selected =
                     sourceConfig.getFieldConfig(row.path().leaf());
@@ -1002,7 +1014,16 @@ public class ViewConfigEditor extends JPanel {
                 continue;
             }
             ViewConfig attach;
-            if (hasChild) {
+            if (hasChild && untouchedShorthand(ref)) {
+                // A reference stored as a bare leaf shows all its fields, so every row
+                // under it reads as checked — which is the point, and must not turn the
+                // shorthand into an explicit list nobody wrote. A leaf reference and a
+                // reference with all its fields listed are DIFFERENT configs: the first
+                // renders as a collapsed chip, the second as its fields. It becomes
+                // explicit the moment the reader changes something under it, which is
+                // when there IS something they wrote.
+                attach = ref.explicit;
+            } else if (hasChild) {
                 attach = ref.cfg;   // header (from explicit) + inline-checked children
             } else if (ref.classBranch) {
                 attach = ref.explicit == null ? ref.cfg : ref.explicit;
@@ -1045,6 +1066,29 @@ public class ViewConfigEditor extends JPanel {
      *  a live nested editor wins (bug: was dropped), else the saved config at this path
      *  in {@code sourceConfig} — returned even when EMPTY so an explicit empty survives
      *  the round-trip. {@code null} means "no explicit config" (a brand-new field). */
+
+    /**
+     * A reference stored as a bare leaf, with nothing under it changed.
+     *
+     * <p>Its rows all read as checked because that is what a leaf reference means, so
+     * "every row checked" is the untouched state and anything less is an edit.
+     */
+    private boolean untouchedShorthand(RefEntry ref) {
+        if (ref.classBranch || ref.explicit == null) return false;
+        if (!ref.explicit.getFields().isEmpty() || ref.explicit.isAllFields()) {
+            return false;
+        }
+        int index = allRows.indexOf(ref.state);
+        if (index < 0) return false;
+        int depth = ref.state.row.depth();
+        for (int i = index + 1; i < allRows.size(); i++) {
+            RowState nested = allRows.get(i);
+            if (nested.row.depth() <= depth) break;
+            if (!nested.use && !nested.row.isClassBranch()) return false;
+        }
+        return true;
+    }
+
     private ViewConfig explicitConfigFor(RowState state, FieldPath fullPath) {
         if (state != null && state.childEditor != null) {
             return state.childEditor.getConfig();
