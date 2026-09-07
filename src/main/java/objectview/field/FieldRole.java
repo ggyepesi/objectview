@@ -13,5 +13,18 @@ public enum FieldRole {
     /** The object's identity ({@code getIdentifier()}). */
     IDENTITY,
     /** The object's display title ({@code getDisplayName()}). */
-    DISPLAY
+    DISPLAY,
+    /** Inspectable origin metadata. It renders as a field but is not domain data to
+     * copy, merge, index as a member, or traverse as part of the modeled graph. */
+    PROVENANCE;
+
+    /** Roles represented by the card header rather than an ordinary field row. */
+    public boolean renderedInHeader() {
+        return this == IDENTITY || this == DISPLAY;
+    }
+
+    /** Whether the field belongs to the modeled object rather than its presentation. */
+    public boolean domainValue() {
+        return this == NONE;
+    }
 }

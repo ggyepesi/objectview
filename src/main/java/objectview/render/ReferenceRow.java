@@ -94,6 +94,17 @@ public class ReferenceRow extends TextRow {
     }
 
     @Override
+    public boolean represents(FieldPath selectedPath) {
+        if (super.represents(selectedPath)) return true;
+        if (selectedPath == null) return false;
+        if (!selectedPath.parent().equals(fieldPath())) return false;
+        objectview.field.FieldRef selected = objectview.field.FieldSet.of(target)
+                .field(selectedPath.leaf());
+        return selected != null
+                && selected.role() == objectview.field.FieldRole.DISPLAY;
+    }
+
+    @Override
     protected int leadingGlyphWidth() {
         return TRI_W;
     }

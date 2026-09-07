@@ -24,14 +24,26 @@ public final class ViewableFieldPaths {
      *  the leaf's value kind (ORDERED / TEXT / …) — carried so consumers like sort know a
      *  field is numeric from the schema (a persisted {@code @Numeric}), not only from a
      *  reflection {@link Field} that a dynamic/snapshot path lacks. */
-    public record PathInfo(String title, FieldPath path, Field leafField, FieldKind valueKind) {
+    public record PathInfo(String title, FieldPath path, Field leafField,
+                           FieldKind valueKind, FieldRole role) {
         /** Derives {@code valueKind} from the leaf reflection field (UNKNOWN when none). */
         public PathInfo(String title, FieldPath path, Field leafField) {
             this(title, path, leafField, leafField == null
-                    ? FieldKind.UNKNOWN : FieldKind.ofClass(leafField.getType()));
+                            ? FieldKind.UNKNOWN : FieldKind.ofClass(leafField.getType()),
+                    reflectedRole(leafField));
+        }
+        public PathInfo(String title, FieldPath path, Field leafField,
+                        FieldKind valueKind) {
+            this(title, path, leafField, valueKind, reflectedRole(leafField));
         }
         public String dotted() { return path.dotted(); }
         public String leaf() { return path.leaf(); }
+
+        private static FieldRole reflectedRole(Field field) {
+            return field == null ? FieldRole.NONE
+                    : ReflectionFieldSet.describe(
+                            field, field.getDeclaringClass()).role();
+        }
     }
 
     public interface FieldFilter {
@@ -127,11 +139,13 @@ public final class ViewableFieldPaths {
                 } else if (info.nested() != null) {
                     // The configured reference is this path. Its display label is
                     // the searchable value of the reference, not an invented child.
-                    out.add(new PathInfo(title, path, null, info.valueKind()));
+                    out.add(new PathInfo(title, path, null,
+                            info.valueKind(), info.role()));
                 } else {
                     // Carry the schema's value kind (e.g. a persisted @Numeric -> ORDERED)
                     // so sort reads this dynamic leaf as a number without a reflection field.
-                    out.add(new PathInfo(title, path, null, info.valueKind()));
+                    out.add(new PathInfo(title, path, null,
+                            info.valueKind(), info.role()));
                 }
             }
         } finally {
@@ -379,7 +393,7 @@ public final class ViewableFieldPaths {
             out.add(new PathInfo(
                     title + "." + ViewableContractFieldSet.label(
                             displayKey),
-                    namePath, leaf));
+                    namePath, leaf, FieldKind.TEXT, FieldRole.DISPLAY));
             if (prefix.size() < SAMPLE_MAX_DEPTH) {
                 collectSample(child, path, title, filter, branch, out);
             }
@@ -478,7 +492,9 @@ public final class ViewableFieldPaths {
                 : titlePrefix + "." + ViewableContractFieldSet.label(fieldName);
 
         if (childConfig == null || childConfig.getFields().isEmpty()) {
-            out.add(new PathInfo(title, path, null));
+            out.add(new PathInfo(title, path, null, FieldKind.UNKNOWN,
+                    ViewableContractFieldSet.DISPLAY_KEY.equals(fieldName)
+                            ? FieldRole.DISPLAY : FieldRole.NONE));
             return;
         }
         for (Map.Entry<String, ViewConfig> e
@@ -496,7 +512,8 @@ public final class ViewableFieldPaths {
         for (FieldRef field : ViewableContractFieldSet.fieldRefs()) {
             if (!hasRootPath(out, field.name())) {
                 out.add(new PathInfo(
-                        field.label(), FieldPath.of(field.name()), null));
+                        field.label(), FieldPath.of(field.name()), null,
+                        field.valueKind(), field.role()));
             }
         }
     }

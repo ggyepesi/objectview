@@ -757,19 +757,10 @@ public class SearchPanel extends JPanel
      * in step behind the user's back.
      */
     private List<ViewableFieldPaths.PathInfo> searchPaths() {
-        java.util.Set<FieldPath> visible = new java.util.LinkedHashSet<>();
-        for (ViewableFieldPaths.PathInfo path
-                : configuredPaths(viewEditor, subtypeViewEditors, false)) {
-            visible.add(path.path());
-        }
-        List<ViewableFieldPaths.PathInfo> shown = new ArrayList<>();
-        for (ViewableFieldPaths.PathInfo path
-                : configuredPaths(searchEditor, subtypeSearchEditors, true)) {
-            if (visible.contains(path.path())) {
-                shown.add(path);
-            }
-        }
-        return shown;
+        // Search configuration owns which field contents are searched. View
+        // configuration owns their current presentation only: text, a link, or a
+        // future renderer must not change whether the configured content is found.
+        return configuredPaths(searchEditor, subtypeSearchEditors, true);
     }
 
     /** Complete subtype-aware path projection used by the active presentation. */
@@ -1356,6 +1347,14 @@ public class SearchPanel extends JPanel
             return;
         }
 
+        if (root instanceof TextRow row) {
+            if (row.represents(selectedPath)
+                    && row.matchesRenderedText(queryTokens, exactMatch)) {
+                replaceAncestorWithDescendantIfNeeded(row, hits);
+            }
+            return;
+        }
+
         if (root instanceof JComponent jc) {
             Object pathObj =
                     jc.getClientProperty(FIELD_PATH_PROPERTY);
@@ -1364,7 +1363,7 @@ public class SearchPanel extends JPanel
                     jc.getClientProperty(FIELD_VALUE_PROPERTY);
 
             if (pathObj instanceof FieldPath rowPath
-                    && visuallyRepresents(rowPath, selectedPath)
+                    && rowPath.equals(selectedPath)
                     && matchesWithTokens(val, queryTokens)) {
 
                 replaceAncestorWithDescendantIfNeeded(jc, hits);
@@ -1543,13 +1542,21 @@ public class SearchPanel extends JPanel
             return;
         }
 
+        if (root instanceof TextRow row) {
+            if (row.represents(selectedPath)) {
+                remember(row);
+                row.setHighlightTokens(queryTokens);
+            }
+            return;
+        }
+
         if (root instanceof JComponent jc) {
             Object pathObj =
                     jc.getClientProperty(FIELD_PATH_PROPERTY);
 
             boolean isSelectedField =
                     pathObj instanceof FieldPath rowPath
-                            && visuallyRepresents(rowPath, selectedPath);
+                            && rowPath.equals(selectedPath);
 
             if (isSelectedField) {
                 highlightLabelsUnder(jc, queryTokens);
@@ -1565,19 +1572,6 @@ public class SearchPanel extends JPanel
                         queryTokens);
             }
         }
-    }
-
-    /** A reference row is stored at the owning field path, while its painted text is
-     *  the referenced value's display-contract leaf. Search enumerates that leaf as
-     *  {@code @view:display}; rendering must bridge the one-segment difference so the
-     *  label itself receives the token highlight. */
-    private static boolean visuallyRepresents(
-            FieldPath renderedPath, FieldPath selectedPath) {
-        if (renderedPath == null || selectedPath == null) return false;
-        return renderedPath.equals(selectedPath)
-                || selectedPath.parent().equals(renderedPath)
-                && objectview.field.ViewableContractFieldSet.DISPLAY_KEY
-                        .equals(selectedPath.leaf());
     }
 
     private void highlightLabelsUnder(

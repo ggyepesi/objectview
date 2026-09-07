@@ -13,6 +13,9 @@ import org.junit.jupiter.params.provider.EnumSource;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiConsumer;
@@ -159,23 +162,18 @@ class VirtualSearchHighlightTest {
             });
     }
 
-    /**
-     * Search may only match what the view renders. Search is widened to a field the
-     * view then hides: the hit must disappear with it, so a match can never sit in a
-     * field the user cannot see. (Search covers only the display field by default,
-     * so this situation arises only once you widen it deliberately.)
-     */
+    /** Search configuration selects content; changing its presentation cannot
+     * silently remove that content from the search index. */
     @ParameterizedTest
     @EnumSource(RenderingMode.class)
-    void searchIgnoresFieldsTheViewDoesNotShow(RenderingMode mode) {
+    void searchConfigurationIsIndependentOfViewConfiguration(RenderingMode mode) {
         EdtTests.onEdt(() -> {
-            assertFalse(matches(mode, viewOf(DISPLAY_ONLY)),
-                    mode + ": a token only in an unshown field must not match");
+            assertTrue(matches(mode, viewOf(DISPLAY_ONLY)),
+                    mode + ": configured field content remains searchable when its "
+                            + "presentation changes");
 
-            // Control: the SAME token, the SAME search config, the field now shown —
-            // otherwise the assertion above could pass for the wrong reason.
             assertTrue(matches(mode, viewOf(DISPLAY_AND_NOTE)),
-                    mode + ": control - the same field matches when the view shows it");
+                    mode + ": the same content also matches when shown as text");
             });
     }
 
@@ -246,6 +244,44 @@ class VirtualSearchHighlightTest {
                             objectview.field.FieldPath.of("details"),
                             List.of("resonant")),
                     mode + ": the rendered nested label row receives the leaf highlight");
+        });
+    }
+
+    @Test void searchFindsTheSameFieldWhenItsValueIsRenderedAsANavigableLink() {
+        EdtTests.onEdt(() -> {
+            CustomNamed christian = new CustomNamed("Christian de Duve");
+            ReferencingRecord prize = new ReferencingRecord("Medicine 1974", christian);
+            objectview.viewconfig.ViewConfig person =
+                    objectview.viewconfig.ViewConfig.of(CustomNamed.class);
+            person.setAllFields(false);
+            person.addField("title", objectview.viewconfig.ViewConfig.leaf());
+            objectview.viewconfig.ViewConfig search =
+                    objectview.viewconfig.ViewConfig.of(ReferencingRecord.class);
+            search.setAllFields(false);
+            search.addField("laureates", person);
+            objectview.viewconfig.ViewConfig viewConfig =
+                    objectview.viewconfig.ViewConfig.of(ReferencingRecord.class);
+            viewConfig.setAllFields(false);
+            viewConfig.addField("laureates", objectview.viewconfig.ViewConfig.leaf());
+
+            objectview.render.RenderContext context = new objectview.render.RenderContext();
+            context.addTopLevel(prize);
+            context.addTopLevel(christian);
+            SearchableView view = SearchableView.builder(List.of(prize))
+                    .sample(prize)
+                    .renderContext(context)
+                    .configState(new SearchPanel.ConfigState(search, null, viewConfig))
+                    .build();
+            JComponent rendered = materialize(view, prize);
+            view.search().setFieldHighlight(true);
+            view.search().runCoordinatedSearch("duve");
+
+            assertTrue(host(view, prize).isHighlighted(),
+                    "search finds the containing instance before rendering highlights it");
+            assertTrue(hasHighlightedPath(rendered,
+                            objectview.field.FieldPath.of("laureates"), List.of("duve")),
+                    "the link that paints the referenced display field owns its highlight");
+            writeArtifact(rendered, "multi-instance-reference-search.png");
         });
     }
 
@@ -347,6 +383,25 @@ class VirtualSearchHighlightTest {
             }
         }
         return false;
+    }
+
+    private static void writeArtifact(JComponent component, String name) {
+        try {
+            component.setSize(Math.max(420, component.getPreferredSize().width),
+                    Math.max(180, component.getPreferredSize().height));
+            component.doLayout();
+            File artifact = new File("target/ui-artifacts", name);
+            assertTrue(artifact.getParentFile().mkdirs()
+                    || artifact.getParentFile().isDirectory());
+            BufferedImage image = new BufferedImage(component.getWidth(),
+                    component.getHeight(), BufferedImage.TYPE_INT_ARGB);
+            java.awt.Graphics2D graphics = image.createGraphics();
+            component.printAll(graphics);
+            graphics.dispose();
+            ImageIO.write(image, "png", artifact);
+        } catch (java.io.IOException e) {
+            throw new AssertionError("Cannot write UI artifact", e);
+        }
     }
 
     private static final String[] DISPLAY_ONLY = {
@@ -457,6 +512,25 @@ class VirtualSearchHighlightTest {
         public Detail(String note) { this.note = note; }
         @Override public String getIdentifier() { return note; }
         @Override public String getDisplayName() { return note; }
+    }
+
+    public static final class ReferencingRecord extends ViewableAdapter {
+        private final String name;
+        public List<CustomNamed> laureates;
+        ReferencingRecord(String name, CustomNamed laureate) {
+            this.name = name;
+            this.laureates = List.of(laureate);
+        }
+        @Override public String getIdentifier() { return name; }
+        @Override public String getDisplayName() { return name; }
+    }
+
+    public static final class CustomNamed extends ViewableAdapter {
+        @objectview.annotations.DisplayField
+        public String title;
+        CustomNamed(String title) { this.title = title; }
+        @Override public String getIdentifier() { return title; }
+        @Override public String getDisplayName() { return title; }
     }
 
     private static final class TrackingVirtualContainer

@@ -750,7 +750,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
             FieldSet fields, int row, java.util.Set<String> hoisted) {
         for (FieldRef field : fields.fields()) {
             String name = field.name();
-            if (field.role() != objectview.field.FieldRole.NONE) {
+            if (field.role().renderedInHeader()) {
                 continue;
             }
             if (!shows(field)) {
@@ -782,7 +782,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
         for (FieldRef field : inConfigOrder(fields.fields())) {
             String name = field.name();
 
-            if (field.role() != objectview.field.FieldRole.NONE || hoistedMedia.contains(name)
+            if (field.role().renderedInHeader() || hoistedMedia.contains(name)
                     || !shows(field)) {
                 continue;
             }
@@ -805,13 +805,13 @@ public class Card extends JPanel implements RenderedInstanceHost {
                 if (flag) {
                     textRows.add(new TextBlock.Row(
                             null, fieldPath, value,
-                            List.of(FieldLabels.humanize(name))));
+                            List.of(FieldLabels.humanize(field.label()))));
                 }
                 continue;
             }
 
             if (isTextBlockCandidate(field, value)) {
-                textRows.add(textBlockRow(name, fieldPath, value));
+                textRows.add(textBlockRow(field.label(), fieldPath, value));
                 continue;
             }
 
@@ -908,8 +908,16 @@ public class Card extends JPanel implements RenderedInstanceHost {
         }
 
         JComponent component = renderFieldComponent(
-                field, value, fieldName, fieldPath, fieldCfg);
+                field, value, field.label(), fieldPath, fieldCfg);
         if (component != null) {
+            // Rendering uses the human label, while search/config address the stable
+            // machine key. Keep both on the resulting field component.
+            component.putClientProperty(
+                    objectview.field.FieldProperties.FIELD_NAME_PROPERTY, fieldName);
+            component.putClientProperty(
+                    objectview.field.FieldProperties.FIELD_PATH_PROPERTY, fieldPath);
+            component.putClientProperty(
+                    objectview.field.FieldProperties.FIELD_VALUE_PROPERTY, value);
             addSingle(component, row++);
         }
         return row;
@@ -1413,7 +1421,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
         }
         FieldSet fields = FieldSet.of(target, renderContext.fieldSchema(target));
         for (FieldRef field : fields.fields()) {
-            if (field.role() == objectview.field.FieldRole.NONE
+            if (!field.role().renderedInHeader()
                     && hasContent(fields.read(field.name()))) {
                 return true;
             }

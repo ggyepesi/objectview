@@ -87,6 +87,35 @@ public class TextRow extends JComponent implements TextSelectable {
         registerCopyShortcut();
     }
 
+    /** Whether this rendered text is the on-screen representation of a configured
+     * field path. Specialised text renderers (not search) own any projection from
+     * a source value to the text they paint. */
+    public boolean represents(FieldPath selectedPath) {
+        return selectedPath != null && fieldPath.equals(selectedPath);
+    }
+
+    protected final FieldPath fieldPath() {
+        return fieldPath;
+    }
+
+    /** Match against the same text atoms this component paints. */
+    public boolean matchesRenderedText(List<String> tokens, boolean exact) {
+        if (tokens == null || tokens.isEmpty()) return false;
+        List<String> wanted = tokens.stream()
+                .map(s -> s == null ? "" : s.toLowerCase().trim())
+                .filter(s -> !s.isBlank()).toList();
+        if (wanted.isEmpty()) return false;
+        List<String> atoms = lines.stream()
+                .map(s -> s == null ? "" : s.toLowerCase().trim())
+                .filter(s -> !s.isBlank()).toList();
+        if (exact) {
+            String value = String.join(" ", wanted);
+            return atoms.stream().anyMatch(value::equals);
+        }
+        String rendered = String.join(" ", atoms);
+        return wanted.stream().allMatch(rendered::contains);
+    }
+
     protected Color valueColor() {
         return getForeground();
     }
