@@ -334,7 +334,12 @@ public class SearchAndSort {
                 ? ValueText.NESTED_DEPTH : 0;
         List<String> atoms = ValueText.shown(value, depth).stream()
                 .map(this::normalize).filter(s -> !s.isBlank()).toList();
-        return new SearchText(String.join(" ", atoms), atoms);
+        // One atom IS the haystack. Joining a single-element list copies its
+        // characters into an equal String, and an index over a loaded domain keeps
+        // one of those per row — most fields hold a single value, so that copy was
+        // a second set of every string the domain shows.
+        return new SearchText(atoms.size() == 1 ? atoms.get(0)
+                : String.join(" ", atoms), atoms);
     }
 
     private boolean matches(SearchText text, List<String> tokens, boolean exact) {

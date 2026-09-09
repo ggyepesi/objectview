@@ -102,6 +102,8 @@ public class SearchPanel extends JPanel
     private VirtualizedContainer virtualList;   // non-null when the target is data-backed/virtualized
     // Viewables matching the current query in a virtualized view, so a card rebuilt
     // on scroll-back can be re-highlighted (see cardMaterialized).
+    /** Whether the searched text must be re-read before the next search. */
+    private boolean searchIndexStale = true;
     private final java.util.Set<objectview.Viewable> virtualHits =
             java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     private List<HitGroupQ> currentVirtualGroups = List.of();
@@ -254,15 +256,12 @@ public class SearchPanel extends JPanel
 
         rememberOriginalTargetsFromCurrentPanel();
         updateTargetCapabilities();
-        // Applying a view configuration also rebuilds the index, because the
-        // configured searchable paths may have changed. Do not first build the
-        // same complete data-backed index with the pre-apply configuration: on a
-        // large loaded snapshot that doubled the visible opening delay. Which
-        // targets a configuration applies to is applyViewConfig's own condition,
-        // asked rather than restated — a second copy of it here would silently
-        // stop building the index the day that one moves.
+        // Both branches only mark the index stale; applying a configuration changes
+        // which paths are searched, and attaching changes what there is to search.
+        // Which targets a configuration applies to is applyViewConfig's own
+        // condition, asked rather than restated.
         if (!applyViewConfig || !applyViewConfig(false)) {
-            rebuildSearchIndex();
+            invalidateSearchIndex();
         }
         clearResults();
     }
@@ -287,7 +286,7 @@ public class SearchPanel extends JPanel
             }
         }
 
-        rebuildSearchIndex();
+        invalidateSearchIndex();
 
         if (sorted) {
             sortTargetPanels();
@@ -310,7 +309,7 @@ public class SearchPanel extends JPanel
             return;
         }
 
-        rebuildSearchIndex();
+        invalidateSearchIndex();
 
         if (sorted) {
             sortTargetPanels();
@@ -1020,12 +1019,30 @@ public class SearchPanel extends JPanel
 
     private void refreshSearch() {
         clearHighlights();
-        rebuildSearchIndex();
+        invalidateSearchIndex();
         searchSync(searchField.getText());
         notifyConfigChanged();
     }
 
-    private void rebuildSearchIndex() {
+    /**
+     * Marks the index out of date. It is built by the next search and by nothing else.
+     *
+     * <p>Indexing a loaded domain is not free — 95 000 positions over 11 configured
+     * paths is a million rows, 6.7 seconds and 225 MB — and it was being paid on the
+     * EDT the moment a view was attached, again whenever a card was added or
+     * re-rendered, and again on every configuration change. A reader who opens a
+     * domain and never types has no use for it, and while it ran the window would not
+     * even repaint: dragging the frame lagged and clicks on a chip were never
+     * delivered. Deferring it to the first search costs a reader nothing they did not
+     * ask for, and collapses a burst of card events into one build.
+     */
+    private void invalidateSearchIndex() {
+        searchIndexStale = true;
+    }
+
+    private void ensureSearchIndex() {
+        if (!searchIndexStale) return;
+        searchIndexStale = false;
         // A virtual/data-backed target is searched directly from its complete
         // Viewable item list. Only ordinary component-backed targets need the
         // rendered-component index.
@@ -1079,6 +1096,10 @@ public class SearchPanel extends JPanel
         if (queryTokens.isEmpty()) {
             return;
         }
+
+        // The one place that needs the index, and therefore the one place that pays
+        // for it — after the query is known to be worth running.
+        ensureSearchIndex();
 
         // Virtualized view: only the visible cards exist as components, so search
         // the DATA and navigate hits one at a time (building each card on demand).
@@ -1453,7 +1474,7 @@ public class SearchPanel extends JPanel
         applyViewConfig(true);
     }
 
-    /** @return whether a configuration was applied — and with it the index rebuilt. */
+    /** @return whether a configuration was applied — and with it the index invalidated. */
     private boolean applyViewConfig(boolean searchAfter) {
         if (targetPanel == null) {
             return false;
@@ -1464,7 +1485,7 @@ public class SearchPanel extends JPanel
         }
         configurable.setViewConfigResolver(q -> effectiveConfig(
                 viewEditor, subtypeViewEditors, q));
-        rebuildSearchIndex();
+        invalidateSearchIndex();
         if (searchAfter) {
             maybeRefreshSearch();
         }

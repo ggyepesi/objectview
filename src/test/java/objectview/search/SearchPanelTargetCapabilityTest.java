@@ -48,15 +48,26 @@ class SearchPanelTargetCapabilityTest {
         });
     }
 
-    @Test void applyingTheInitialViewConfigurationBuildsTheIndexOnce() {
+    @Test void attachingAViewIndexesNothingUntilSomethingIsSearched() {
+        // Indexing a loaded domain costs seconds on the EDT and hundreds of
+        // megabytes. Paying that when a view is merely opened froze the window
+        // itself: dragging the frame lagged and a click on a chip was never
+        // delivered, for a reader who had not typed anything.
         EdtTests.onEdt(() -> {
             SearchPanel search = new SearchPanel(Item.class);
+            ConfigurableDataTarget target = new ConfigurableDataTarget(new Item("item"));
 
-            search.setTargetAndApplyViewConfig(
-                    new ConfigurableDataTarget(), new JPanel(), new JScrollPane());
+            search.setTargetAndApplyViewConfig(target, new JPanel(), new JScrollPane());
+            assertEquals(0, search.viewableSearchIndexRevision(),
+                    "opening a domain reads no value it was not asked to read");
 
+            search.runCoordinatedSearch("item");
             assertEquals(1, search.viewableSearchIndexRevision(),
-                    "attaching a configured data view must not index every value twice");
+                    "the first search builds it once");
+
+            search.runCoordinatedSearch("ite");
+            assertEquals(1, search.viewableSearchIndexRevision(),
+                    "and every later search reuses it");
         });
     }
 
@@ -68,9 +79,9 @@ class SearchPanelTargetCapabilityTest {
             ConfigurableDataTarget target =
                     new ConfigurableDataTarget(first, second);
             search.setTargetAndApplyViewConfig(target, new JPanel(), new JScrollPane());
-            long indexed = search.viewableSearchIndexRevision();
 
             search.runCoordinatedSearch("position");
+            long indexed = search.viewableSearchIndexRevision();
             assertEquals(List.of(first, second), distinct(search.currentHits()));
 
             // What a sort does: the same items, a different order, no changed text.
