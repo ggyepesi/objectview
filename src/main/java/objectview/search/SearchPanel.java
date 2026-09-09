@@ -247,6 +247,9 @@ public class SearchPanel extends JPanel
         if (this.virtualList != null && this.virtualList != next) {
             this.virtualList.setMaterializationListener(null);
         }
+        // A different target is a different domain: what was read for the previous
+        // one is not an answer about this one, and holding it would keep it alive.
+        searchAndSort.clearViewableSearchIndex();
         this.virtualList = next;
         if (this.virtualList != null) {
             this.virtualList.setMaterializationListener(
@@ -1051,8 +1054,7 @@ public class SearchPanel extends JPanel
                     targetPanel,
                     searchPaths());
         } else {
-            searchAndSort.rebuildViewableSearchIndex(
-                    virtualList.items(), searchPaths());
+            searchAndSort.indexViewables(virtualList.items(), searchPaths());
         }
     }
 
@@ -2055,14 +2057,21 @@ public class SearchPanel extends JPanel
      * rows. The index depends on the item set and the searched paths, and on nothing
      * else.
      */
+    /** The shown items by identity, with the position each is read at. */
+    private Map<Viewable, Integer> shownPositions() {
+        Map<Viewable, Integer> position = new java.util.IdentityHashMap<>();
+        if (virtualList == null) return position;
+        List<Viewable> items = virtualList.items();
+        for (int i = 0; i < items.size(); i++) position.putIfAbsent(items.get(i), i);
+        return position;
+    }
+
     private Map<String, List<Viewable>> inDisplayOrder(
-            Map<String, List<Viewable>> matchesByField) {
+            Map<String, List<Viewable>> matchesByField,
+            Map<Viewable, Integer> position) {
         if (matchesByField.isEmpty() || virtualList == null) {
             return matchesByField;
         }
-        List<Viewable> items = virtualList.items();
-        Map<Viewable, Integer> position = new java.util.IdentityHashMap<>();
-        for (int i = 0; i < items.size(); i++) position.putIfAbsent(items.get(i), i);
         // An item no longer in the list keeps its relative order at the end rather
         // than disappearing: a stale hit is visible, not silently dropped.
         Comparator<Viewable> byPosition = Comparator.comparingInt(
@@ -2074,8 +2083,13 @@ public class SearchPanel extends JPanel
     }
 
     private void searchSyncVirtual(List<String> queryTokens) {
+        // One walk of the shown list answers both questions asked of it: which items
+        // are in scope, and in which order their hits are read.
+        Map<Viewable, Integer> shown = shownPositions();
         Map<String, List<Viewable>> matchesByField = inDisplayOrder(
-                searchAndSort.searchIndexedViewables(queryTokens, exactMatch));
+                searchAndSort.searchIndexedViewables(
+                        queryTokens, exactMatch, searchPaths(), shown.keySet()),
+                shown);
 
         // Remember the hits so a card rebuilt on scroll-back gets re-highlighted.
         clearVirtualSearchState();

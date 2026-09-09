@@ -22,6 +22,30 @@ class IndexedViewableSearchTest {
         @Override public String getDisplayName() { return searchableName; }
     }
 
+    @Test void aChangedScopeReadsOnlyWhatItHasNotReadBefore() {
+        CountingItem king = new CountingItem("King of France");
+        CountingItem writer = new CountingItem("Court poet");
+        List<ViewableFieldPaths.PathInfo> paths = ViewableFieldPaths.collect(
+                ViewConfig.of(CountingItem.class), ViewableFieldPaths.NOT_MEDIA_FIELDS);
+        SearchAndSort search = new SearchAndSort();
+
+        search.indexViewables(List.of(king), paths);
+        long afterFirst = search.viewableSearchIndexRevision();
+        search.indexViewables(List.of(king, writer), paths);
+        long afterSecond = search.viewableSearchIndexRevision();
+        search.indexViewables(List.of(writer, king), paths);
+
+        assertEquals(afterSecond, search.viewableSearchIndexRevision(),
+                "an item already read is not read again when the shown set changes");
+        assertEquals(afterFirst + 1, afterSecond, "only the new item was read");
+
+        // Scope is what the reader is looking at, and it is asked at search time.
+        assertEquals(List.of(king), distinct(search.searchIndexedViewables(
+                List.of("o"), false, paths, java.util.Set.of(king))));
+        assertEquals(List.of(king, writer), distinct(search.searchIndexedViewables(
+                List.of("o"), false, paths, null)));
+    }
+
     @Test void repeatedSubstringSearchesUseTheIndexNotTheObjectGraph() {
         CountingItem apostolic = new CountingItem("Apostolic King of Hungary");
         CountingItem minister = new CountingItem("Minister of Finance");
@@ -29,15 +53,12 @@ class IndexedViewableSearchTest {
                 ViewConfig.of(CountingItem.class), ViewableFieldPaths.NOT_MEDIA_FIELDS);
         SearchAndSort search = new SearchAndSort();
 
-        search.rebuildViewableSearchIndex(List.of(apostolic, minister), paths);
+        search.indexViewables(List.of(apostolic, minister), paths);
         apostolic.searchableName = "Changed after indexing";
 
-        assertEquals(List.of(apostolic), distinct(search.searchIndexedViewables(
-                List.of("apostolic"), false)));
-        assertEquals(List.of(minister), distinct(search.searchIndexedViewables(
-                List.of("finance"), false)));
-        assertEquals(List.of(), distinct(search.searchIndexedViewables(
-                List.of("changed"), false)),
+        assertEquals(List.of(apostolic), distinct(search.searchIndexedViewables(List.of("apostolic"), false, paths, null)));
+        assertEquals(List.of(minister), distinct(search.searchIndexedViewables(List.of("finance"), false, paths, null)));
+        assertEquals(List.of(), distinct(search.searchIndexedViewables(List.of("changed"), false, paths, null)),
                 "typing another query must not traverse fields again");
     }
 
@@ -50,12 +71,11 @@ class IndexedViewableSearchTest {
         List<ViewableFieldPaths.PathInfo> paths = ViewableFieldPaths.collect(
                 ViewConfig.of(CountingItem.class), ViewableFieldPaths.NOT_MEDIA_FIELDS);
         SearchAndSort search = new SearchAndSort();
-        search.rebuildViewableSearchIndex(rows, paths);
+        search.indexViewables(rows, paths);
 
         assertTimeout(Duration.ofSeconds(2), () -> {
             for (int i = 0; i < 50; i++) {
-                assertEquals(1, distinct(search.searchIndexedViewables(
-                        List.of("apostolic"), false)).size());
+                assertEquals(1, distinct(search.searchIndexedViewables(List.of("apostolic"), false, paths, null)).size());
             }
         });
     }
@@ -66,10 +86,9 @@ class IndexedViewableSearchTest {
         List<ViewableFieldPaths.PathInfo> paths = ViewableFieldPaths.collect(
                 ViewConfig.of(CountingItem.class), ViewableFieldPaths.NOT_MEDIA_FIELDS);
         SearchAndSort search = new SearchAndSort();
-        search.rebuildViewableSearchIndex(List.of(wanted, falsePositive), paths);
+        search.indexViewables(List.of(wanted, falsePositive), paths);
 
-        assertEquals(List.of(wanted), distinct(search.searchIndexedViewables(
-                List.of("king of"), false)));
+        assertEquals(List.of(wanted), distinct(search.searchIndexedViewables(List.of("king of"), false, paths, null)));
     }
 
     private static List<objectview.Viewable> distinct(

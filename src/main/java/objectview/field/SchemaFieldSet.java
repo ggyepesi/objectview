@@ -23,6 +23,13 @@ public final class SchemaFieldSet implements FieldSet {
         this.schema = schema;
     }
 
+    @Override public FieldRef displayField() {
+        for (FieldRef field : schema.fields()) {
+            if (field.role() == FieldRole.DISPLAY) return field;
+        }
+        return backing.displayField();
+    }
+
     @Override public List<FieldRef> fields() {
         Map<String, FieldRef> combined = new LinkedHashMap<>();
         for (FieldRef field : schema.fields()) {

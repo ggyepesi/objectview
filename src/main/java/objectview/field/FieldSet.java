@@ -35,6 +35,23 @@ public interface FieldSet {
         return null;
     }
 
+    /**
+     * The field carrying the DISPLAY role, or null when this backing declares none.
+     *
+     * <p>Asked on every single field read, to decide which FieldSet composition to
+     * build. The default answer enumerates and describes every field of the object —
+     * generic-signature parsing and annotation lookups included — to produce a fact
+     * that cannot vary between two instances of one class. Implementations that can
+     * answer it from a class or a schema override this; measured over a million
+     * reads, the enumeration was eight times the cost of the read it was preparing.
+     */
+    default FieldRef displayField() {
+        for (FieldRef field : fields()) {
+            if (field.role() == FieldRole.DISPLAY) return field;
+        }
+        return null;
+    }
+
     /** This instance's value for {@code name} (null if absent). */
     Object read(String name);
 

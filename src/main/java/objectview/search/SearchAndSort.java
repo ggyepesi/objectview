@@ -31,8 +31,8 @@ public class SearchAndSort {
 
     private final List<SearchEntry> searchIndex =
             new ArrayList<>();
-    private final List<ViewableSearchEntry> viewableSearchIndex = new ArrayList<>();
-    private Map<String, int[]> viewableTrigramPostings = Map.of();
+    /** The read text, per searched path, with what has already been read for it. */
+    private final Map<String, PathIndex> viewableIndex = new LinkedHashMap<>();
     private long viewableSearchIndexRevision;
 
     public void rebuildSearchIndex(
@@ -152,90 +152,75 @@ public class SearchAndSort {
         return out;
     }
 
-    /** Extracts the text of a data-backed view once. Trigram postings then narrow
-     * arbitrary substring searches before the normal matcher verifies each hit. */
-    public void rebuildViewableSearchIndex(
+    /**
+     * Reads the shown text of each value once and keeps it.
+     *
+     * <p>Called again with a changed item set, it extracts only what it has not seen:
+     * the text of a value depends on the value and the path, not on which group is
+     * being shown, so switching scope must not re-read a million fields. Adding a
+     * path indexes that path alone.
+     *
+     * <p>There is no trigram index any more. It narrowed a search from 43 ms to 12 ms
+     * on a million rows and cost 2.6 seconds and 81 MB to build — paid on the EDT
+     * where the whole difference is invisible, to save a difference nobody can see.
+     */
+    public void indexViewables(
             List<objectview.Viewable> viewables,
             List<ViewableFieldPaths.PathInfo> paths) {
-        viewableSearchIndexRevision++;
-        viewableSearchIndex.clear();
-        viewableTrigramPostings = Map.of();
         if (viewables == null || paths == null) return;
-
-        Map<String, IntPostings> building = new HashMap<>();
+        boolean extracted = false;
         for (ViewableFieldPaths.PathInfo fp : paths) {
+            PathIndex index = viewableIndex.computeIfAbsent(
+                    fp.title(), ignored -> new PathIndex());
             for (objectview.Viewable viewable : viewables) {
-                SearchText text = searchText(fp, extractValue(viewable, fp.path()));
-                int row = viewableSearchIndex.size();
-                viewableSearchIndex.add(new ViewableSearchEntry(
-                        viewable, fp.title(), text));
-                for (String gram : trigrams(text.flattened())) {
-                    building.computeIfAbsent(gram, ignored -> new IntPostings()).add(row);
-                }
+                if (viewable == null || !index.indexed.add(viewable)) continue;
+                index.items.add(viewable);
+                index.texts.add(searchText(fp, extractValue(viewable, fp.path())));
+                extracted = true;
             }
         }
-        Map<String, int[]> frozen = new HashMap<>(building.size());
-        building.forEach((gram, rows) -> frozen.put(gram, rows.toArray()));
-        viewableTrigramPostings = Map.copyOf(frozen);
+        if (extracted) viewableSearchIndexRevision++;
     }
 
-    /** Monotonic diagnostic revision; one increment means one complete data-index build. */
+    /** Forgets everything read for a target that is being replaced. */
+    public void clearViewableSearchIndex() {
+        viewableIndex.clear();
+    }
+
+    /** Monotonic diagnostic revision; it advances only when a value was actually read. */
     long viewableSearchIndexRevision() {
         return viewableSearchIndexRevision;
     }
 
+    /**
+     * Hits per field title, over the paths asked for and the items in scope.
+     *
+     * <p>Scope is what the reader is looking at now. It is a set held by the caller
+     * rather than a mark on the instance: a Viewable is domain data that several
+     * views may show at once, and a "currently shown" flag on it would belong to
+     * whichever of them rendered last.
+     */
     public Map<String, List<objectview.Viewable>> searchIndexedViewables(
-            List<String> queryTokens, boolean exact) {
+            List<String> queryTokens, boolean exact,
+            List<ViewableFieldPaths.PathInfo> paths,
+            Set<objectview.Viewable> scope) {
         Map<String, List<objectview.Viewable>> out = new LinkedHashMap<>();
-        if (queryTokens == null || queryTokens.isEmpty()
-                || viewableSearchIndex.isEmpty()) return out;
+        if (queryTokens == null || queryTokens.isEmpty() || paths == null) return out;
 
-        String indexedNeedle = exact ? String.join(" ", queryTokens) : null;
-        Set<String> grams = exact
-                ? trigrams(indexedNeedle)
-                : queryTokens.stream().flatMap(token -> trigrams(token).stream())
-                        .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
-        BitSet candidates = candidates(grams);
-        if (candidates == null) {
-            candidates = new BitSet(viewableSearchIndex.size());
-            candidates.set(0, viewableSearchIndex.size());
-        }
-
-        for (int row = candidates.nextSetBit(0); row >= 0;
-                row = candidates.nextSetBit(row + 1)) {
-            ViewableSearchEntry entry = viewableSearchIndex.get(row);
-            if (matches(entry.text(), queryTokens, exact)) {
-                out.computeIfAbsent(entry.fieldTitle(), ignored -> new ArrayList<>())
-                        .add(entry.viewable());
+        for (ViewableFieldPaths.PathInfo fp : paths) {
+            PathIndex index = viewableIndex.get(fp.title());
+            if (index == null) continue;
+            List<objectview.Viewable> hits = null;
+            for (int row = 0; row < index.items.size(); row++) {
+                objectview.Viewable item = index.items.get(row);
+                if (scope != null && !scope.contains(item)) continue;
+                if (!matches(index.texts.get(row), queryTokens, exact)) continue;
+                if (hits == null) hits = out.computeIfAbsent(
+                        fp.title(), ignored -> new ArrayList<>());
+                hits.add(item);
             }
         }
         return out;
-    }
-
-    /** null means no token was long enough for the trigram index; verification then
-     * scans cached strings, never the object graph. */
-    private BitSet candidates(Set<String> grams) {
-        if (grams.isEmpty()) return null;
-        BitSet candidates = null;
-        for (String gram : grams) {
-            int[] rows = viewableTrigramPostings.get(gram);
-            if (rows == null) return new BitSet();
-            BitSet posting = new BitSet(viewableSearchIndex.size());
-            for (int row : rows) posting.set(row);
-            if (candidates == null) candidates = posting;
-            else candidates.and(posting);
-            if (candidates.isEmpty()) return candidates;
-        }
-        return candidates;
-    }
-
-    private static Set<String> trigrams(String text) {
-        if (text == null || text.length() < 3) return Set.of();
-        Set<String> grams = new LinkedHashSet<>();
-        for (int i = 0; i <= text.length() - 3; i++) {
-            grams.add(text.substring(i, i + 3));
-        }
-        return grams;
     }
 
     public List<Card> sortPanels(
@@ -434,20 +419,12 @@ public class SearchAndSort {
             Map<String, SearchText> fieldTextByTitle) {
     }
 
-    private record ViewableSearchEntry(
-            objectview.Viewable viewable, String fieldTitle, SearchText text) {
-    }
-
-    private static final class IntPostings {
-        private int[] values = new int[8];
-        private int size;
-
-        void add(int value) {
-            if (size == values.length) values = Arrays.copyOf(values, values.length * 2);
-            values[size++] = value;
-        }
-
-        int[] toArray() { return Arrays.copyOf(values, size); }
+    /** One searched path: the items read for it, their text, and which are done. */
+    private static final class PathIndex {
+        private final List<objectview.Viewable> items = new ArrayList<>();
+        private final List<SearchText> texts = new ArrayList<>();
+        private final Set<objectview.Viewable> indexed =
+                java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     }
 
     private record SearchText(String flattened, List<String> atoms) {

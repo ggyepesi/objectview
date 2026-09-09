@@ -27,6 +27,19 @@ final class LayeredFieldSet implements FieldSet {
         this.secondaryMetadataWins = secondaryMetadataWins;
     }
 
+    @Override public FieldRef displayField() {
+        FieldRef primaryDisplay = primary.displayField();
+        FieldRef secondaryDisplay = secondary.displayField();
+        // The secondary is admitted only through the same predicate its fields pass,
+        // so the layered answer cannot claim a field this layering would not expose.
+        boolean secondaryAdmitted =
+                secondaryDisplay != null && includeSecondary.test(secondaryDisplay);
+        if (secondaryAdmitted && (secondaryMetadataWins || primaryDisplay == null)) {
+            return secondaryDisplay;
+        }
+        return primaryDisplay;
+    }
+
     @Override public List<FieldRef> fields() {
         Map<String, FieldRef> combined = new LinkedHashMap<>();
         primary.fields().forEach(field -> combined.put(field.name(), field));

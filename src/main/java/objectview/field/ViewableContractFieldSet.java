@@ -66,9 +66,7 @@ public final class ViewableContractFieldSet implements FieldSet {
     /** Bind the display alias to a real DISPLAY field, else layer the computed fallback.
      *  Multiple DISPLAY fields is a small user error, not a crash — see {@link #displayKey}. */
     static FieldSet overlay(Viewable viewable, FieldSet backing) {
-        boolean hasDisplayField = backing.fields().stream()
-                .anyMatch(field -> field.role() == FieldRole.DISPLAY);
-        if (hasDisplayField) {
+        if (backing.displayField() != null) {
             return new DisplayBoundFieldSet(backing, viewable);
         }
         // A real field using the reserved key still owns it. This is unusual but

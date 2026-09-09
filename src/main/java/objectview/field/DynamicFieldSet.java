@@ -49,6 +49,16 @@ public final class DynamicFieldSet implements FieldSet {
         return out;
     }
 
+    /**
+     * Never: a role is declared, and this backing describes map entries from their
+     * runtime values — {@link #fieldRef} assigns no role at all. Answering without
+     * describing every entry of every instance is the point.
+     */
+    @Override
+    public FieldRef displayField() {
+        return null;
+    }
+
     private static FieldRef fieldRef(String name, Object value) {
         boolean collection =
                 value instanceof Collection<?>

@@ -21,6 +21,11 @@ import java.util.Map;
  */
 public final class ReflectionFieldSet implements FieldSet {
 
+    private static final FieldRef NONE_DECLARED = FieldRef.of(
+            "", FieldKind.TEXT, "", false, false, false);
+    private static final java.util.Map<Class<?>, FieldRef> DISPLAY_FIELDS =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     private final Viewable object;
 
     public ReflectionFieldSet(Viewable object) {
@@ -66,6 +71,24 @@ public final class ReflectionFieldSet implements FieldSet {
                     "Cannot set " + name + " on " + object,
                     e);
         }
+    }
+
+    /**
+     * A declared field's role is a property of the class, so the answer is computed
+     * once per class instead of on every read of every instance. Keyed exactly like
+     * {@link ViewableAdapter#getField}, and cleared with it.
+     */
+    @Override
+    public FieldRef displayField() {
+        FieldRef cached = DISPLAY_FIELDS.computeIfAbsent(object.getClass(), cls -> {
+            for (Field f : ViewableAdapter.getAllFields(cls)) {
+                if (Modifier.isStatic(f.getModifiers())) continue;
+                FieldRef described = describe(f, cls);
+                if (described.role() == FieldRole.DISPLAY) return described;
+            }
+            return NONE_DECLARED;
+        });
+        return cached == NONE_DECLARED ? null : cached;
     }
 
     @Override
