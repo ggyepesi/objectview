@@ -74,6 +74,10 @@ public class Card extends JPanel implements RenderedInstanceHost {
     private static final Logger log = LoggerFactory.getLogger(Card.class);
     private static final String INLINE_TITLE = "objectview.inlineTitle";
     private static final String INLINE_ITEMS = "objectview.inlineItems";
+    private static final String INLINE_RENDERED = "objectview.inlineRendered";
+    private static final String INLINE_FIELD_PATH = "objectview.inlineFieldPath";
+    private static final String INLINE_NESTED_CONFIG = "objectview.inlineNestedConfig";
+    private static final String INLINE_ITEM_COUNT = "objectview.inlineItemCount";
 
     // A complex collection/map field renders under a collapsible header,
     // collapsed by default (threshold 0 => no list auto-expands); click the
@@ -1147,9 +1151,14 @@ public class Card extends JPanel implements RenderedInstanceHost {
             panel.setBorder(BorderFactory.createTitledBorder(fieldName + " (" + count + ")"));
             panel.putClientProperty(INLINE_TITLE, fieldName);
             panel.putClientProperty(INLINE_ITEMS, items);
+            panel.putClientProperty(INLINE_FIELD_PATH, fieldPath);
+            panel.putClientProperty(INLINE_NESTED_CONFIG, nestedConfig);
         }
 
-        int row = 0;
+        java.util.IdentityHashMap<Viewable, JComponent> rendered =
+                new java.util.IdentityHashMap<>();
+        panel.putClientProperty(INLINE_RENDERED, rendered);
+        panel.putClientProperty(INLINE_ITEM_COUNT, items.size());
 
         for (Object item : items) {
             if (!(item instanceof Viewable q)) {
@@ -1166,23 +1175,111 @@ public class Card extends JPanel implements RenderedInstanceHost {
                     "", fieldPath, q, false, nestedConfig);
 
             if (nested != null) {
-                panel.add(
-                        nested,
-                        GridBagUtils.weighted(
-                                0, row++,
-                                1.0, 0.0,
-                                GridBagConstraints.NORTHWEST,
-                                GridBagConstraints.HORIZONTAL,
-                                new Insets(2, 6, 2, 6)));
+                addInlineItem(panel, nested, rendered.size());
+                rendered.put(q, nested);
             }
         }
 
-        return row == 0 ? null : panel;
+        return rendered.isEmpty() ? null : panel;
+    }
+
+    private static void addInlineItem(JPanel panel, JComponent nested, int row) {
+        panel.add(nested, GridBagUtils.weighted(
+                0, row, 1.0, 0.0,
+                GridBagConstraints.NORTHWEST,
+                GridBagConstraints.HORIZONTAL,
+                new Insets(2, 6, 2, 6)));
     }
 
     /** Updates mutable inline-collection counts without rebuilding the card. */
     public void refreshInlineCollectionCounts() {
         refreshInlineCollectionCounts(this);
+    }
+
+    /**
+     * Applies nested value mutations without rebuilding this card. New collection
+     * members are appended; only already-rendered changed members are replaced.
+     * Collapsed branches stay lazy and therefore cost nothing until opened.
+     */
+    public void updateInlineCollections(Collection<? extends Viewable> changed) {
+        java.util.IdentityHashMap<Viewable, Boolean> changedSet =
+                new java.util.IdentityHashMap<>();
+        if (changed != null) {
+            for (Viewable value : changed) {
+                if (value != null) changedSet.put(value, Boolean.TRUE);
+            }
+        }
+        updateInlineCollections(this, changedSet);
+        revalidate();
+        repaint();
+    }
+
+    @SuppressWarnings("unchecked")
+    private void updateInlineCollections(
+            Container parent, java.util.IdentityHashMap<Viewable, Boolean> changed) {
+        for (Component component : parent.getComponents()) {
+            Component descendInto = component;
+            if (component instanceof JPanel panel
+                    && panel.getClientProperty(INLINE_ITEMS) instanceof Collection<?> items) {
+                Object stored = panel.getClientProperty(INLINE_RENDERED);
+                java.util.IdentityHashMap<Viewable, JComponent> rendered =
+                        stored instanceof java.util.IdentityHashMap<?, ?> map
+                                ? (java.util.IdentityHashMap<Viewable, JComponent>) map
+                                : new java.util.IdentityHashMap<>();
+                panel.putClientProperty(INLINE_RENDERED, rendered);
+                FieldPath fieldPath = panel.getClientProperty(INLINE_FIELD_PATH)
+                        instanceof FieldPath value ? value : path;
+                ViewConfig nestedConfig = panel.getClientProperty(INLINE_NESTED_CONFIG)
+                        instanceof ViewConfig value ? value : null;
+                java.util.IdentityHashMap<Viewable, Boolean> newlyAdded =
+                        new java.util.IdentityHashMap<>();
+
+                int previousCount = panel.getClientProperty(INLINE_ITEM_COUNT)
+                        instanceof Integer count ? count : -1;
+                if (items.size() != previousCount) {
+                    // Log collections append. Only a size change can introduce a
+                    // member, so ordinary status/text mutations never walk all of
+                    // the requests already accumulated in this branch.
+                    for (Object item : items) {
+                        if (!(item instanceof Viewable value)
+                                || rendered.containsKey(value)) continue;
+                        JComponent added = collapsibleReference(
+                                "", fieldPath, value, false, nestedConfig);
+                        if (added != null) {
+                            addInlineItem(panel, added, rendered.size());
+                            rendered.put(value, added);
+                            newlyAdded.put(value, Boolean.TRUE);
+                        }
+                    }
+                    panel.putClientProperty(INLINE_ITEM_COUNT, items.size());
+                }
+
+                for (Viewable value : changed.keySet()) {
+                    if (newlyAdded.containsKey(value)) continue;
+                    JComponent old = rendered.get(value);
+                    if (old != null) {
+                        GridBagConstraints constraints =
+                                ((GridBagLayout) panel.getLayout()).getConstraints(old);
+                        int position = panel.getComponentZOrder(old);
+                        JComponent replacement = collapsibleReference(
+                                "", fieldPath, value, false, nestedConfig);
+                        if (replacement != null) {
+                            panel.remove(old);
+                            panel.add(replacement, constraints, position);
+                            rendered.put(value, replacement);
+                            descendInto = replacement;
+                        }
+                    }
+                }
+                refreshInlineCollectionCounts(panel);
+                panel.revalidate();
+                panel.repaint();
+            }
+            if (descendInto instanceof Container nested
+                    && nested.getComponentCount() > 0) {
+                updateInlineCollections(nested, changed);
+            }
+        }
     }
 
     private static void refreshInlineCollectionCounts(Container parent) {

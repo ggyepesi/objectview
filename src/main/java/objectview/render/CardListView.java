@@ -379,6 +379,18 @@ public class CardListView {
         if (card != null) card.refreshInlineCollectionCounts();
     }
 
+    /** Appends/replaces only changed members of an inline collection tree. */
+    public void updateNestedViewables(
+            Viewable root, java.util.Collection<? extends Viewable> changed) {
+        if (root == null || changed == null || changed.isEmpty()
+                || virtualList == null) return;
+        Card card = findCard(root);
+        if (card == null) return;
+        card.updateInlineCollections(changed);
+        virtualList.revalidate();
+        virtualList.repaint();
+    }
+
     /**
      * Refreshes {@code q}'s card if it already has one, otherwise adds it
      * live. Convenient for incremental feeds (e.g. a query log) that don't

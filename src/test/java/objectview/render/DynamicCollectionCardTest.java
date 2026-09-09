@@ -1,6 +1,7 @@
 package objectview.render;
 
 import objectview.ViewableAdapter;
+import objectview.annotations.Inline;
 import objectview.field.DynamicFields;
 import objectview.field.FieldKind;
 import objectview.field.FieldPath;
@@ -12,17 +13,66 @@ import org.junit.jupiter.api.Test;
 
 import javax.swing.JComponent;
 import javax.swing.JLabel;
+import javax.imageio.ImageIO;
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DynamicCollectionCardTest {
+
+    @Test
+    void aLiveInlineCollectionChangesOnlyTheEntryThatChanged() throws Exception {
+        LiveParent parent = new LiveParent();
+        LiveChild first = new LiveChild("first", "a very long request already opened");
+        parent.steps.add(first);
+        RenderContext context = new RenderContext();
+        context.setExpanded(first, true);
+
+        Card[] card = new Card[1];
+        javax.swing.SwingUtilities.invokeAndWait(() ->
+                card[0] = new Card(parent, ViewConfig.all(LiveParent.class), context, false));
+        List<ReferenceRow> before = findAll(card[0], ReferenceRow.class);
+        assertEquals(1, before.size());
+        TextBlock openedRequest = find(card[0], TextBlock.class);
+        assertNotNull(openedRequest);
+
+        LiveChild second = new LiveChild("second", "new request");
+        parent.steps.add(second);
+        javax.swing.SwingUtilities.invokeAndWait(() ->
+                card[0].updateInlineCollections(List.of(second)));
+
+        List<ReferenceRow> afterAppend = findAll(card[0], ReferenceRow.class);
+        assertEquals(2, afterAppend.size());
+        assertSame(before.get(0), afterAppend.get(0),
+                "appending a request must not rebuild an opened sibling");
+        assertSame(openedRequest, find(card[0], TextBlock.class),
+                "the already-rendered request text remains the same component");
+
+        ReferenceRow secondBeforeUpdate = afterAppend.get(1);
+        second.request = "finished request";
+        javax.swing.SwingUtilities.invokeAndWait(() ->
+                card[0].updateInlineCollections(List.of(second)));
+
+        List<ReferenceRow> afterUpdate = findAll(card[0], ReferenceRow.class);
+        assertSame(before.get(0), afterUpdate.get(0));
+        assertNotSame(secondBeforeUpdate, afterUpdate.get(1),
+                "only the log entry whose presentation changed is replaced");
+
+        render(card[0], "target/ui-artifacts/live-inline-log.png");
+    }
 
     @Test
     void dynamicCollectionsUseTheSameCollapsibleHeaderAsDeclaredCollections()
@@ -175,6 +225,23 @@ class DynamicCollectionCardTest {
         }
     }
 
+    private static void render(JComponent component, String path) throws Exception {
+        File artifact = new File(path);
+        assertTrue(artifact.getParentFile().mkdirs()
+                || artifact.getParentFile().isDirectory());
+        BufferedImage image = new BufferedImage(
+                900, 320, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = image.createGraphics();
+        javax.swing.SwingUtilities.invokeAndWait(() -> {
+            component.setSize(image.getWidth(), image.getHeight());
+            layoutTree(component);
+            component.paint(graphics);
+        });
+        graphics.dispose();
+        ImageIO.write(image, "png", artifact);
+        assertTrue(artifact.isFile());
+    }
+
     private static boolean contains(Component root, Component target) {
         if (root == target) return true;
         if (root instanceof Container container) {
@@ -209,6 +276,44 @@ class DynamicCollectionCardTest {
             }
         }
         return result;
+    }
+
+    private static <T extends Component> List<T> findAll(
+            Component root, Class<T> type) {
+        List<T> result = new ArrayList<>();
+        collect(root, type, result);
+        return result;
+    }
+
+    private static <T extends Component> void collect(
+            Component root, Class<T> type, List<T> result) {
+        if (type.isInstance(root)) result.add(type.cast(root));
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                collect(child, type, result);
+            }
+        }
+    }
+
+    private static final class LiveParent extends ViewableAdapter {
+        @Inline
+        private final Collection<LiveChild> steps = new ArrayList<>();
+
+        @Override public String getIdentifier() { return "parent"; }
+        @Override public String getDisplayName() { return "live log"; }
+    }
+
+    private static final class LiveChild extends ViewableAdapter {
+        private final String name;
+        private String request;
+
+        private LiveChild(String name, String request) {
+            this.name = name;
+            this.request = request;
+        }
+
+        @Override public String getIdentifier() { return name; }
+        @Override public String getDisplayName() { return name; }
     }
 
     private static class DynamicThing
