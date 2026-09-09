@@ -61,9 +61,18 @@ class NestedValueSearchTest {
                 ViewConfig.of(Step.class), ViewableFieldPaths.NOT_MEDIA_FIELDS);
     }
 
+    /** Hits by the label the reader sees, over a search identified by field path.
+     *  Two paths can share a label; this test's do not, and the result is asserted
+     *  by label because that is what the reader is told to open. */
     private static Map<String, List<objectview.Viewable>> find(
             List<objectview.Viewable> rows, String query) {
-        return new SearchAndSort().searchViewables(rows, List.of(query), paths());
+        Map<String, List<objectview.Viewable>> byLabel = new java.util.LinkedHashMap<>();
+        new SearchAndSort()
+                .searchViewablesByPath(rows, List.of(query), paths(), false)
+                .forEach((path, hits) -> byLabel
+                        .computeIfAbsent(path.title(), ignored -> new java.util.ArrayList<>())
+                        .addAll(hits));
+        return byLabel;
     }
 
     private static Step tree() {

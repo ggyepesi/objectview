@@ -103,10 +103,13 @@ class SearchableTableViewTest {
                 ViewableFieldPaths.collectFromSample(
                         item, config, ViewableFieldPaths.ALL_FIELDS);
 
-        Map<String, List<objectview.Viewable>> hits = new SearchAndSort()
-                .searchViewables(List.of(item), List.of("symbol"), paths);
+        Map<ViewableFieldPaths.PathInfo, List<objectview.Viewable>> hits =
+                new SearchAndSort().searchViewablesByPath(
+                        List.of(item), List.of("symbol"), paths, false);
 
-        assertEquals(List.of(item), hits.get("facts"));
+        assertEquals(List.of(item), hits.entrySet().stream()
+                .filter(hit -> "facts".equals(hit.getKey().title()))
+                .findFirst().orElseThrow().getValue());
     }
 
     @Test void nullNestedValueLeavesConfiguredLeafCellEmptyWithoutAddingAColumn() {

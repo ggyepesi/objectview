@@ -53,6 +53,11 @@ public class SearchPanel extends JPanel
             new Color(255, 150, 130);
     private static final Color HIDDEN_HIT_BADGE_COLOR =
             new Color(120, 80, 0);
+    /** Small views complete immediately; a loaded domain must never make the EDT
+     * perform thousands of reflective field reads. Measured at roughly 3.3 us a read,
+     * so this is about 33 ms on the event thread — the number only means anything
+     * against that rate, and should move with it. */
+    static final int BACKGROUND_INDEX_READS = 10_000;
 
     private final ViewConfigEditor searchEditor;
     private final ViewConfigEditor sortEditor;
@@ -104,6 +109,13 @@ public class SearchPanel extends JPanel
     // on scroll-back can be re-highlighted (see cardMaterialized).
     /** Whether the searched text must be re-read before the next search. */
     private boolean searchIndexStale = true;
+    /** Mutable instances whose already-indexed rows must be replaced, by identity. */
+    private final Set<Viewable> changedViewables =
+            Collections.newSetFromMap(new IdentityHashMap<>());
+    private SwingWorker<SearchAndSort.IndexDelta, Void> indexWorker;
+    private long indexGeneration;
+    /** What the running build was asked to read, so saying so costs no replanning. */
+    private int pendingIndexReads;
     private final java.util.Set<objectview.Viewable> virtualHits =
             java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     private List<HitGroupQ> currentVirtualGroups = List.of();
@@ -250,6 +262,7 @@ public class SearchPanel extends JPanel
         // A different target is a different domain: what was read for the previous
         // one is not an answer about this one, and holding it would keep it alive.
         searchAndSort.clearViewableSearchIndex();
+        changedViewables.clear();
         this.virtualList = next;
         if (this.virtualList != null) {
             this.virtualList.setMaterializationListener(
@@ -312,6 +325,13 @@ public class SearchPanel extends JPanel
             return;
         }
 
+        if (updated != null) {
+            for (Card card : updated) {
+                if (card != null && card.getViewable() != null) {
+                    changedViewables.add(card.getViewable());
+                }
+            }
+        }
         invalidateSearchIndex();
 
         if (sorted) {
@@ -980,9 +1000,10 @@ public class SearchPanel extends JPanel
         }
     }
 
-    /** Runs the query against this section synchronously (highlighting its
-     *  cards) without stealing navigation. Keeps the (hidden) field in sync so
-     *  live-add re-search uses the right text. */
+    /** Runs the query against this section without stealing navigation. Small
+     * views complete immediately; a large first extraction publishes and renders
+     * its results from the background worker's EDT completion callback. Keeps the
+     * hidden field in sync so live-add re-search uses the right text. */
     public void runCoordinatedSearch(String query) {
         String normalized = query == null ? "" : query;
         if (coordinated) setVisible(!normalized.isBlank());
@@ -1037,15 +1058,21 @@ public class SearchPanel extends JPanel
      * domain and never types has no use for it, and while it ran the window would not
      * even repaint: dragging the frame lagged and clicks on a chip were never
      * delivered. Deferring it to the first search costs a reader nothing they did not
-     * ask for, and collapses a burst of card events into one build.
+     * ask for; the worker below keeps that first requested build off the EDT and
+     * collapses a burst of card events into one current-generation publication.
      */
     private void invalidateSearchIndex() {
         searchIndexStale = true;
+        indexGeneration++;
+        if (indexWorker != null) {
+            indexWorker.cancel(true);
+            indexWorker = null;
+        }
     }
 
-    private void ensureSearchIndex() {
-        if (!searchIndexStale) return;
-        searchIndexStale = false;
+    /** @return true when the current query can search a complete published index. */
+    private boolean ensureSearchIndex() {
+        if (!searchIndexStale) return true;
         // A virtual/data-backed target is searched directly from its complete
         // Viewable item list. Only ordinary component-backed targets need the
         // rendered-component index.
@@ -1053,13 +1080,116 @@ public class SearchPanel extends JPanel
             searchAndSort.rebuildSearchIndex(
                     targetPanel,
                     searchPaths());
-        } else {
-            searchAndSort.indexViewables(virtualList.items(), searchPaths());
+            searchIndexStale = false;
+            return true;
         }
+
+        // Asked before planning: while a build runs, every keystroke reaches here,
+        // and planning walks every item of every searched path to decide what is
+        // missing — a million identity lookups to redraw a label that already says
+        // what this build is doing.
+        if (indexWorker != null) {
+            showIndexingStatus(pendingIndexReads);
+            return false;
+        }
+
+        SearchAndSort.IndexWork work = searchAndSort.planIndex(
+                virtualList.items(), searchPaths(), changedViewables);
+        if (work.size() < BACKGROUND_INDEX_READS) {
+            publishIndex(searchAndSort.extractIndex(work));
+            return true;
+        }
+
+        long generation = indexGeneration;
+        indexWorker = new SwingWorker<>() {
+            @Override
+            protected SearchAndSort.IndexDelta doInBackground() {
+                return searchAndSort.extractIndex(work);
+            }
+
+            @Override
+            protected void done() {
+                if (indexWorker != this) return;
+                if (isCancelled() || generation != indexGeneration) {
+                    indexWorker = null;
+                    if (!searchField.getText().isBlank()) {
+                        searchSync(searchField.getText());
+                    }
+                    return;
+                }
+                try {
+                    publishIndex(get());
+                    searchSync(searchField.getText());
+                    indexWorker = null;
+                } catch (java.util.concurrent.CancellationException ignored) {
+                    // A newer target, configuration, or mutation owns the next build.
+                    indexWorker = null;
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    indexWorker = null;
+                    showIndexingFailure();
+                } catch (java.util.concurrent.ExecutionException ex) {
+                    indexWorker = null;
+                    // Reading a value while the event thread changes it is the one
+                    // failure this worker can hit that says nothing about the data:
+                    // the index is simply out of date, which it already declares, so
+                    // the next search rebuilds instead of reporting a fault.
+                    if (movedUnderneath(ex)) invalidateSearchIndex();
+                    else showIndexingFailure();
+                }
+            }
+        };
+        pendingIndexReads = work.size();
+        showIndexingStatus(pendingIndexReads);
+        indexWorker.execute();
+        return false;
+    }
+
+    /** Applies a completed extraction and marks the index current. */
+    private void publishIndex(SearchAndSort.IndexDelta delta) {
+        searchAndSort.applyIndex(delta);
+        // Only worth asking which instances were re-read when some were: on a first
+        // build the answer is every one of them, collected into a set to remove
+        // nothing from an empty one.
+        if (!changedViewables.isEmpty()) changedViewables.removeAll(delta.viewables());
+        searchIndexStale = false;
+    }
+
+    private static boolean movedUnderneath(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof java.util.ConcurrentModificationException) return true;
+        }
+        return false;
+    }
+
+    private void showIndexingStatus(int reads) {
+        resultsPanel.removeAll();
+        JLabel status = new JLabel(String.format(
+                "Preparing search text… (%,d field values)", reads));
+        status.setName("search-indexing-status");
+        status.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
+        resultsPanel.add(status);
+        resultsPanel.revalidate();
+        resultsPanel.repaint();
+    }
+
+    private void showIndexingFailure() {
+        searchIndexStale = true;
+        resultsPanel.removeAll();
+        JLabel status = new JLabel("Could not prepare search text");
+        status.setName("search-indexing-error");
+        status.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
+        resultsPanel.add(status);
+        resultsPanel.revalidate();
+        resultsPanel.repaint();
     }
 
     long viewableSearchIndexRevision() {
         return searchAndSort.viewableSearchIndexRevision();
+    }
+
+    boolean indexingSearch() {
+        return indexWorker != null;
     }
 
     /** Test observation: the hits as listed and navigated, in that order. */
@@ -1101,7 +1231,9 @@ public class SearchPanel extends JPanel
 
         // The one place that needs the index, and therefore the one place that pays
         // for it — after the query is known to be worth running.
-        ensureSearchIndex();
+        if (!ensureSearchIndex()) {
+            return;
+        }
 
         // Virtualized view: only the visible cards exist as components, so search
         // the DATA and navigate hits one at a time (building each card on demand).
@@ -1110,17 +1242,17 @@ public class SearchPanel extends JPanel
             return;
         }
 
-        Map<String, List<Card>> matchesByField =
-                searchAndSort.search(queryTokens, exactMatch);
+        Map<ViewableFieldPaths.PathInfo, List<Card>> matchesByField =
+                searchAndSort.searchByPath(queryTokens, exactMatch);
 
-        Map<String, HitGroup> groups =
+        Map<FieldPath, HitGroup> groups =
                 new LinkedHashMap<>();
 
-        for (Map.Entry<String, List<Card>> e
+        for (Map.Entry<ViewableFieldPaths.PathInfo, List<Card>> e
                 : matchesByField.entrySet()) {
 
             HitGroup group =
-                    new HitGroup(e.getKey());
+                    new HitGroup(e.getKey().title());
 
             for (Card qp : e.getValue()) {
                 if (!group.hits.contains(qp)) {
@@ -1130,7 +1262,7 @@ public class SearchPanel extends JPanel
                 highlightInstance(qp);
             }
 
-            groups.put(e.getKey(), group);
+            groups.put(e.getKey().path(), group);
         }
 
         if (fieldHighlightBox.isSelected()) {
@@ -1147,19 +1279,9 @@ public class SearchPanel extends JPanel
     }
 
     private void addFieldHighlights(
-            Map<String, List<Card>> matchesByField,
-            Map<String, HitGroup> groups,
+            Map<ViewableFieldPaths.PathInfo, List<Card>> matchesByField,
+            Map<FieldPath, HitGroup> groups,
             List<String> queryTokens) {
-
-        List<ViewableFieldPaths.PathInfo> paths =
-                searchPaths();
-
-        Map<String, ViewableFieldPaths.PathInfo> pathByTitle =
-                new LinkedHashMap<>();
-
-        for (ViewableFieldPaths.PathInfo fp : paths) {
-            pathByTitle.put(fp.title(), fp);
-        }
 
         // Pre-pass: a match can sit inside a collapsed collection (e.g. a
         // Character's collapsed "episodes", or an Episode's "characters"). Expand
@@ -1169,12 +1291,9 @@ public class SearchPanel extends JPanel
         Set<Card> toRefresh =
                 Collections.newSetFromMap(new IdentityHashMap<>());
 
-        for (Map.Entry<String, List<Card>> e
+        for (Map.Entry<ViewableFieldPaths.PathInfo, List<Card>> e
                 : matchesByField.entrySet()) {
-            ViewableFieldPaths.PathInfo fp = pathByTitle.get(e.getKey());
-            if (fp == null) {
-                continue;
-            }
+            ViewableFieldPaths.PathInfo fp = e.getKey();
             for (Card qp : e.getValue()) {
                 if (qp.expandCollectionsOnPath(fp.path())) {
                     toRefresh.add(qp);
@@ -1185,18 +1304,13 @@ public class SearchPanel extends JPanel
             qp.refresh();
         }
 
-        for (Map.Entry<String, List<Card>> e
+        for (Map.Entry<ViewableFieldPaths.PathInfo, List<Card>> e
                 : matchesByField.entrySet()) {
 
-            ViewableFieldPaths.PathInfo fp =
-                    pathByTitle.get(e.getKey());
-
-            if (fp == null) {
-                continue;
-            }
+            ViewableFieldPaths.PathInfo fp = e.getKey();
 
             HitGroup group =
-                    groups.get(e.getKey());
+                    groups.get(fp.path());
 
             if (group == null) {
                 continue;
@@ -1443,7 +1557,7 @@ public class SearchPanel extends JPanel
         hits.add(candidate);
     }
 
-    private void showSearchResults(Map<String, HitGroup> groups) {
+    private void showSearchResults(Map<FieldPath, HitGroup> groups) {
         resultsPanel.removeAll();
 
         JComponent first =
@@ -2066,8 +2180,8 @@ public class SearchPanel extends JPanel
         return position;
     }
 
-    private Map<String, List<Viewable>> inDisplayOrder(
-            Map<String, List<Viewable>> matchesByField,
+    private Map<ViewableFieldPaths.PathInfo, List<Viewable>> inDisplayOrder(
+            Map<ViewableFieldPaths.PathInfo, List<Viewable>> matchesByField,
             Map<Viewable, Integer> position) {
         if (matchesByField.isEmpty() || virtualList == null) {
             return matchesByField;
@@ -2076,9 +2190,9 @@ public class SearchPanel extends JPanel
         // than disappearing: a stale hit is visible, not silently dropped.
         Comparator<Viewable> byPosition = Comparator.comparingInt(
                 hit -> position.getOrDefault(hit, Integer.MAX_VALUE));
-        Map<String, List<Viewable>> ordered = new LinkedHashMap<>();
-        matchesByField.forEach((title, hits) ->
-                ordered.put(title, hits.stream().sorted(byPosition).toList()));
+        Map<ViewableFieldPaths.PathInfo, List<Viewable>> ordered = new LinkedHashMap<>();
+        matchesByField.forEach((path, hits) ->
+                ordered.put(path, hits.stream().sorted(byPosition).toList()));
         return ordered;
     }
 
@@ -2086,7 +2200,7 @@ public class SearchPanel extends JPanel
         // One walk of the shown list answers both questions asked of it: which items
         // are in scope, and in which order their hits are read.
         Map<Viewable, Integer> shown = shownPositions();
-        Map<String, List<Viewable>> matchesByField = inDisplayOrder(
+        Map<ViewableFieldPaths.PathInfo, List<Viewable>> matchesByField = inDisplayOrder(
                 searchAndSort.searchIndexedViewables(
                         queryTokens, exactMatch, searchPaths(), shown.keySet()),
                 shown);
@@ -2095,24 +2209,17 @@ public class SearchPanel extends JPanel
         clearVirtualSearchState();
         matchesByField.values().forEach(virtualHits::addAll);
 
-        Map<String, ViewableFieldPaths.PathInfo> pathByTitle =
-                new LinkedHashMap<>();
+        Map<FieldPath, HitGroupQ> groups = new LinkedHashMap<>();
 
-        for (ViewableFieldPaths.PathInfo fp
-                : searchPaths()) {
-
-            pathByTitle.put(fp.title(), fp);
-        }
-
-        Map<String, HitGroupQ> groups = new LinkedHashMap<>();
-
-        for (Map.Entry<String, List<Viewable>> e : matchesByField.entrySet()) {
+        for (Map.Entry<ViewableFieldPaths.PathInfo, List<Viewable>> e
+                : matchesByField.entrySet()) {
+            ViewableFieldPaths.PathInfo path = e.getKey();
             HitGroupQ g = new HitGroupQ(
-                    e.getKey(),
-                    pathByTitle.get(e.getKey()),
+                    path.title(),
+                    path,
                     queryTokens);
             g.hits.addAll(e.getValue());
-            groups.put(e.getKey(), g);
+            groups.put(path.path(), g);
         }
 
         // Expansion belongs to each matching card, not to whichever logical hit is
@@ -2130,7 +2237,7 @@ public class SearchPanel extends JPanel
         showSearchResultsVirtual(groups);
     }
 
-    private void showSearchResultsVirtual(Map<String, HitGroupQ> groups) {
+    private void showSearchResultsVirtual(Map<FieldPath, HitGroupQ> groups) {
         resultsPanel.removeAll();
         currentVirtualGroups = List.copyOf(groups.values());
         IdentityHashMap<Viewable, List<HitGroupQ>> byItem = new IdentityHashMap<>();

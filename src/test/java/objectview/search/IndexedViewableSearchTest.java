@@ -1,6 +1,7 @@
 package objectview.search;
 
 import objectview.ViewableAdapter;
+import objectview.field.FieldPath;
 import objectview.field.ViewableFieldPaths;
 import objectview.viewconfig.ViewConfig;
 import org.junit.jupiter.api.Test;
@@ -121,8 +122,37 @@ class IndexedViewableSearchTest {
         assertEquals(List.of(wanted), distinct(search.searchIndexedViewables(List.of("king of"), false, paths, null)));
     }
 
+    @Test void pathsWithTheSameLabelRemainDistinctIndexEntries() throws Exception {
+        DualItem item = new DualItem("needle on left", "needle on right");
+        ViewableFieldPaths.PathInfo left = new ViewableFieldPaths.PathInfo(
+                "Same label", FieldPath.of("left"), DualItem.class.getDeclaredField("left"));
+        ViewableFieldPaths.PathInfo right = new ViewableFieldPaths.PathInfo(
+                "Same label", FieldPath.of("right"), DualItem.class.getDeclaredField("right"));
+        SearchAndSort search = new SearchAndSort();
+
+        search.indexViewables(List.of(item), List.of(left, right));
+        var matches = search.searchIndexedViewables(
+                List.of("needle"), false, List.of(left, right), null);
+
+        assertEquals(List.of(left, right), List.copyOf(matches.keySet()),
+                "a display label must not be the identity of a field path");
+        assertEquals(List.of(item), matches.get(left));
+        assertEquals(List.of(item), matches.get(right));
+    }
+
     private static List<objectview.Viewable> distinct(
-            java.util.Map<String, List<objectview.Viewable>> result) {
+            java.util.Map<?, List<objectview.Viewable>> result) {
         return result.values().stream().flatMap(List::stream).distinct().toList();
+    }
+
+    static final class DualItem extends ViewableAdapter {
+        String left;
+        String right;
+        DualItem(String left, String right) {
+            this.left = left;
+            this.right = right;
+        }
+        @Override public String getIdentifier() { return left + right; }
+        @Override public String getDisplayName() { return left; }
     }
 }

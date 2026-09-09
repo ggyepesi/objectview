@@ -32,7 +32,7 @@ public class SearchAndSort {
     private final List<SearchEntry> searchIndex =
             new ArrayList<>();
     /** The read text, per searched path, with what has already been read for it. */
-    private final Map<String, PathIndex> viewableIndex = new LinkedHashMap<>();
+    private final Map<FieldPath, PathIndex> viewableIndex = new LinkedHashMap<>();
     private long viewableSearchIndexRevision;
 
     public void rebuildSearchIndex(
@@ -50,31 +50,28 @@ public class SearchAndSort {
                 continue;
             }
 
-            Map<String, SearchText> fieldTextByTitle =
+            Map<ViewableFieldPaths.PathInfo, SearchText> fieldTextByPath =
                     new LinkedHashMap<>();
 
             for (ViewableFieldPaths.PathInfo fp : paths) {
                 Object value =
                         extractValue(qp.getViewable(), fp.path());
 
-                fieldTextByTitle.put(
-                        fp.title(),
+                fieldTextByPath.put(
+                        fp,
                         searchText(fp, value));
             }
 
-            searchIndex.add(new SearchEntry(qp, fieldTextByTitle));
+            searchIndex.add(new SearchEntry(qp, fieldTextByPath));
         }
     }
 
-    public Map<String, List<Card>> search(
-            List<String> queryTokens) {
-        return search(queryTokens, false);
-    }
-
-    public Map<String, List<Card>> search(
+    /** Component search, identified by access path: a label is presentation and two
+     *  fields may share one, which is why hits are not keyed by it. */
+    public Map<ViewableFieldPaths.PathInfo, List<Card>> searchByPath(
             List<String> queryTokens, boolean exact) {
 
-        Map<String, List<Card>> out =
+        Map<ViewableFieldPaths.PathInfo, List<Card>> out =
                 new LinkedHashMap<>();
 
         if (queryTokens == null || queryTokens.isEmpty()) {
@@ -82,8 +79,8 @@ public class SearchAndSort {
         }
 
         for (SearchEntry entry : searchIndex) {
-            for (Map.Entry<String, SearchText> field
-                    : entry.fieldTextByTitle.entrySet()) {
+            for (Map.Entry<ViewableFieldPaths.PathInfo, SearchText> field
+                    : entry.fieldTextByPath.entrySet()) {
 
                 if (!matches(field.getValue(), queryTokens, exact)) {
                     continue;
@@ -101,22 +98,20 @@ public class SearchAndSort {
 
     /** Data-centric search for the virtualized view: match the viewables themselves
      *  (not live components, of which only the visible ones exist) and return the
-     *  matching viewables per field title, in field-then-data order. The caller
-     *  navigates these hits one at a time, building each card on demand. */
-    public Map<String, List<objectview.Viewable>> searchViewables(
-            List<objectview.Viewable> viewables,
-            List<String> queryTokens,
-            List<ViewableFieldPaths.PathInfo> paths) {
-        return searchViewables(viewables, queryTokens, paths, false);
-    }
-
-    public Map<String, List<objectview.Viewable>> searchViewables(
+     *  matching viewables per field, in field-then-data order. The caller navigates
+     *  these hits one at a time, building each card on demand.
+     *
+     *  <p>Uncached, and identified by access path — a label is what the reader is
+     *  shown, and two different fields may be shown the same one. Keying hits by
+     *  label merged unrelated fields into one bucket, which is the bug this replaced.
+     */
+    public Map<ViewableFieldPaths.PathInfo, List<objectview.Viewable>> searchViewablesByPath(
             List<objectview.Viewable> viewables,
             List<String> queryTokens,
             List<ViewableFieldPaths.PathInfo> paths,
             boolean exact) {
 
-        Map<String, List<objectview.Viewable>> out =
+        Map<ViewableFieldPaths.PathInfo, List<objectview.Viewable>> out =
                 new LinkedHashMap<>();
 
         if (viewables == null
@@ -145,7 +140,7 @@ public class SearchAndSort {
             }
 
             if (hits != null) {
-                out.put(fp.title(), hits);
+                out.put(fp, hits);
             }
         }
 
@@ -172,19 +167,79 @@ public class SearchAndSort {
     public void indexViewables(
             List<objectview.Viewable> viewables,
             List<ViewableFieldPaths.PathInfo> paths) {
-        if (viewables == null || paths == null) return;
-        boolean extracted = false;
+        applyIndex(extractIndex(planIndex(viewables, paths, Set.of())));
+    }
+
+    /**
+     * Describes exactly which field values are missing or explicitly changed.
+     * Planning touches only index identities; reflective extraction happens later,
+     * and can therefore run away from the Swing event thread.
+     */
+    IndexWork planIndex(
+            List<objectview.Viewable> viewables,
+            List<ViewableFieldPaths.PathInfo> paths,
+            Set<objectview.Viewable> changed) {
+        List<PathWork> pathWork = new ArrayList<>();
+        int size = 0;
+        if (viewables == null || paths == null) return new IndexWork(pathWork, size);
         for (ViewableFieldPaths.PathInfo fp : paths) {
-            PathIndex index = viewableIndex.computeIfAbsent(
-                    fp.title(), ignored -> new PathIndex());
+            if (fp == null || fp.path() == null) continue;
+            PathIndex index = viewableIndex.get(fp.path());
+            List<objectview.Viewable> pending = new ArrayList<>();
             for (objectview.Viewable viewable : viewables) {
-                if (viewable == null || !index.indexed.add(viewable)) continue;
-                index.items.add(viewable);
-                index.texts.add(searchText(fp, extractValue(viewable, fp.path())));
-                extracted = true;
+                if (viewable == null) continue;
+                boolean refresh = changed != null && changed.contains(viewable);
+                if (refresh || index == null || !index.rows.containsKey(viewable)) {
+                    pending.add(viewable);
+                }
+            }
+            if (!pending.isEmpty()) {
+                pathWork.add(new PathWork(fp, pending));
+                size += pending.size();
             }
         }
-        if (extracted) viewableSearchIndexRevision++;
+        return new IndexWork(pathWork, size);
+    }
+
+    /** Pure, unpublished extraction result; safe to compute on a worker thread. */
+    IndexDelta extractIndex(IndexWork work) {
+        List<ExtractedPath> extracted = new ArrayList<>();
+        if (work == null) return new IndexDelta(extracted);
+        for (PathWork pathWork : work.paths()) {
+            List<SearchText> texts = new ArrayList<>(pathWork.viewables().size());
+            for (objectview.Viewable viewable : pathWork.viewables()) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new java.util.concurrent.CancellationException();
+                }
+                texts.add(searchText(pathWork.path(),
+                        extractValue(viewable, pathWork.path().path())));
+            }
+            extracted.add(new ExtractedPath(
+                    pathWork.path(), pathWork.viewables(), texts));
+        }
+        return new IndexDelta(extracted);
+    }
+
+    /** Publishes a completed extraction atomically from the caller's perspective. */
+    void applyIndex(IndexDelta delta) {
+        if (delta == null || delta.paths().isEmpty()) return;
+        for (ExtractedPath extracted : delta.paths()) {
+            PathIndex index = viewableIndex.computeIfAbsent(
+                    extracted.path().path(), ignored -> new PathIndex());
+            for (int i = 0; i < extracted.viewables().size(); i++) {
+                objectview.Viewable viewable = extracted.viewables().get(i);
+                SearchText text = extracted.texts().get(i);
+                Integer row = index.rows.get(viewable);
+                if (row == null) {
+                    index.rows.put(viewable, index.items.size());
+                    index.items.add(viewable);
+                    index.texts.add(text);
+                } else {
+                    index.texts.set(row, text);
+                }
+            }
+        }
+        viewableSearchIndexRevision++;
     }
 
     /** Forgets everything read for a target that is being replaced. */
@@ -198,22 +253,23 @@ public class SearchAndSort {
     }
 
     /**
-     * Hits per field title, over the paths asked for and the items in scope.
+     * Hits per field path, over the paths asked for and the items in scope.
      *
      * <p>Scope is what the reader is looking at now. It is a set held by the caller
      * rather than a mark on the instance: a Viewable is domain data that several
      * views may show at once, and a "currently shown" flag on it would belong to
      * whichever of them rendered last.
      */
-    public Map<String, List<objectview.Viewable>> searchIndexedViewables(
+    public Map<ViewableFieldPaths.PathInfo, List<objectview.Viewable>> searchIndexedViewables(
             List<String> queryTokens, boolean exact,
             List<ViewableFieldPaths.PathInfo> paths,
             Set<objectview.Viewable> scope) {
-        Map<String, List<objectview.Viewable>> out = new LinkedHashMap<>();
+        Map<ViewableFieldPaths.PathInfo, List<objectview.Viewable>> out =
+                new LinkedHashMap<>();
         if (queryTokens == null || queryTokens.isEmpty() || paths == null) return out;
 
         for (ViewableFieldPaths.PathInfo fp : paths) {
-            PathIndex index = viewableIndex.get(fp.title());
+            PathIndex index = viewableIndex.get(fp.path());
             if (index == null) continue;
             List<objectview.Viewable> hits = null;
             for (int row = 0; row < index.items.size(); row++) {
@@ -221,7 +277,7 @@ public class SearchAndSort {
                 if (scope != null && !scope.contains(item)) continue;
                 if (!matches(index.texts.get(row), queryTokens, exact)) continue;
                 if (hits == null) hits = out.computeIfAbsent(
-                        fp.title(), ignored -> new ArrayList<>());
+                        fp, ignored -> new ArrayList<>());
                 hits.add(item);
             }
         }
@@ -421,15 +477,45 @@ public class SearchAndSort {
 
     private record SearchEntry(
             Card panel,
-            Map<String, SearchText> fieldTextByTitle) {
+            Map<ViewableFieldPaths.PathInfo, SearchText> fieldTextByPath) {
     }
 
     /** One searched path: the items read for it, their text, and which are done. */
     private static final class PathIndex {
         private final List<objectview.Viewable> items = new ArrayList<>();
         private final List<SearchText> texts = new ArrayList<>();
-        private final Set<objectview.Viewable> indexed =
-                java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        private final Map<objectview.Viewable, Integer> rows =
+                new java.util.IdentityHashMap<>();
+    }
+
+    record PathWork(
+            ViewableFieldPaths.PathInfo path,
+            List<objectview.Viewable> viewables) {
+        PathWork { viewables = List.copyOf(viewables); }
+    }
+
+    record IndexWork(List<PathWork> paths, int size) {
+        IndexWork { paths = paths == null ? List.of() : List.copyOf(paths); }
+    }
+
+    record ExtractedPath(
+            ViewableFieldPaths.PathInfo path,
+            List<objectview.Viewable> viewables,
+            List<SearchText> texts) {
+        ExtractedPath {
+            viewables = List.copyOf(viewables);
+            texts = List.copyOf(texts);
+        }
+    }
+
+    record IndexDelta(List<ExtractedPath> paths) {
+        IndexDelta { paths = paths == null ? List.of() : List.copyOf(paths); }
+        Set<objectview.Viewable> viewables() {
+            Set<objectview.Viewable> out = java.util.Collections.newSetFromMap(
+                    new java.util.IdentityHashMap<>());
+            for (ExtractedPath path : paths) out.addAll(path.viewables());
+            return out;
+        }
     }
 
     private record SearchText(String flattened, List<String> atoms) {
