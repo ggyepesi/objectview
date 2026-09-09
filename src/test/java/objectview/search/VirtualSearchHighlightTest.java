@@ -143,6 +143,22 @@ class VirtualSearchHighlightTest {
             });
     }
 
+    @Test void aMultiwordQueryHighlightsOnlyTheContinuousPhrase() {
+        EdtTests.onEdt(() -> {
+            Element phrase = new Element("king of Hungary");
+            Element embeddedWord = new Element("kingdom of Hungary");
+            SearchableView view = build(List.of(phrase, embeddedWord), phrase,
+                    RenderingMode.CARD);
+            materializeAll(view, List.of(phrase, embeddedWord));
+
+            view.search().runCoordinatedSearch("king of");
+
+            assertTrue(host(view, phrase).isHighlighted());
+            assertFalse(host(view, embeddedWord).isHighlighted(),
+                    "spaces are part of the searched substring, not token separators");
+        });
+    }
+
     @Test void retargetingDetachesThePreviousMaterializationListener() {
         EdtTests.onEdt(() -> {
             SearchPanel search = new SearchPanel(Element.class);

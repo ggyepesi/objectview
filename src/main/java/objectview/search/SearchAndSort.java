@@ -31,6 +31,9 @@ public class SearchAndSort {
 
     private final List<SearchEntry> searchIndex =
             new ArrayList<>();
+    private final List<ViewableSearchEntry> viewableSearchIndex = new ArrayList<>();
+    private Map<String, int[]> viewableTrigramPostings = Map.of();
+    private long viewableSearchIndexRevision;
 
     public void rebuildSearchIndex(
             JComponent targetPanel,
@@ -147,6 +150,92 @@ public class SearchAndSort {
         }
 
         return out;
+    }
+
+    /** Extracts the text of a data-backed view once. Trigram postings then narrow
+     * arbitrary substring searches before the normal matcher verifies each hit. */
+    public void rebuildViewableSearchIndex(
+            List<objectview.Viewable> viewables,
+            List<ViewableFieldPaths.PathInfo> paths) {
+        viewableSearchIndexRevision++;
+        viewableSearchIndex.clear();
+        viewableTrigramPostings = Map.of();
+        if (viewables == null || paths == null) return;
+
+        Map<String, IntPostings> building = new HashMap<>();
+        for (ViewableFieldPaths.PathInfo fp : paths) {
+            for (objectview.Viewable viewable : viewables) {
+                SearchText text = searchText(fp, extractValue(viewable, fp.path()));
+                int row = viewableSearchIndex.size();
+                viewableSearchIndex.add(new ViewableSearchEntry(
+                        viewable, fp.title(), text));
+                for (String gram : trigrams(text.flattened())) {
+                    building.computeIfAbsent(gram, ignored -> new IntPostings()).add(row);
+                }
+            }
+        }
+        Map<String, int[]> frozen = new HashMap<>(building.size());
+        building.forEach((gram, rows) -> frozen.put(gram, rows.toArray()));
+        viewableTrigramPostings = Map.copyOf(frozen);
+    }
+
+    /** Monotonic diagnostic revision; one increment means one complete data-index build. */
+    long viewableSearchIndexRevision() {
+        return viewableSearchIndexRevision;
+    }
+
+    public Map<String, List<objectview.Viewable>> searchIndexedViewables(
+            List<String> queryTokens, boolean exact) {
+        Map<String, List<objectview.Viewable>> out = new LinkedHashMap<>();
+        if (queryTokens == null || queryTokens.isEmpty()
+                || viewableSearchIndex.isEmpty()) return out;
+
+        String indexedNeedle = exact ? String.join(" ", queryTokens) : null;
+        Set<String> grams = exact
+                ? trigrams(indexedNeedle)
+                : queryTokens.stream().flatMap(token -> trigrams(token).stream())
+                        .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        BitSet candidates = candidates(grams);
+        if (candidates == null) {
+            candidates = new BitSet(viewableSearchIndex.size());
+            candidates.set(0, viewableSearchIndex.size());
+        }
+
+        for (int row = candidates.nextSetBit(0); row >= 0;
+                row = candidates.nextSetBit(row + 1)) {
+            ViewableSearchEntry entry = viewableSearchIndex.get(row);
+            if (matches(entry.text(), queryTokens, exact)) {
+                out.computeIfAbsent(entry.fieldTitle(), ignored -> new ArrayList<>())
+                        .add(entry.viewable());
+            }
+        }
+        return out;
+    }
+
+    /** null means no token was long enough for the trigram index; verification then
+     * scans cached strings, never the object graph. */
+    private BitSet candidates(Set<String> grams) {
+        if (grams.isEmpty()) return null;
+        BitSet candidates = null;
+        for (String gram : grams) {
+            int[] rows = viewableTrigramPostings.get(gram);
+            if (rows == null) return new BitSet();
+            BitSet posting = new BitSet(viewableSearchIndex.size());
+            for (int row : rows) posting.set(row);
+            if (candidates == null) candidates = posting;
+            else candidates.and(posting);
+            if (candidates.isEmpty()) return candidates;
+        }
+        return candidates;
+    }
+
+    private static Set<String> trigrams(String text) {
+        if (text == null || text.length() < 3) return Set.of();
+        Set<String> grams = new LinkedHashSet<>();
+        for (int i = 0; i <= text.length() - 3; i++) {
+            grams.add(text.substring(i, i + 3));
+        }
+        return grams;
     }
 
     public List<Card> sortPanels(
@@ -338,6 +427,22 @@ public class SearchAndSort {
     private record SearchEntry(
             Card panel,
             Map<String, SearchText> fieldTextByTitle) {
+    }
+
+    private record ViewableSearchEntry(
+            objectview.Viewable viewable, String fieldTitle, SearchText text) {
+    }
+
+    private static final class IntPostings {
+        private int[] values = new int[8];
+        private int size;
+
+        void add(int value) {
+            if (size == values.length) values = Arrays.copyOf(values, values.length * 2);
+            values[size++] = value;
+        }
+
+        int[] toArray() { return Arrays.copyOf(values, size); }
     }
 
     private record SearchText(String flattened, List<String> atoms) {

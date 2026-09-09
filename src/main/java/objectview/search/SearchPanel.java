@@ -254,12 +254,17 @@ public class SearchPanel extends JPanel
 
         rememberOriginalTargetsFromCurrentPanel();
         updateTargetCapabilities();
-        rebuildSearchIndex();
-        clearResults();
-
-        if (applyViewConfig) {
-            applyViewConfig(false);
+        // Applying a view configuration also rebuilds the index, because the
+        // configured searchable paths may have changed. Do not first build the
+        // same complete data-backed index with the pre-apply configuration: on a
+        // large loaded snapshot that doubled the visible opening delay. Which
+        // targets a configuration applies to is applyViewConfig's own condition,
+        // asked rather than restated — a second copy of it here would silently
+        // stop building the index the day that one moves.
+        if (!applyViewConfig || !applyViewConfig(false)) {
+            rebuildSearchIndex();
         }
+        clearResults();
     }
 
     /**
@@ -986,7 +991,6 @@ public class SearchPanel extends JPanel
             suppressSearchEvents = false;
         }
         clearHighlights();
-        rebuildSearchIndex();
         searchSync(normalized);
         revalidate();
         if (getParent() != null) getParent().revalidate();
@@ -1029,7 +1033,21 @@ public class SearchPanel extends JPanel
             searchAndSort.rebuildSearchIndex(
                     targetPanel,
                     searchPaths());
+        } else {
+            searchAndSort.rebuildViewableSearchIndex(
+                    virtualList.items(), searchPaths());
         }
+    }
+
+    long viewableSearchIndexRevision() {
+        return searchAndSort.viewableSearchIndexRevision();
+    }
+
+    /** Test observation: the hits as listed and navigated, in that order. */
+    List<Viewable> currentHits() {
+        List<Viewable> hits = new ArrayList<>();
+        for (HitGroupQ group : currentVirtualGroups) hits.addAll(group.hits);
+        return List.copyOf(hits);
     }
 
     private void searchSync(String query) {
@@ -1435,13 +1453,14 @@ public class SearchPanel extends JPanel
         applyViewConfig(true);
     }
 
-    private void applyViewConfig(boolean searchAfter) {
+    /** @return whether a configuration was applied — and with it the index rebuilt. */
+    private boolean applyViewConfig(boolean searchAfter) {
         if (targetPanel == null) {
-            return;
+            return false;
         }
 
         if (!(virtualList instanceof ConfigurableVirtualizedContainer configurable)) {
-            return;
+            return false;
         }
         configurable.setViewConfigResolver(q -> effectiveConfig(
                 viewEditor, subtypeViewEditors, q));
@@ -1449,6 +1468,7 @@ public class SearchPanel extends JPanel
         if (searchAfter) {
             maybeRefreshSearch();
         }
+        return true;
     }
 
     private void restoreOriginalTargetOrder() {
@@ -1509,23 +1529,8 @@ public class SearchPanel extends JPanel
     }
 
     private List<String> tokens(String t) {
-        if (t == null) {
-            return List.of();
-        }
-
-        String[] arr =
-                t.toLowerCase().trim().split("\\s+");
-
-        List<String> out =
-                new ArrayList<>();
-
-        for (String p : arr) {
-            if (!p.isBlank()) {
-                out.add(p);
-            }
-        }
-
-        return out;
+        String phrase = normalize(t);
+        return phrase.isBlank() ? List.of() : List.of(phrase);
     }
 
     private void highlightTextRecursively(
@@ -2020,13 +2025,36 @@ public class SearchPanel extends JPanel
     // --- Virtualized (data-centric) search: hits are viewables, navigated one at
     // a time; each card is built on demand by the VirtualizedCardList. ---
 
+    /**
+     * Lists and navigates hits in the order the reader sees them.
+     *
+     * <p>The index answers WHICH rows match, from their text; the list answers in
+     * which order they are read. Keeping those apart is why sorting — which changes
+     * no text at all — no longer rebuilds the whole index behind a sort of 95 000
+     * rows. The index depends on the item set and the searched paths, and on nothing
+     * else.
+     */
+    private Map<String, List<Viewable>> inDisplayOrder(
+            Map<String, List<Viewable>> matchesByField) {
+        if (matchesByField.isEmpty() || virtualList == null) {
+            return matchesByField;
+        }
+        List<Viewable> items = virtualList.items();
+        Map<Viewable, Integer> position = new java.util.IdentityHashMap<>();
+        for (int i = 0; i < items.size(); i++) position.putIfAbsent(items.get(i), i);
+        // An item no longer in the list keeps its relative order at the end rather
+        // than disappearing: a stale hit is visible, not silently dropped.
+        Comparator<Viewable> byPosition = Comparator.comparingInt(
+                hit -> position.getOrDefault(hit, Integer.MAX_VALUE));
+        Map<String, List<Viewable>> ordered = new LinkedHashMap<>();
+        matchesByField.forEach((title, hits) ->
+                ordered.put(title, hits.stream().sorted(byPosition).toList()));
+        return ordered;
+    }
+
     private void searchSyncVirtual(List<String> queryTokens) {
-        Map<String, List<Viewable>> matchesByField =
-                searchAndSort.searchViewables(
-                        virtualList.items(),
-                        queryTokens,
-                        searchPaths(),
-                        exactMatch);
+        Map<String, List<Viewable>> matchesByField = inDisplayOrder(
+                searchAndSort.searchIndexedViewables(queryTokens, exactMatch));
 
         // Remember the hits so a card rebuilt on scroll-back gets re-highlighted.
         clearVirtualSearchState();

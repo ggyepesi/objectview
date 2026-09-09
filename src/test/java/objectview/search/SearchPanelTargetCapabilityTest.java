@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -47,13 +48,63 @@ class SearchPanelTargetCapabilityTest {
         });
     }
 
+    @Test void applyingTheInitialViewConfigurationBuildsTheIndexOnce() {
+        EdtTests.onEdt(() -> {
+            SearchPanel search = new SearchPanel(Item.class);
+
+            search.setTargetAndApplyViewConfig(
+                    new ConfigurableDataTarget(), new JPanel(), new JScrollPane());
+
+            assertEquals(1, search.viewableSearchIndexRevision(),
+                    "attaching a configured data view must not index every value twice");
+        });
+    }
+
+    @Test void reorderingTheListRereadsNoValueAndStillListsHitsAsShown() {
+        EdtTests.onEdt(() -> {
+            Item first = new Item("position one");
+            Item second = new Item("position two");
+            SearchPanel search = new SearchPanel(Item.class);
+            ConfigurableDataTarget target =
+                    new ConfigurableDataTarget(first, second);
+            search.setTargetAndApplyViewConfig(target, new JPanel(), new JScrollPane());
+            long indexed = search.viewableSearchIndexRevision();
+
+            search.runCoordinatedSearch("position");
+            assertEquals(List.of(first, second), distinct(search.currentHits()));
+
+            // What a sort does: the same items, a different order, no changed text.
+            target.setItems(List.of(second, first));
+            search.runCoordinatedSearch("position");
+
+            assertEquals(List.of(second, first), distinct(search.currentHits()),
+                    "hits are listed in the order the reader sees them");
+            assertEquals(indexed, search.viewableSearchIndexRevision(),
+                    "reordering re-extracts no value; only the item set and the "
+                            + "searched paths decide the index");
+        });
+    }
+
+    private static List<Viewable> distinct(List<Viewable> hits) {
+        List<Viewable> out = new ArrayList<>();
+        for (Viewable hit : hits) if (!out.contains(hit)) out.add(hit);
+        return out;
+    }
+
     private static final class Item extends ViewableAdapter {
-        @Override public String getIdentifier() { return "item"; }
-        @Override public String getDisplayName() { return "Item"; }
+        private final String name;
+        private Item() { this("item"); }
+        private Item(String name) { this.name = name; }
+        @Override public String getIdentifier() { return name; }
+        @Override public String getDisplayName() { return name; }
     }
 
     private static class DataTarget implements VirtualizedContainer {
-        private List<Viewable> items = new ArrayList<>(List.of(new Item()));
+        private List<Viewable> items;
+        private DataTarget() { this(new Item()); }
+        private DataTarget(Viewable... items) {
+            this.items = new ArrayList<>(List.of(items));
+        }
         @Override public List<Viewable> items() { return List.copyOf(items); }
         @Override public Viewable topVisibleItem() {
             return items.isEmpty() ? null : items.get(0);
@@ -66,6 +117,8 @@ class SearchPanelTargetCapabilityTest {
 
     private static final class ConfigurableDataTarget extends DataTarget
             implements ConfigurableVirtualizedContainer {
+        private ConfigurableDataTarget() { }
+        private ConfigurableDataTarget(Viewable... items) { super(items); }
         @Override public void setViewConfigResolver(
                 Function<Viewable, ViewConfig> resolver) { }
     }
