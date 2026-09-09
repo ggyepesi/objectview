@@ -160,9 +160,14 @@ public class SearchAndSort {
      * being shown, so switching scope must not re-read a million fields. Adding a
      * path indexes that path alone.
      *
-     * <p>There is no trigram index any more. It narrowed a search from 43 ms to 12 ms
-     * on a million rows and cost 2.6 seconds and 81 MB to build — paid on the EDT
-     * where the whole difference is invisible, to save a difference nobody can see.
+     * <p>There is no trigram index. Postings over 3-character windows were measured
+     * here on a million rows: 82 MB to turn a 30 ms scan into 8 ms. The dictionary is
+     * not what costs — this text has about 1 165 distinct trigrams — it is that each
+     * one addresses roughly 11 700 rows, so the postings are 13.6 million row numbers
+     * and every query ANDs million-bit vectors to become selective. The same text
+     * holds 54 477 distinct WORDS at about 12 rows each; a term index is the shape
+     * that would pay, and it answers a different question (prefix and phrase, never
+     * an infix), so it is a decision about what search means and not an optimisation.
      */
     public void indexViewables(
             List<objectview.Viewable> viewables,

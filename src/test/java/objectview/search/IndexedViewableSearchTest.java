@@ -10,6 +10,7 @@ import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTimeout;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class IndexedViewableSearchTest {
 
@@ -78,6 +79,35 @@ class IndexedViewableSearchTest {
                 assertEquals(1, distinct(search.searchIndexedViewables(List.of("apostolic"), false, paths, null)).size());
             }
         });
+    }
+
+    @Test void everySubstringOfAnIndexedValueStillFindsIt() {
+        // The property any narrowing must preserve. A filter that over-collects is
+        // harmless, because matches() decides; one that drops a row is silent and
+        // unfindable. Trigram postings were tried here and removed — 82 MB on a
+        // million rows to turn a 30 ms scan into 8 ms — and this is what would have
+        // to keep passing if anything like them is tried again.
+        List<CountingItem> rows = List.of(
+                new CountingItem("Apostolic King of Hungary"),
+                new CountingItem("Kingdom of Hungary"),
+                new CountingItem("mayor of a place in France"),
+                new CountingItem("ma"));
+        List<ViewableFieldPaths.PathInfo> paths = ViewableFieldPaths.collect(
+                ViewConfig.of(CountingItem.class), ViewableFieldPaths.NOT_MEDIA_FIELDS);
+        SearchAndSort search = new SearchAndSort();
+        search.indexViewables(List.copyOf(rows), paths);
+
+        for (CountingItem row : rows) {
+            String text = row.searchableName.toLowerCase(java.util.Locale.ROOT);
+            for (int from = 0; from < text.length(); from++) {
+                for (int to = from + 1; to <= text.length(); to++) {
+                    String query = text.substring(from, to);
+                    assertTrue(distinct(search.searchIndexedViewables(
+                                    List.of(query), false, paths, null)).contains(row),
+                            "'" + query + "' must still find '" + text + "'");
+                }
+            }
+        }
     }
 
     @Test void aPhraseIsOneContinuousSubstring() {
