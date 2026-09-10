@@ -99,6 +99,31 @@ class DynamicCollectionCardTest {
     }
 
     @Test
+    void anInlineCollectionHeaderCountsWhatTheCollectionHasNotWhatItRendered()
+            throws Exception {
+        // refreshInlineCollectionCounts exists for exactly this: the collection grew
+        // and the card was not rebuilt. Reading the count off the rendered rows made
+        // it answer "how many rows are on screen", which is the one thing this call
+        // is unable to have changed — so the header could never move.
+        LiveParent parent = new LiveParent();
+        parent.steps.add(new LiveChild("request 0", "done"));
+
+        Card[] card = new Card[1];
+        javax.swing.SwingUtilities.invokeAndWait(() ->
+                card[0] = new Card(
+                        parent, ViewConfig.all(LiveParent.class),
+                        new RenderContext(), false));
+        assertEquals("steps (1)", titledBorder(card[0], "steps").getTitle());
+
+        parent.steps.add(new LiveChild("request 1", "done"));
+        javax.swing.SwingUtilities.invokeAndWait(() ->
+                card[0].refreshInlineCollectionCounts());
+
+        assertEquals("steps (2)", titledBorder(card[0], "steps").getTitle(),
+                "the header says how many members the collection has");
+    }
+
+    @Test
     void aLiveInlineCollectionChangesOnlyTheEntryThatChanged() throws Exception {
         LiveParent parent = new LiveParent();
         LiveChild first = new LiveChild("first", "a very long request already opened");

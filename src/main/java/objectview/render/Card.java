@@ -1380,8 +1380,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
                         }
                     }
                 }
-                refreshInlineCollectionCount(panel,
-                        virtual != null ? virtual.items().size() : rendered.size());
+                refreshInlineCollectionCount(panel);
                 panel.revalidate();
                 panel.repaint();
             }
@@ -1392,10 +1391,24 @@ public class Card extends JPanel implements RenderedInstanceHost {
         }
     }
 
-    private static void refreshInlineCollectionCount(JPanel panel, int count) {
+    /**
+     * The header says how many members the collection HAS, which is the question a
+     * reader is asking of it — not how many produced a component. The two differ when
+     * a member renders as nothing, and the count would then change on a refresh while
+     * the collection had not.
+     */
+    private static int inlineViewableCount(Object items) {
+        if (!(items instanceof Collection<?> values)) return 0;
+        int count = 0;
+        for (Object item : values) if (item instanceof Viewable) count++;
+        return count;
+    }
+
+    private static void refreshInlineCollectionCount(JComponent panel) {
         if (panel.getClientProperty(INLINE_TITLE) instanceof String title
                 && panel.getBorder() instanceof javax.swing.border.TitledBorder border) {
-            String updated = title + " (" + count + ")";
+            String updated = title + " ("
+                    + inlineViewableCount(panel.getClientProperty(INLINE_ITEMS)) + ")";
             if (!updated.equals(border.getTitle())) {
                 border.setTitle(updated);
                 panel.repaint();
@@ -1405,24 +1418,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
 
     private static void refreshInlineCollectionCounts(Container parent) {
         for (Component component : parent.getComponents()) {
-            if (component instanceof JComponent jc
-                    && jc.getClientProperty(INLINE_TITLE) instanceof String title
-                    && jc.getBorder() instanceof javax.swing.border.TitledBorder border) {
-                int count;
-                if (jc.getClientProperty(INLINE_VIRTUAL_LIST)
-                        instanceof VirtualizedCardList virtual) {
-                    count = virtual.items().size();
-                } else if (jc.getClientProperty(INLINE_RENDERED)
-                        instanceof java.util.IdentityHashMap<?, ?> rendered) {
-                    count = rendered.size();
-                } else {
-                    continue;
-                }
-                String updated = title + " (" + count + ")";
-                if (!updated.equals(border.getTitle())) {
-                    border.setTitle(updated);
-                    jc.repaint();
-                }
+            if (component instanceof JComponent jc) {
+                refreshInlineCollectionCount(jc);
             }
             if (component instanceof Container nested) {
                 refreshInlineCollectionCounts(nested);
