@@ -4,6 +4,7 @@ import objectview.ViewableAdapter;
 
 import java.lang.reflect.Field;
 import java.util.*;
+import java.util.function.Function;
 
 /**
  * Reads/writes fields by dotted path. DynamicFields-aware: for a
@@ -48,8 +49,18 @@ public final class FieldAccess {
      * all language names, while a direct map/collection leaf remains intact.
      */
     public static Object getPathValues(Object root, FieldPath path) {
+        return getPathValues(root, path, ignored -> null);
+    }
+
+    /**
+     * As {@link #getPathValues(Object, FieldPath)}, using the same authoritative
+     * schema resolver as rendering for every Viewable reached along the path.
+     */
+    public static Object getPathValues(
+            Object root, FieldPath path,
+            Function<objectview.Viewable, FieldSchema> schemaResolver) {
         if (path == null || path.isRoot()) return root;
-        return ResolvedFieldPath.resolve(root, path).value();
+        return ResolvedFieldPath.resolve(root, path, schemaResolver).value();
     }
 
     public static void setPath(Object root, String path, Object value) {
@@ -96,34 +107,7 @@ public final class FieldAccess {
         // fork (#87). has() distinguishes a present-but-null field (return its value)
         // from an absent one (fall through to a published view, then identity).
         if (obj instanceof objectview.Viewable q) {
-            FieldSet fs = FieldSet.of(q);
-            if (fs.has(name)) {
-                Object value = fs.read(name);
-                if (value != null) {
-                    return value;   // a REAL stored value always wins
-                }
-                // Present-but-null: the DISPLAY field may be DECLARED by the schema yet not
-                // STORED — on a snapshot a reference's display name is getDisplayName(), not a
-                // map entry. Resolve it the same way rendering does so a path to a reference's
-                // display field (e.g. languages.name) reads the name instead of null.
-                if (isDisplayField(fs, name)) {
-                    return q.getDisplayName();
-                }
-                return null;   // a real present-but-null field keeps precedence over any view
-            }
-            // An absent field: the unstored display field resolves to getDisplayName() too.
-            // Recognized by ROLE (the type's DISPLAY field or the reserved contract key),
-            // never by the literal field name.
-            if (isDisplayField(fs, name)) {
-                return q.getDisplayName();
-            }
-            // Only then any addressable view the type publishes (e.g. value projections),
-            // so a real field of the same name takes precedence generically — the ordering
-            // guarantee lives here, not in each Addressable implementation.
-            if (obj instanceof objectview.utils.Addressable a && a.viewNames().contains(name)) {
-                return a.view(name);
-            }
-            return null;
+            return readField(q, name, FieldSet.of(q));
         }
         if (obj instanceof objectview.utils.Addressable a && a.viewNames().contains(name)) {
             return a.view(name);
@@ -139,6 +123,41 @@ public final class FieldAccess {
             } catch (Exception e) {
                 throw new RuntimeException("Cannot read " + name + " from " + obj, e);
             }
+        }
+        return null;
+    }
+
+    /** Reads through the already-composed FieldSet used to describe this traversal.
+     * Keeping metadata and value access on the same set prevents a schema-described
+     * field from being rediscovered from the backing during the read. */
+    static Object readField(objectview.Viewable viewable, String name, FieldSet fields) {
+        FieldSet fs = fields == null ? FieldSet.of(viewable) : fields;
+        if (fs.has(name)) {
+            Object value = fs.read(name);
+            if (value != null) {
+                return value;   // a REAL stored value always wins
+            }
+            // Present-but-null: the DISPLAY field may be DECLARED by the schema yet not
+            // STORED — on a snapshot a reference's display name is getDisplayName(), not a
+            // map entry. Resolve it the same way rendering does so a path to a reference's
+            // display field (e.g. languages.name) reads the name instead of null.
+            if (isDisplayField(fs, name)) {
+                return viewable.getDisplayName();
+            }
+            return null;   // a real present-but-null field keeps precedence over any view
+        }
+        // An absent field: the unstored display field resolves to getDisplayName() too.
+        // Recognized by ROLE (the type's DISPLAY field or the reserved contract key),
+        // never by the literal field name.
+        if (isDisplayField(fs, name)) {
+            return viewable.getDisplayName();
+        }
+        // Only then any addressable view the type publishes (e.g. value projections),
+        // so a real field of the same name takes precedence generically — the ordering
+        // guarantee lives here, not in each Addressable implementation.
+        if (viewable instanceof objectview.utils.Addressable a
+                && a.viewNames().contains(name)) {
+            return a.view(name);
         }
         return null;
     }

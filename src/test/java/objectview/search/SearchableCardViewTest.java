@@ -3,8 +3,13 @@ package objectview.search;
 import objectview.EdtTests;
 import objectview.ViewableAdapter;
 import objectview.field.DynamicFields;
+import objectview.field.FieldKind;
+import objectview.field.FieldRef;
+import objectview.field.FieldRole;
+import objectview.field.FieldSchema;
 import objectview.viewconfig.FieldTypeSource;
 import objectview.render.Card;
+import objectview.render.RenderingMode;
 import objectview.view.SearchableView;
 import objectview.viewconfig.ViewConfig;
 import org.junit.jupiter.api.Test;
@@ -18,6 +23,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class SearchableCardViewTest {
 
@@ -135,6 +141,42 @@ class SearchableCardViewTest {
             });
     }
 
+    @Test void cardsAndTablesSearchThroughTheSameDeclaredSchemaTheyRender() {
+        EdtTests.onEdt(() -> {
+            SchemaOnlyItem item = new SchemaOnlyItem("Schema-only title");
+            FieldSchema schema = () -> List.of(FieldRef.computed(
+                    "caption", "Caption", FieldKind.TEXT, FieldRole.DISPLAY));
+            FieldTypeSource fieldTypes = new FieldTypeSource() {
+                @Override public FieldTypeInfo field(String name) {
+                    return "caption".equals(name)
+                            ? new FieldTypeInfo("String", false, false,
+                                    null, null, "Caption", FieldRole.DISPLAY,
+                                    FieldKind.TEXT, FieldKind.TEXT)
+                            : null;
+                }
+                @Override public List<String> fieldNames() { return List.of("caption"); }
+            };
+            ViewConfig config = ViewConfig.of(SchemaOnlyItem.class);
+            config.setAllFields(false);
+            config.addField("caption", ViewConfig.leaf());
+
+            for (RenderingMode mode : RenderingMode.values()) {
+                SearchableView view = SearchableView.builder(List.of(item))
+                        .type(SchemaOnlyItem.class)
+                        .mode(mode)
+                        .fieldTypes(fieldTypes)
+                        .fieldSchemas(ignored -> schema)
+                        .configState(new SearchPanel.ConfigState(config, null, config))
+                        .build();
+
+                view.search().runCoordinatedSearch("schema-only title");
+                assertEquals(List.of(item), view.search().currentHits(),
+                        mode + " search bypassed the rendering schema");
+                view.dispose();
+            }
+        });
+    }
+
     private static String componentText(Component component) {
         StringBuilder text = new StringBuilder();
         if (component instanceof JLabel label) text.append(label.getText()).append('\n');
@@ -181,6 +223,20 @@ class SearchableCardViewTest {
         private DynamicItem(String detail) { values.put("detail", detail); }
         @Override public String getIdentifier() { return "dynamic"; }
         @Override public String getDisplayName() { return "Dynamic"; }
+        @Override public java.util.Map<String, Object> dynamicFieldValues() {
+            return values;
+        }
+    }
+
+    private static final class SchemaOnlyItem extends ViewableAdapter
+            implements DynamicFields {
+        private final String display;
+        private final java.util.Map<String, Object> values =
+                new java.util.LinkedHashMap<>();
+
+        private SchemaOnlyItem(String display) { this.display = display; }
+        @Override public String getIdentifier() { return display; }
+        @Override public String getDisplayName() { return display; }
         @Override public java.util.Map<String, Object> dynamicFieldValues() {
             return values;
         }

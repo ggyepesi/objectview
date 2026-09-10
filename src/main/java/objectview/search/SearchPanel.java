@@ -207,6 +207,9 @@ public class SearchPanel extends JPanel
      *  referenced card (a top-level reference link) can be undone. */
     public void setRenderContext(RenderContext context) {
         this.renderContext = context;
+        searchAndSort.setFieldSchemaResolver(
+                context == null ? null : context::fieldSchema);
+        invalidateSearchIndex();
         if (context == null) {
             backButton.setEnabled(false);
             return;

@@ -12,6 +12,7 @@ import java.awt.*;
 import java.lang.reflect.Field;
 import java.util.*;
 import java.util.List;
+import java.util.function.Function;
 
 /**
  * Non-UI helper for SearchPanel.
@@ -34,6 +35,17 @@ public class SearchAndSort {
     /** The read text, per searched path, with what has already been read for it. */
     private final Map<FieldPath, PathIndex> viewableIndex = new LinkedHashMap<>();
     private long viewableSearchIndexRevision;
+    private Function<objectview.Viewable, objectview.field.FieldSchema>
+            fieldSchemaResolver = ignored -> null;
+
+    /** Installs the same schema source used by rendering. Changing it invalidates
+     * every extracted value because nested path interpretation may have changed. */
+    public void setFieldSchemaResolver(
+            Function<objectview.Viewable, objectview.field.FieldSchema> resolver) {
+        fieldSchemaResolver = resolver == null ? ignored -> null : resolver;
+        searchIndex.clear();
+        clearViewableSearchIndex();
+    }
 
     public void rebuildSearchIndex(
             JComponent targetPanel,
@@ -44,6 +56,8 @@ public class SearchAndSort {
         if (targetPanel == null || paths == null) {
             return;
         }
+        Function<objectview.Viewable, objectview.field.FieldSchema> schemas =
+                batchSchemaResolver();
 
         for (Component c : targetPanel.getComponents()) {
             if (!(c instanceof Card qp)) {
@@ -55,7 +69,7 @@ public class SearchAndSort {
 
             for (ViewableFieldPaths.PathInfo fp : paths) {
                 Object value =
-                        extractValue(qp.getViewable(), fp.path());
+                        extractValue(qp.getViewable(), fp.path(), schemas);
 
                 fieldTextByPath.put(
                         fp,
@@ -121,13 +135,15 @@ public class SearchAndSort {
                 || queryTokens.isEmpty()) {
             return out;
         }
+        Function<objectview.Viewable, objectview.field.FieldSchema> schemas =
+                batchSchemaResolver();
 
         for (ViewableFieldPaths.PathInfo fp : paths) {
             List<objectview.Viewable> hits = null;
 
             for (objectview.Viewable q : viewables) {
                 Object value =
-                        extractValue(q, fp.path());
+                        extractValue(q, fp.path(), schemas);
 
                 if (matches(searchText(fp, value), queryTokens, exact)) {
 
@@ -205,6 +221,8 @@ public class SearchAndSort {
     IndexDelta extractIndex(IndexWork work) {
         List<ExtractedPath> extracted = new ArrayList<>();
         if (work == null) return new IndexDelta(extracted);
+        Function<objectview.Viewable, objectview.field.FieldSchema> schemas =
+                batchSchemaResolver();
         for (PathWork pathWork : work.paths()) {
             List<SearchText> texts = new ArrayList<>(pathWork.viewables().size());
             for (objectview.Viewable viewable : pathWork.viewables()) {
@@ -212,7 +230,7 @@ public class SearchAndSort {
                     throw new java.util.concurrent.CancellationException();
                 }
                 texts.add(searchText(pathWork.path(),
-                        extractValue(viewable, pathWork.path().path())));
+                        extractValue(viewable, pathWork.path().path(), schemas)));
             }
             extracted.add(new ExtractedPath(
                     pathWork.path(), pathWork.viewables(), texts));
@@ -290,11 +308,13 @@ public class SearchAndSort {
 
         List<PanelSortKey> keyed =
                 new ArrayList<>();
+        Function<objectview.Viewable, objectview.field.FieldSchema> schemas =
+                batchSchemaResolver();
 
         for (Card panel : panels) {
             keyed.add(new PanelSortKey(
                     panel,
-                    buildSortKey(panel, sortPaths)));
+                    buildSortKey(panel, sortPaths, schemas)));
         }
 
         keyed.sort(Comparator.comparing(PanelSortKey::key));
@@ -311,14 +331,15 @@ public class SearchAndSort {
 
     private String buildSortKey(
             Card panel,
-            List<ViewableFieldPaths.PathInfo> paths) {
+            List<ViewableFieldPaths.PathInfo> paths,
+            Function<objectview.Viewable, objectview.field.FieldSchema> schemas) {
 
         StringBuilder sb =
                 new StringBuilder();
 
         for (ViewableFieldPaths.PathInfo f : paths) {
             Object value =
-                    extractValue(panel.getViewable(), f.path());
+                    extractValue(panel.getViewable(), f.path(), schemas);
 
             // A @Numeric leaf field sorts by its leading number ("1538 K" ->
             // 1538), not lexically — driven by the annotation, not the value type.
@@ -339,17 +360,20 @@ public class SearchAndSort {
             List<ViewableFieldPaths.PathInfo> sortPaths) {
 
         List<objectview.Viewable> out = new ArrayList<>(viewables);
-        out.sort(Comparator.comparing(q -> buildSortKeyQ(q, sortPaths)));
+        Function<objectview.Viewable, objectview.field.FieldSchema> schemas =
+                batchSchemaResolver();
+        out.sort(Comparator.comparing(q -> buildSortKeyQ(q, sortPaths, schemas)));
         return out;
     }
 
     private String buildSortKeyQ(
             objectview.Viewable viewable,
-            List<ViewableFieldPaths.PathInfo> paths) {
+            List<ViewableFieldPaths.PathInfo> paths,
+            Function<objectview.Viewable, objectview.field.FieldSchema> schemas) {
 
         StringBuilder sb = new StringBuilder();
         for (ViewableFieldPaths.PathInfo f : paths) {
-            Object value = extractValue(viewable, f.path());
+            Object value = extractValue(viewable, f.path(), schemas);
             sb.append(sortKey(f, value)).append((char) 0);
         }
         sb.append(sortableString(viewable));
@@ -358,12 +382,42 @@ public class SearchAndSort {
 
     private Object extractValue(
             Object obj,
-            FieldPath path) {
+            FieldPath path,
+            Function<objectview.Viewable, objectview.field.FieldSchema> schemas) {
         try {
-            return objectview.field.FieldAccess.getPathValues(obj, path);
+            return objectview.field.FieldAccess.getPathValues(obj, path, schemas);
+        } catch (ConcurrentModificationException movedUnderneath) {
+            throw movedUnderneath;
         } catch (RuntimeException ignored) {
             return null;
         }
+    }
+
+    /**
+     * One lookup per INSTANCE for an extraction/sort batch, and never fewer.
+     *
+     * <p>A resolver takes a Viewable, and at least one real implementation means it:
+     * TransformApp answers through the instance's most specific class, read from the
+     * stamps that instance carries. Two objects sharing a type name genuinely differ
+     * there — the Oscars snapshot holds both ('Person') and ('ForWork','Person')
+     * under the type name Person — so caching by type name would hand the first
+     * one's schema to the rest, and a nested path would then be read against a shape
+     * the value does not have. Silently.
+     *
+     * <p>Per instance is also where the repetition actually is: one instance is read
+     * once per searched path and again for every Viewable reached along it, so this
+     * removes the calls that repeat while keeping the answer the resolver gave.
+     */
+    private Function<objectview.Viewable, objectview.field.FieldSchema>
+    batchSchemaResolver() {
+        Function<objectview.Viewable, objectview.field.FieldSchema> source =
+                fieldSchemaResolver;
+        Map<objectview.Viewable, Optional<objectview.field.FieldSchema>> byInstance =
+                new IdentityHashMap<>();
+        return viewable -> viewable == null ? null
+                : byInstance.computeIfAbsent(viewable,
+                        instance -> Optional.ofNullable(source.apply(instance)))
+                        .orElse(null);
     }
 
     /** Everything the field shows, nested objects included — what a reader can SEE on

@@ -119,7 +119,7 @@ public final class ResolvedFieldPath {
             boolean addressable = viewable instanceof objectview.utils.Addressable a
                     && a.viewNames().contains(segment);
             if (field == null && !addressable) return;
-            Object value = FieldAccess.readField(viewable, segment);
+            Object value = FieldAccess.readField(viewable, segment, fields);
             if (field == null) field = described(segment, value);
             if (index == path.size() - 1) {
                 rememberLeafContainer(value);

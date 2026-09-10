@@ -2,12 +2,17 @@ package objectview.search;
 
 import objectview.ViewableAdapter;
 import objectview.field.FieldPath;
+import objectview.field.FieldKind;
+import objectview.field.FieldRef;
+import objectview.field.FieldRole;
+import objectview.field.FieldSchema;
 import objectview.field.ViewableFieldPaths;
 import objectview.viewconfig.ViewConfig;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTimeout;
@@ -140,6 +145,60 @@ class IndexedViewableSearchTest {
         assertEquals(List.of(item), matches.get(right));
     }
 
+    @Test void eachInstanceIsResolvedOnce_andTwoOfOneTypeMayDiffer() {
+        // A resolver takes a Viewable and at least one implementation means it:
+        // TransformApp answers through the instance's most specific class, read from
+        // the stamps that instance carries. The Oscars snapshot holds both ('Person')
+        // and ('ForWork','Person') under the type name Person, so a cache keyed by
+        // type name would read the second value against the first one's shape.
+        SchemaItem visible = new SchemaItem("First schema title");
+        SchemaItem hidden = new SchemaItem("Second schema title");
+        FieldSchema caption = () -> List.of(FieldRef.computed(
+                "caption", "Caption", FieldKind.TEXT, FieldRole.DISPLAY));
+        ViewableFieldPaths.PathInfo path = new ViewableFieldPaths.PathInfo(
+                "Caption", FieldPath.of("caption"), null,
+                FieldKind.TEXT, FieldRole.DISPLAY);
+        java.util.Map<objectview.Viewable, Integer> lookups =
+                new java.util.IdentityHashMap<>();
+        SearchAndSort search = new SearchAndSort();
+        search.setFieldSchemaResolver(viewable -> {
+            lookups.merge(viewable, 1, Integer::sum);
+            return viewable == visible ? caption : null;   // same type, different shape
+        });
+
+        var matches = search.searchViewablesByPath(
+                List.of(visible, hidden), List.of("schema title"),
+                List.of(path), false);
+
+        assertEquals(List.of(visible), matches.get(path),
+                "the instance whose schema declares the field is the only hit, so the "
+                        + "second instance was not read through the first one's schema");
+        assertEquals(java.util.Set.of(1),
+                java.util.Set.copyOf(lookups.values()),
+                "and no instance is resolved more than once for the batch");
+    }
+
+    @Test void sortingReadsNestedValuesThroughTheDeclaredSchemaToo() {
+        SortRoot rootNamedLast = new SortRoot(
+                "Z root", new SchemaItem("A nested title"));
+        SortRoot rootNamedFirst = new SortRoot(
+                "A root", new SchemaItem("Z nested title"));
+        FieldSchema nestedSchema = () -> List.of(FieldRef.computed(
+                "caption", "Caption", FieldKind.TEXT, FieldRole.DISPLAY));
+        ViewableFieldPaths.PathInfo nestedCaption = new ViewableFieldPaths.PathInfo(
+                "Nested caption", FieldPath.of("child", "caption"), null,
+                FieldKind.TEXT, FieldRole.DISPLAY);
+        SearchAndSort search = new SearchAndSort();
+        search.setFieldSchemaResolver(viewable -> viewable instanceof SchemaItem
+                ? nestedSchema : null);
+
+        assertEquals(List.of(rootNamedLast, rootNamedFirst),
+                search.sortViewables(
+                        List.of(rootNamedFirst, rootNamedLast),
+                        List.of(nestedCaption)),
+                "sort must use the nested schema value, not fall back to root names");
+    }
+
     private static List<objectview.Viewable> distinct(
             java.util.Map<?, List<objectview.Viewable>> result) {
         return result.values().stream().flatMap(List::stream).distinct().toList();
@@ -154,5 +213,26 @@ class IndexedViewableSearchTest {
         }
         @Override public String getIdentifier() { return left + right; }
         @Override public String getDisplayName() { return left; }
+    }
+
+    static final class SchemaItem extends ViewableAdapter
+            implements objectview.field.DynamicFields {
+        private final String display;
+        private final java.util.Map<String, Object> values = new java.util.LinkedHashMap<>();
+        SchemaItem(String display) { this.display = display; }
+        @Override public String getIdentifier() { return display; }
+        @Override public String getDisplayName() { return display; }
+        @Override public java.util.Map<String, Object> dynamicFieldValues() { return values; }
+    }
+
+    static final class SortRoot extends ViewableAdapter {
+        final String display;
+        final SchemaItem child;
+        SortRoot(String display, SchemaItem child) {
+            this.display = display;
+            this.child = child;
+        }
+        @Override public String getIdentifier() { return display; }
+        @Override public String getDisplayName() { return display; }
     }
 }

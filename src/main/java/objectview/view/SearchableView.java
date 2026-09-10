@@ -91,6 +91,9 @@ public final class SearchableView extends JPanel {
         }
 
         search = new SearchPanel(type, b.sample, b.configState, b.subtypeConfigs, b.fieldTypes);
+        // Rendering, table cells, search and sort all read through this one context's
+        // schema resolver, including when TABLE is the initial mode.
+        search.setRenderContext(context);
         search.setHiddenFields(b.hiddenFields);
         search.setConfigListener(b.configListener);
         search.setCoordinated(b.coordinated);
@@ -261,7 +264,6 @@ public final class SearchableView extends JPanel {
         cardList.setRenderContext(context);
         builder.members.forEach(cardList::addViewable);
         cardList.createCardsPanel(builder.columns);
-        search.setRenderContext(context);
         search.setTargetAndApplyViewConfig(
                 cardList.getCardsPanel(), cardList.getCardsScrollPane());
         cardList.addTargetListener(search);
