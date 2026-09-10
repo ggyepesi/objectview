@@ -219,16 +219,25 @@ public final class VirtualizedCardList
     }
 
     public void appendItem(Viewable q) {
-        if (q == null) {
-            return;
+        appendItems(q == null ? List.of() : List.of(q));
+    }
+
+    /** Appends a live batch with one index/height-table rebuild. */
+    public void appendItems(java.util.Collection<? extends Viewable> additions) {
+        if (additions == null || additions.isEmpty()) return;
+        for (Viewable q : additions) {
+            if (q == null || indexByItem.containsKey(q)) continue;
+            items.add(q);
+            indexByItem.put(q, items.size() - 1);
         }
-
-        items.add(q);
-        indexByItem.put(q, items.size() - 1);
-
         rebuildTops();
         revalidate();
         updateVisible();
+    }
+
+    /** Identity-based membership check, matching the list's navigation semantics. */
+    public boolean containsItem(Viewable q) {
+        return q != null && indexByItem.containsKey(q);
     }
 
     private void reindex() {

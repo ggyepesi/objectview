@@ -9,6 +9,7 @@ import objectview.field.FieldProperties;
 import objectview.field.FieldRef;
 import objectview.field.FieldSchema;
 import objectview.viewconfig.ViewConfig;
+import objectview.virtual.VirtualizedCardList;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.JComponent;
@@ -24,6 +25,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import javax.swing.border.TitledBorder;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -32,6 +34,69 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DynamicCollectionCardTest {
+
+    @Test
+    void aCompletedLargeInlineCollectionMaterializesOnlyVisibleRows() throws Exception {
+        LiveParent parent = new LiveParent();
+        LiveChild first = new LiveChild("request 0", "done");
+        parent.steps.add(first);
+        for (int i = 1; i < 14_000; i++) {
+            parent.steps.add(new LiveChild("request " + i, "done"));
+        }
+
+        Card[] card = new Card[1];
+        RenderContext context = new RenderContext();
+        javax.swing.SwingUtilities.invokeAndWait(() -> {
+            card[0] = new Card(
+                    parent, ViewConfig.all(LiveParent.class), context, false);
+            card[0].setSize(900, 700);
+            layoutTree(card[0]);
+        });
+
+        VirtualizedCardList virtual = find(card[0], VirtualizedCardList.class);
+        assertNotNull(virtual, "a large inline collection must use the shared virtual list");
+        assertEquals(14_000, virtual.items().size());
+        assertTrue(count(card[0], ReferenceRow.class) < 100,
+                "the UI must not contain one Swing row per completed request");
+        assertEquals("steps (14000)", titledBorder(card[0], "steps").getTitle());
+
+        JComponent rowBefore = virtual.builtCard(first);
+        assertNotNull(rowBefore);
+        context.setExpanded(first, true);
+        javax.swing.SwingUtilities.invokeAndWait(() ->
+                RenderRefreshHost.refreshAncestor(find(rowBefore, ReferenceRow.class)));
+        assertNotSame(rowBefore, virtual.builtCard(first),
+                "opening one request must rematerialize only its virtual row");
+        assertSame(virtual, find(card[0], VirtualizedCardList.class),
+                "opening a request must preserve the containing list and its scroll state");
+        assertNotNull(find(virtual.builtCard(first), TextBlock.class));
+        render(card[0], "target/ui-artifacts/large-inline-collection.png");
+    }
+
+    @Test
+    void aGrowingInlineCollectionSwitchesToVirtualRenderingAtTheBoundary()
+            throws Exception {
+        LiveParent parent = new LiveParent();
+        for (int i = 0; i < 200; i++) {
+            parent.steps.add(new LiveChild("request " + i, "done"));
+        }
+
+        Card[] card = new Card[1];
+        javax.swing.SwingUtilities.invokeAndWait(() ->
+                card[0] = new Card(
+                        parent, ViewConfig.all(LiveParent.class), new RenderContext(), false));
+        assertEquals(200, count(card[0], ReferenceRow.class));
+
+        LiveChild next = new LiveChild("request 200", "done");
+        parent.steps.add(next);
+        javax.swing.SwingUtilities.invokeAndWait(() ->
+                card[0].updateInlineCollections(List.of(next)));
+
+        VirtualizedCardList virtual = find(card[0], VirtualizedCardList.class);
+        assertNotNull(virtual);
+        assertEquals(201, virtual.items().size());
+        assertEquals("steps (201)", titledBorder(card[0], "steps").getTitle());
+    }
 
     @Test
     void aLiveInlineCollectionChangesOnlyTheEntryThatChanged() throws Exception {
@@ -225,6 +290,36 @@ class DynamicCollectionCardTest {
         }
     }
 
+    private static TitledBorder titledBorder(Component root, String titlePrefix) {
+        if (root instanceof JComponent component
+                && component.getBorder() instanceof TitledBorder border
+                && border.getTitle().startsWith(titlePrefix)) {
+            return border;
+        }
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                TitledBorder found = titledBorderOrNull(child, titlePrefix);
+                if (found != null) return found;
+            }
+        }
+        throw new AssertionError("No titled border starting with " + titlePrefix);
+    }
+
+    private static TitledBorder titledBorderOrNull(Component root, String titlePrefix) {
+        if (root instanceof JComponent component
+                && component.getBorder() instanceof TitledBorder border
+                && border.getTitle().startsWith(titlePrefix)) {
+            return border;
+        }
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                TitledBorder found = titledBorderOrNull(child, titlePrefix);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
     private static void render(JComponent component, String path) throws Exception {
         File artifact = new File(path);
         assertTrue(artifact.getParentFile().mkdirs()
@@ -232,6 +327,8 @@ class DynamicCollectionCardTest {
         BufferedImage image = new BufferedImage(
                 900, 320, BufferedImage.TYPE_INT_ARGB);
         Graphics2D graphics = image.createGraphics();
+        graphics.setColor(java.awt.Color.WHITE);
+        graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
         javax.swing.SwingUtilities.invokeAndWait(() -> {
             component.setSize(image.getWidth(), image.getHeight());
             layoutTree(component);

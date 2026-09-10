@@ -13,6 +13,7 @@ import objectview.field.FieldRef;
 import objectview.field.FieldSet;
 import objectview.field.FieldProperties;
 import objectview.viewconfig.ViewConfig;
+import objectview.virtual.VirtualizedCardList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,10 +36,9 @@ import java.util.List;
  *       {@link Viewable} value — whether a single field or a member of a
  *       collection/map, at any depth — renders as a <i>collapsed
  *       reference chip</i>.</li>
- *   <li>{@link Inline @Inline} — force the
- *       nested Viewable(s) to render fully expanded inline (recursively). Use
- *       only on small, bounded structures (e.g. a log tree); never on
- *       broad/cyclic graphs.</li>
+ *   <li>{@link Inline @Inline} — render owned nested Viewable(s) inline. Collection
+ *       members remain individually collapsible and large collections are
+ *       virtualized; never use it to imply ownership on broad/cyclic graphs.</li>
  *   <li>{@link Reference @Reference} — explicit chip;
  *       an intent-marking alias of the default. Kept for clarity and for
  *       fields that must never be force-inlined.</li>
@@ -78,6 +78,10 @@ public class Card extends JPanel implements RenderedInstanceHost {
     private static final String INLINE_FIELD_PATH = "objectview.inlineFieldPath";
     private static final String INLINE_NESTED_CONFIG = "objectview.inlineNestedConfig";
     private static final String INLINE_ITEM_COUNT = "objectview.inlineItemCount";
+    private static final String INLINE_VIRTUAL_LIST = "objectview.inlineVirtualList";
+    /** Large inline collections get their own viewport instead of one Swing component per item. */
+    private static final int INLINE_VIRTUALIZATION_THRESHOLD = 200;
+    private static final int INLINE_VIRTUAL_HEIGHT = 520;
 
     // A complex collection/map field renders under a collapsible header,
     // collapsed by default (threshold 0 => no list auto-expands); click the
@@ -1140,6 +1144,11 @@ public class Card extends JPanel implements RenderedInstanceHost {
                         : value instanceof Map<?, ?> m ? m.values()
                         : List.of();
 
+        List<Viewable> viewableItems = new ArrayList<>();
+        for (Object item : items) {
+            if (item instanceof Viewable q) viewableItems.add(q);
+        }
+
         JPanel panel = new JPanel(new GridBagLayout());
         panel.setOpaque(false);
         if (fieldName != null && !fieldName.isBlank()) {
@@ -1147,8 +1156,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
             // groups/languages — an @Inline collection (e.g. a query log's `steps`)
             // otherwise showed just "steps" with no count. Re-rendered on refresh, so the
             // number tracks the collection as it changes.
-            long count = items.stream().filter(Viewable.class::isInstance).count();
-            panel.setBorder(BorderFactory.createTitledBorder(fieldName + " (" + count + ")"));
+            panel.setBorder(BorderFactory.createTitledBorder(
+                    fieldName + " (" + viewableItems.size() + ")"));
             panel.putClientProperty(INLINE_TITLE, fieldName);
             panel.putClientProperty(INLINE_ITEMS, items);
             panel.putClientProperty(INLINE_FIELD_PATH, fieldPath);
@@ -1160,10 +1169,13 @@ public class Card extends JPanel implements RenderedInstanceHost {
         panel.putClientProperty(INLINE_RENDERED, rendered);
         panel.putClientProperty(INLINE_ITEM_COUNT, items.size());
 
-        for (Object item : items) {
-            if (!(item instanceof Viewable q)) {
-                continue;
-            }
+        if (viewableItems.size() > INLINE_VIRTUALIZATION_THRESHOLD) {
+            installVirtualInlineCollection(
+                    panel, viewableItems, fieldPath, nestedConfig);
+            return panel;
+        }
+
+        for (Viewable q : viewableItems) {
 
             // Each element of an inline COLLECTION renders as its own collapsible
             // chip (▶/▼), so the titled-border list (e.g. a query log's `steps`) is a
@@ -1181,6 +1193,69 @@ public class Card extends JPanel implements RenderedInstanceHost {
         }
 
         return rendered.isEmpty() ? null : panel;
+    }
+
+    private VirtualizedCardList installVirtualInlineCollection(
+            JPanel panel,
+            List<Viewable> values,
+            FieldPath fieldPath,
+            ViewConfig nestedConfig) {
+        // An expanded workflow can contain tens of thousands of steps. The
+        // enclosing CardListView virtualizes top-level cards, but that cannot
+        // help a single card whose inline collection eagerly creates one Swing
+        // component per member. Give the shared inline collection its own
+        // viewport so only the visible chips (and their opened bodies) exist.
+        VirtualizedCardList[] holder = new VirtualizedCardList[1];
+        holder[0] = new VirtualizedCardList(q ->
+                new InlineVirtualRow(
+                        q,
+                        holder[0],
+                        fieldPath,
+                        nestedConfig));
+        VirtualizedCardList virtual = holder[0];
+        JScrollPane scroll = new JScrollPane();
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        virtual.install(scroll);
+        virtual.setItems(values);
+        scroll.setPreferredSize(new Dimension(1, INLINE_VIRTUAL_HEIGHT));
+        scroll.setMinimumSize(new Dimension(1, 160));
+        panel.putClientProperty(INLINE_VIRTUAL_LIST, virtual);
+        panel.add(scroll, GridBagUtils.weighted(
+                0, 0, 1.0, 1.0,
+                GridBagConstraints.NORTHWEST,
+                GridBagConstraints.BOTH,
+                new Insets(2, 6, 2, 6)));
+        return virtual;
+    }
+
+    /**
+     * A virtual inline row is the refresh boundary for its own disclosure chip.
+     * Expanding one row therefore rematerializes that row, not the 14,000-member
+     * containing card, and the nested viewport keeps its scroll position.
+     */
+    private final class InlineVirtualRow extends JPanel implements RenderRefreshHost {
+        private final Viewable target;
+        private final VirtualizedCardList owner;
+
+        private InlineVirtualRow(
+                Viewable target,
+                VirtualizedCardList owner,
+                FieldPath fieldPath,
+                ViewConfig nestedConfig) {
+            super(new BorderLayout());
+            this.target = target;
+            this.owner = owner;
+            setOpaque(false);
+            add(collapsibleReference(
+                    "", fieldPath, target, false, nestedConfig), BorderLayout.CENTER);
+        }
+
+        @Override
+        public void refreshRenderedContent() {
+            owner.invalidateCard(target);
+        }
     }
 
     private static void addInlineItem(JPanel panel, JComponent nested, int row) {
@@ -1231,31 +1306,65 @@ public class Card extends JPanel implements RenderedInstanceHost {
                         instanceof FieldPath value ? value : path;
                 ViewConfig nestedConfig = panel.getClientProperty(INLINE_NESTED_CONFIG)
                         instanceof ViewConfig value ? value : null;
+                VirtualizedCardList virtual =
+                        panel.getClientProperty(INLINE_VIRTUAL_LIST)
+                                instanceof VirtualizedCardList value ? value : null;
                 java.util.IdentityHashMap<Viewable, Boolean> newlyAdded =
                         new java.util.IdentityHashMap<>();
 
                 int previousCount = panel.getClientProperty(INLINE_ITEM_COUNT)
                         instanceof Integer count ? count : -1;
                 if (items.size() != previousCount) {
-                    // Log collections append. Only a size change can introduce a
-                    // member, so ordinary status/text mutations never walk all of
-                    // the requests already accumulated in this branch.
-                    for (Object item : items) {
-                        if (!(item instanceof Viewable value)
-                                || rendered.containsKey(value)) continue;
-                        JComponent added = collapsibleReference(
-                                "", fieldPath, value, false, nestedConfig);
-                        if (added != null) {
-                            addInlineItem(panel, added, rendered.size());
-                            rendered.put(value, added);
-                            newlyAdded.put(value, Boolean.TRUE);
+                    if (virtual == null
+                            && items.size() > INLINE_VIRTUALIZATION_THRESHOLD) {
+                        List<Viewable> current = new ArrayList<>();
+                        for (Object item : items) {
+                            if (item instanceof Viewable value) current.add(value);
+                        }
+                        if (current.size() > INLINE_VIRTUALIZATION_THRESHOLD) {
+                            panel.removeAll();
+                            rendered.clear();
+                            virtual = installVirtualInlineCollection(
+                                    panel, current, fieldPath, nestedConfig);
+                            panel.putClientProperty(INLINE_ITEM_COUNT, items.size());
                         }
                     }
+                    // Live logs append. For a List, visit only the new suffix; do
+                    // not rediscover the thousands of members already rendered.
+                    Iterable<?> candidates = items instanceof List<?> list
+                            && previousCount >= 0 && items.size() > previousCount
+                            ? list.subList(previousCount, list.size())
+                            : items;
+                    List<Viewable> virtualAdditions = new ArrayList<>();
+                    for (Object item : candidates) {
+                        if (!(item instanceof Viewable value)
+                                || rendered.containsKey(value)
+                                || virtual != null && virtual.containsItem(value)) {
+                            continue;
+                        }
+                        if (virtual != null) {
+                            virtualAdditions.add(value);
+                            newlyAdded.put(value, Boolean.TRUE);
+                        } else {
+                            JComponent added = collapsibleReference(
+                                    "", fieldPath, value, false, nestedConfig);
+                            if (added != null) {
+                                addInlineItem(panel, added, rendered.size());
+                                rendered.put(value, added);
+                                newlyAdded.put(value, Boolean.TRUE);
+                            }
+                        }
+                    }
+                    if (virtual != null) virtual.appendItems(virtualAdditions);
                     panel.putClientProperty(INLINE_ITEM_COUNT, items.size());
                 }
 
                 for (Viewable value : changed.keySet()) {
                     if (newlyAdded.containsKey(value)) continue;
+                    if (virtual != null) {
+                        virtual.invalidateCard(value);
+                        continue;
+                    }
                     JComponent old = rendered.get(value);
                     if (old != null) {
                         GridBagConstraints constraints =
@@ -1271,7 +1380,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
                         }
                     }
                 }
-                refreshInlineCollectionCounts(panel);
+                refreshInlineCollectionCount(panel,
+                        virtual != null ? virtual.items().size() : rendered.size());
                 panel.revalidate();
                 panel.repaint();
             }
@@ -1282,13 +1392,32 @@ public class Card extends JPanel implements RenderedInstanceHost {
         }
     }
 
+    private static void refreshInlineCollectionCount(JPanel panel, int count) {
+        if (panel.getClientProperty(INLINE_TITLE) instanceof String title
+                && panel.getBorder() instanceof javax.swing.border.TitledBorder border) {
+            String updated = title + " (" + count + ")";
+            if (!updated.equals(border.getTitle())) {
+                border.setTitle(updated);
+                panel.repaint();
+            }
+        }
+    }
+
     private static void refreshInlineCollectionCounts(Container parent) {
         for (Component component : parent.getComponents()) {
             if (component instanceof JComponent jc
                     && jc.getClientProperty(INLINE_TITLE) instanceof String title
-                    && jc.getClientProperty(INLINE_ITEMS) instanceof Collection<?> items
                     && jc.getBorder() instanceof javax.swing.border.TitledBorder border) {
-                long count = items.stream().filter(Viewable.class::isInstance).count();
+                int count;
+                if (jc.getClientProperty(INLINE_VIRTUAL_LIST)
+                        instanceof VirtualizedCardList virtual) {
+                    count = virtual.items().size();
+                } else if (jc.getClientProperty(INLINE_RENDERED)
+                        instanceof java.util.IdentityHashMap<?, ?> rendered) {
+                    count = rendered.size();
+                } else {
+                    continue;
+                }
                 String updated = title + " (" + count + ")";
                 if (!updated.equals(border.getTitle())) {
                     border.setTitle(updated);
