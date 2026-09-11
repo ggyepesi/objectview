@@ -125,6 +125,19 @@ public class SearchPanel extends JPanel
     private JComponent currentHitRow;
 
     JComponent currentHitRow() { return currentHitRow; }
+
+    /** Total navigable matches across every group — the number the labels add up to. */
+    int virtualHitTotal() {
+        int n = 0;
+        for (HitGroupQ g : currentVirtualGroups) n += g.total();
+        return n;
+    }
+
+    void navigateVirtualForTest(int delta) {
+        for (HitGroupQ g : currentVirtualGroups) {
+            if (!g.hits.isEmpty()) { navigateVirtual(g, delta); return; }
+        }
+    }
     private Map<Viewable, List<HitGroupQ>> virtualGroupsByItem = Map.of();
     private JScrollPane targetScrollPane;
     private JDialog searchDialog;
@@ -1385,6 +1398,12 @@ public class SearchPanel extends JPanel
      *  rather than to the card containing it; null when only the card matched. */
     private JComponent revealAndHighlightMatches(
             Viewable item, JComponent component, boolean refreshExisting) {
+        return revealAndHighlightMatches(item, component, refreshExisting, 0);
+    }
+
+    private JComponent revealAndHighlightMatches(
+            Viewable item, JComponent component, boolean refreshExisting,
+            int occurrence) {
         if (!(component instanceof RenderedInstanceHost host)) return null;
         List<HitGroupQ> groups = matchingGroups(item);
         for (HitGroupQ group : groups) {
@@ -1403,7 +1422,8 @@ public class SearchPanel extends JPanel
             // the search would scroll to the container while the member that actually
             // matched stayed unbuilt. Materialize the member first and
             // replaceAncestorWithDescendantIfNeeded then prefers its row.
-            host.revealPathMember(group.fieldPath.path(), group.queryTokens);
+            host.revealPathMember(
+                    group.fieldPath.path(), group.queryTokens, occurrence);
             List<JComponent> fieldHits = collectMatchingFieldRows(
                     component, group.fieldPath.path(), group.queryTokens);
             if (fieldHits.isEmpty()) {
@@ -1411,7 +1431,9 @@ public class SearchPanel extends JPanel
                 continue;
             }
             for (JComponent hit : fieldHits) highlightField(hit);
-            if (firstRow == null) firstRow = fieldHits.get(0);
+            if (firstRow == null) {
+                firstRow = fieldHits.get(Math.min(occurrence, fieldHits.size() - 1));
+            }
             highlightTextRecursively(
                     component, group.fieldPath.path(), group.queryTokens);
         }
@@ -1642,6 +1664,24 @@ public class SearchPanel extends JPanel
         if (!searchField.getText().isBlank()) {
             asyncSearch();
         }
+    }
+
+    /**
+     * How many VALUES at {@code path} match, which is how many times this card is a
+     * hit. It reuses {@link #matchesWithTokens} so a count can never disagree with the
+     * highlight applied to the row it counted, and it reads values rather than
+     * components because a virtualized collection has built only what is on screen.
+     */
+    private int matchingValueCount(
+            Viewable item, ViewableFieldPaths.PathInfo path, List<String> tokens) {
+        if (item == null || path == null || tokens == null || tokens.isEmpty()) return 1;
+        Object values = objectview.field.FieldAccess.getPathValues(item, path.path());
+        if (!(values instanceof Collection<?> collection)) return 1;
+        int count = 0;
+        for (Object value : collection) {
+            if (matchesWithTokens(value, tokens)) count++;
+        }
+        return Math.max(1, count);
     }
 
     private boolean matchesWithTokens(
@@ -2240,6 +2280,9 @@ public class SearchPanel extends JPanel
                     path,
                     queryTokens);
             g.hits.addAll(e.getValue());
+            for (Viewable hit : e.getValue()) {
+                g.occurrences.put(hit, matchingValueCount(hit, path, queryTokens));
+            }
             groups.put(path.path(), g);
         }
 
@@ -2320,7 +2363,9 @@ public class SearchPanel extends JPanel
         if (g.hits.isEmpty()) {
             return;
         }
-        g.index = Math.floorMod(g.index + delta, g.hits.size());
+        // One step is one MATCH, not one card: stepping inside a card walks its own
+        // matches before moving on, so 26 values in one collection are 26 stops.
+        g.step(delta);
         g.updateLabel();
         navigateToCurrentVirtual(g);
     }
@@ -2358,7 +2403,7 @@ public class SearchPanel extends JPanel
         // near the card's top was visible by luck; one sitting 100 rows down a
         // collection never came into view, and the reader had to scroll to find what
         // the search said it had found.
-        JComponent row = revealAndHighlightMatches(q, card, false);
+        JComponent row = revealAndHighlightMatches(q, card, false, g.occurrence);
 
         markCurrentHitVirtual(card);
         currentHitRow = row != null && row != card ? row : null;
@@ -2383,7 +2428,54 @@ public class SearchPanel extends JPanel
         final ViewableFieldPaths.PathInfo fieldPath;
         final List<String> queryTokens;
         int index = 0;
+        /**
+         * Which match WITHIN the current item, because one card can match many times:
+         * a collection of 349 positions held 26 values containing "king", and all of
+         * them reported as the single hit "head of state". Counted from the VALUES
+         * rather than the rendered rows — a virtualized collection has built twenty of
+         * its forty thousand rows, so components can only enumerate what is on screen.
+         */
+        int occurrence = 0;
+        final IdentityHashMap<Viewable, Integer> occurrences = new IdentityHashMap<>();
         JLabel label;
+
+        int countFor(Viewable q) {
+            return Math.max(1, occurrences.getOrDefault(q, 1));
+        }
+
+        int total() {
+            int n = 0;
+            for (Viewable q : hits) n += countFor(q);
+            return n;
+        }
+
+        /** 1-based position of the current match across the whole group. */
+        int position() {
+            int n = 0;
+            for (int i = 0; i < index && i < hits.size(); i++) n += countFor(hits.get(i));
+            return n + occurrence + 1;
+        }
+
+        /** Steps one match, rolling into the next or previous item at the ends. */
+        void step(int delta) {
+            if (hits.isEmpty()) return;
+            index = Math.floorMod(index, hits.size());
+            if (delta >= 0) {
+                if (occurrence + 1 < countFor(hits.get(index))) {
+                    occurrence++;
+                } else {
+                    index = Math.floorMod(index + 1, hits.size());
+                    occurrence = 0;
+                }
+                return;
+            }
+            if (occurrence > 0) {
+                occurrence--;
+            } else {
+                index = Math.floorMod(index - 1, hits.size());
+                occurrence = countFor(hits.get(index)) - 1;
+            }
+        }
 
         HitGroupQ(
                 String title,
@@ -2396,8 +2488,8 @@ public class SearchPanel extends JPanel
 
         void updateLabel() {
             if (label != null) {
-                int displayIndex = hits.isEmpty() ? 0 : index + 1;
-                label.setText(title + " (" + displayIndex + "/" + hits.size() + ")");
+                int displayIndex = hits.isEmpty() ? 0 : position();
+                label.setText(title + " (" + displayIndex + "/" + total() + ")");
             }
         }
     }

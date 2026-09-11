@@ -36,7 +36,8 @@ public interface RenderedInstanceHost extends RenderRefreshHost {
      *
      * @return true when a member was scrolled to, so the caller can look again
      */
-    default boolean revealPathMember(FieldPath path, java.util.List<String> tokens) {
+    default boolean revealPathMember(
+            FieldPath path, java.util.List<String> tokens, int occurrence) {
         return false;
     }
 

@@ -167,25 +167,26 @@ public class Card extends JPanel implements RenderedInstanceHost {
     /** Scrolls the virtualized member matching {@code tokens} on {@code path} into
      *  view, after {@link #revealPath} has opened the collection holding it. */
     @Override
-    public boolean revealPathMember(FieldPath path, List<String> tokens) {
-        return revealMemberIn(this, path, tokens);
+    public boolean revealPathMember(
+            FieldPath path, List<String> tokens, int occurrence) {
+        return revealMemberIn(this, path, tokens, occurrence);
     }
 
     private static boolean revealMemberIn(
-            Container parent, FieldPath path, List<String> tokens) {
+            Container parent, FieldPath path, List<String> tokens, int occurrence) {
         for (Component component : parent.getComponents()) {
             if (component instanceof JComponent panel
                     && panel.getClientProperty(INLINE_VIRTUAL_LIST)
                             instanceof VirtualizedCardList virtual
                     && holdsPath(panel, path)) {
-                Viewable member = firstMatchingMember(virtual.items(), tokens);
+                Viewable member = matchingMember(virtual.items(), tokens, occurrence);
                 if (member != null) {
                     virtual.ensureVisible(member);
                     return true;
                 }
             }
             if (component instanceof Container nested
-                    && revealMemberIn(nested, path, tokens)) {
+                    && revealMemberIn(nested, path, tokens, occurrence)) {
                 return true;
             }
         }
@@ -202,11 +203,12 @@ public class Card extends JPanel implements RenderedInstanceHost {
                 && path.segments().subList(0, held.size()).equals(held.segments());
     }
 
-    /** Matched on the text the row actually shows, which is what the reader searched
-     *  and what the hit badge claims is there. */
-    private static Viewable firstMatchingMember(
-            List<Viewable> members, List<String> tokens) {
+    /** The {@code occurrence}-th member whose visible text matches, so navigating
+     *  inside one collection walks its matches in the order they are rendered. */
+    private static Viewable matchingMember(
+            List<Viewable> members, List<String> tokens, int occurrence) {
         if (members == null || tokens == null || tokens.isEmpty()) return null;
+        int seen = 0;
         for (Viewable member : members) {
             String text = (ReferenceRow.referenceLabel(member) + " "
                     + (member.getDisplayName() == null ? "" : member.getDisplayName()))
@@ -219,7 +221,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
                     break;
                 }
             }
-            if (all) return member;
+            if (all && seen++ == Math.max(0, occurrence)) return member;
         }
         return null;
     }

@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -351,6 +352,51 @@ class VirtualSearchHighlightTest {
                             objectview.field.FieldPath.of("details"),
                             List.of("kingersheim")),
                     "the hit must be brought into view, not badged as hidden");
+        });
+    }
+
+    @Test void everyMatchInsideOneCardIsCountedAndNavigable() {
+        // A card was one hit however many times it matched: 26 of head of state's 349
+        // positions contained "king" and all 26 reported as a single stop, with no way
+        // to walk them. Counted from the values, so a virtualized collection is counted
+        // as fully as a small one.
+        EdtTests.onEdt(() -> {
+            Referencing item = new Referencing("head of state");
+            for (int i = 0; i < 349; i++) {
+                item.details.add(new Detail(
+                        i % 13 == 0 ? "King of Somewhere " + i : "position " + i));
+            }
+            String display = objectview.field.ViewableContractFieldSet.DISPLAY_KEY;
+            objectview.viewconfig.ViewConfig detail =
+                    objectview.viewconfig.ViewConfig.of(Detail.class);
+            detail.setAllFields(false);
+            detail.addField(display, objectview.viewconfig.ViewConfig.leaf());
+            objectview.viewconfig.ViewConfig config =
+                    objectview.viewconfig.ViewConfig.of(Referencing.class);
+            config.setAllFields(false);
+            config.addField(display, objectview.viewconfig.ViewConfig.leaf());
+            config.addField("details", detail);
+
+            SearchableView view = SearchableView.builder(List.of(item))
+                    .sample(item)
+                    .mode(RenderingMode.CARD)
+                    .collapsible(true)
+                    .configState(new SearchPanel.ConfigState(config, null, config))
+                    .build();
+            materialize(view, item);
+            view.search().setFieldHighlight(true);
+            view.search().runCoordinatedSearch("king");
+
+            assertEquals(27, view.search().virtualHitTotal(),
+                    "one card, 27 matching values, 27 navigable hits");
+
+            java.util.Set<JComponent> visited = new java.util.LinkedHashSet<>();
+            for (int i = 0; i < 5; i++) {
+                visited.add(view.search().currentHitRow());
+                view.search().navigateVirtualForTest(1);
+            }
+            assertEquals(5, visited.size(),
+                    "each step must land on a different match, not repeat the first");
         });
     }
 

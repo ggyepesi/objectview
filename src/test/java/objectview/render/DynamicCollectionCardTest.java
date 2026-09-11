@@ -140,7 +140,7 @@ class DynamicCollectionCardTest {
                 "the matching member starts unbuilt, which is why the hit was hidden");
 
         boolean revealed = card[0].revealPathMember(
-                FieldPath.of("superClasses"), List.of("kingersheim"));
+                FieldPath.of("superClasses"), List.of("kingersheim"), 0);
 
         assertTrue(revealed, "the card must find the list holding the member");
         assertNotNull(virtual.builtCard(deep),
