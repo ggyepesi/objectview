@@ -119,6 +119,12 @@ public class SearchPanel extends JPanel
     private final java.util.Set<objectview.Viewable> virtualHits =
             java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     private List<HitGroupQ> currentVirtualGroups = List.of();
+    /** The field row the last navigation scrolled to, or null when only the card was
+     *  located. Navigating to a card and stopping there is what left a match sitting
+     *  a hundred rows below the fold. */
+    private JComponent currentHitRow;
+
+    JComponent currentHitRow() { return currentHitRow; }
     private Map<Viewable, List<HitGroupQ>> virtualGroupsByItem = Map.of();
     private JScrollPane targetScrollPane;
     private JDialog searchDialog;
@@ -1375,9 +1381,11 @@ public class SearchPanel extends JPanel
     /** Makes one materialized matching instance self-contained: every path by which
      *  it matched is visible and highlighted. Off-screen instances remain lazy and
      *  receive the same treatment from the materialization listener when scrolled in. */
-    private void revealAndHighlightMatches(
+    /** @return the first matching FIELD row, so navigation can scroll to the match
+     *  rather than to the card containing it; null when only the card matched. */
+    private JComponent revealAndHighlightMatches(
             Viewable item, JComponent component, boolean refreshExisting) {
-        if (!(component instanceof RenderedInstanceHost host)) return;
+        if (!(component instanceof RenderedInstanceHost host)) return null;
         List<HitGroupQ> groups = matchingGroups(item);
         for (HitGroupQ group : groups) {
             host.revealPath(group.fieldPath.path());
@@ -1386,7 +1394,8 @@ public class SearchPanel extends JPanel
         // component was refreshed, so every visible matching host gets one rebuild.
         if (refreshExisting && !groups.isEmpty()) host.refreshRenderedContent();
         highlightInstance(component);
-        if (!fieldHighlightBox.isSelected()) return;
+        if (!fieldHighlightBox.isSelected()) return null;
+        JComponent firstRow = null;
         for (HitGroupQ group : groups) {
             // BEFORE collecting, not as a fallback for finding nothing. A collection's
             // own field component carries the whole collection as its value, and
@@ -1402,9 +1411,11 @@ public class SearchPanel extends JPanel
                 continue;
             }
             for (JComponent hit : fieldHits) highlightField(hit);
+            if (firstRow == null) firstRow = fieldHits.get(0);
             highlightTextRecursively(
                     component, group.fieldPath.path(), group.queryTokens);
         }
+        return firstRow;
     }
 
     private List<HitGroupQ> matchingGroups(Viewable item) {
@@ -2343,9 +2354,15 @@ public class SearchPanel extends JPanel
         // From here NOTHING is layout-specific: a card and a table row are both
         // RenderedInstanceHosts, and the field/text helpers below walk any component
         // subtree by field path. One highlighting path serves every render mode.
-        revealAndHighlightMatches(q, card, false);
+        // Navigating scrolled the outer list to the CARD and stopped there. A match
+        // near the card's top was visible by luck; one sitting 100 rows down a
+        // collection never came into view, and the reader had to scroll to find what
+        // the search said it had found.
+        JComponent row = revealAndHighlightMatches(q, card, false);
 
         markCurrentHitVirtual(card);
+        currentHitRow = row != null && row != card ? row : null;
+        if (currentHitRow != null) scrollTo(currentHitRow);
 
         targetPanel.revalidate();
         targetPanel.repaint();

@@ -354,6 +354,50 @@ class VirtualSearchHighlightTest {
         });
     }
 
+    @Test void navigationScrollsToTheMatchingRowNotJustItsCard() {
+        // A 168-member collection is below the virtualization threshold, so every row
+        // exists and the match is highlighted — and navigating still stopped at the
+        // card. A match near the top was visible by luck; one far down the collection
+        // stayed below the fold and had to be found by scrolling.
+        EdtTests.onEdt(() -> {
+            Referencing item = new Referencing("official");
+            Detail deep = new Detail("chief chaplain to the king");
+            for (int i = 0; i < 168; i++) {
+                item.details.add(i == 140 ? deep : new Detail("officer " + i));
+            }
+            String display = objectview.field.ViewableContractFieldSet.DISPLAY_KEY;
+            objectview.viewconfig.ViewConfig detail =
+                    objectview.viewconfig.ViewConfig.of(Detail.class);
+            detail.setAllFields(false);
+            detail.addField(display, objectview.viewconfig.ViewConfig.leaf());
+            objectview.viewconfig.ViewConfig config =
+                    objectview.viewconfig.ViewConfig.of(Referencing.class);
+            config.setAllFields(false);
+            config.addField(display, objectview.viewconfig.ViewConfig.leaf());
+            config.addField("details", detail);
+
+            SearchableView view = SearchableView.builder(List.of(item))
+                    .sample(item)
+                    .mode(RenderingMode.CARD)
+                    .collapsible(true)
+                    .configState(new SearchPanel.ConfigState(config, null, config))
+                    .build();
+            materialize(view, item);
+            view.search().setFieldHighlight(true);
+            view.search().runCoordinatedSearch("chaplain");
+
+            // Re-materialize: expanding the collection rebuilds the card, so the one
+            // captured before the search is not the one the row belongs to.
+            JComponent card = materialize(view, item);
+            JComponent row = view.search().currentHitRow();
+            assertNotNull(row, "navigation must locate the matching row, not stop at the card");
+            assertTrue(row != card,
+                    "the row scrolled to must be inside the card, not the card itself");
+            assertTrue(javax.swing.SwingUtilities.isDescendingFrom(row, card),
+                    "and it must belong to the navigated card");
+        });
+    }
+
     @Test void firstTopLevelHitAlsoRevealsTheSameCardsNestedHit() {
         EdtTests.onEdt(() -> {
             Element item = new Element("resonant");
