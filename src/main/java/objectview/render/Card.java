@@ -1081,22 +1081,28 @@ public class Card extends JPanel implements RenderedInstanceHost {
             panel.setBorder(BorderFactory.createTitledBorder(fieldName));
         }
 
-        int row = 0;
+        Collection<?> items = value instanceof Collection<?> collection ? collection
+                : value instanceof Map<?, ?> map ? map.values() : List.of();
+        List<Viewable> viewableItems = new ArrayList<>();
+        for (Object item : items) {
+            if (item instanceof Viewable q) viewableItems.add(q);
+        }
 
-        if (value instanceof Collection<?> collection) {
-            for (Object item : collection) {
-                if (item instanceof Viewable q) {
-                    addReferenceToPanel(
-                            panel, "", q, fieldPath, nestedConfig, row++);
-                }
-            }
-        } else if (value instanceof Map<?, ?> map) {
-            for (Object item : map.values()) {
-                if (item instanceof Viewable q) {
-                    addReferenceToPanel(
-                            panel, "", q, fieldPath, nestedConfig, row++);
-                }
-            }
+        // The SAME ceiling the @Inline path uses, because this is the same problem:
+        // one Swing component per member is what a card cannot afford. A reference
+        // collection reaches here instead of inlineViewable, so virtualizing only
+        // there left the larger of the two paths eagerly building every row — a
+        // position hierarchy produced 124,087 live ReferenceRows behind 114 cards,
+        // and every later layout, measure and rebuild walked all of them.
+        if (viewableItems.size() > INLINE_VIRTUALIZATION_THRESHOLD) {
+            installVirtualInlineCollection(
+                    panel, viewableItems, fieldPath, nestedConfig);
+            return panel;
+        }
+
+        int row = 0;
+        for (Viewable q : viewableItems) {
+            addReferenceToPanel(panel, "", q, fieldPath, nestedConfig, row++);
         }
 
         return row == 0 ? null : panel;

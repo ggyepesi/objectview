@@ -74,6 +74,43 @@ class DynamicCollectionCardTest {
     }
 
     @Test
+    void aLargeReferenceCollectionFieldVirtualizesLikeAnInlineOne() throws Exception {
+        // Two paths render a collection of Viewables: @Inline goes through
+        // inlineViewable, a plain @Reference collection through
+        // createReferenceFieldComponent. Virtualizing only the first left the second
+        // building one ReferenceRow per member — measured on a real position
+        // hierarchy as 124,087 live rows behind 114 cards, after which every layout,
+        // measure and rebuild walked all of them and the event thread stopped
+        // returning. The ceiling belongs to both, because it is the same problem.
+        Superclassed subject = new Superclassed("Mayor of Aast");
+        for (int i = 0; i < 14_000; i++) {
+            subject.superClasses.add(new Superclassed("kind of position " + i));
+        }
+
+        // A large collection renders collapsed, so the rows only appear when the
+        // reader opens it — which is exactly when the event thread stopped coming
+        // back. Expand it, or the test watches a header and proves nothing.
+        RenderContext context = new RenderContext();
+        context.setCollectionExpanded(subject.superClasses, true);
+
+        Card[] card = new Card[1];
+        javax.swing.SwingUtilities.invokeAndWait(() -> {
+            card[0] = new Card(subject, ViewConfig.all(Superclassed.class),
+                    context, false);
+            card[0].setSize(900, 700);
+            layoutTree(card[0]);
+        });
+
+        VirtualizedCardList virtual = find(card[0], VirtualizedCardList.class);
+        assertNotNull(virtual,
+                "a reference collection must use the shared virtual list too");
+        assertEquals(14_000, virtual.items().size());
+        assertTrue(count(card[0], ReferenceRow.class) < 100,
+                "one Swing row per member is what a card cannot afford: "
+                        + count(card[0], ReferenceRow.class));
+    }
+
+    @Test
     void aGrowingInlineCollectionSwitchesToVirtualRenderingAtTheBoundary()
             throws Exception {
         LiveParent parent = new LiveParent();
@@ -415,6 +452,18 @@ class DynamicCollectionCardTest {
                 collect(child, type, result);
             }
         }
+    }
+
+    /** A plain @Reference collection — the path that is not @Inline. */
+    private static final class Superclassed extends ViewableAdapter {
+        private final String name;
+        @objectview.annotations.Reference
+        private final Collection<Superclassed> superClasses = new ArrayList<>();
+
+        private Superclassed(String name) { this.name = name; }
+
+        @Override public String getIdentifier() { return name; }
+        @Override public String getDisplayName() { return name; }
     }
 
     private static final class LiveParent extends ViewableAdapter {
