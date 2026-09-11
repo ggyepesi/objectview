@@ -164,6 +164,66 @@ public class Card extends JPanel implements RenderedInstanceHost {
         return expandCollectionsOnPath(path);
     }
 
+    /** Scrolls the virtualized member matching {@code tokens} on {@code path} into
+     *  view, after {@link #revealPath} has opened the collection holding it. */
+    @Override
+    public boolean revealPathMember(FieldPath path, List<String> tokens) {
+        return revealMemberIn(this, path, tokens);
+    }
+
+    private static boolean revealMemberIn(
+            Container parent, FieldPath path, List<String> tokens) {
+        for (Component component : parent.getComponents()) {
+            if (component instanceof JComponent panel
+                    && panel.getClientProperty(INLINE_VIRTUAL_LIST)
+                            instanceof VirtualizedCardList virtual
+                    && holdsPath(panel, path)) {
+                Viewable member = firstMatchingMember(virtual.items(), tokens);
+                if (member != null) {
+                    virtual.ensureVisible(member);
+                    return true;
+                }
+            }
+            if (component instanceof Container nested
+                    && revealMemberIn(nested, path, tokens)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The searched path starts at the field this panel holds — the rest of it
+     *  addresses something INSIDE a member, which is why the member must be found
+     *  before the remaining segments can match anything. */
+    private static boolean holdsPath(JComponent panel, FieldPath path) {
+        return panel.getClientProperty(INLINE_FIELD_PATH) instanceof FieldPath held
+                && path != null && !held.isRoot()
+                && path.size() >= held.size()
+                && path.segments().subList(0, held.size()).equals(held.segments());
+    }
+
+    /** Matched on the text the row actually shows, which is what the reader searched
+     *  and what the hit badge claims is there. */
+    private static Viewable firstMatchingMember(
+            List<Viewable> members, List<String> tokens) {
+        if (members == null || tokens == null || tokens.isEmpty()) return null;
+        for (Viewable member : members) {
+            String text = (ReferenceRow.referenceLabel(member) + " "
+                    + (member.getDisplayName() == null ? "" : member.getDisplayName()))
+                    .toLowerCase(java.util.Locale.ROOT);
+            boolean all = true;
+            for (String token : tokens) {
+                if (token != null && !token.isBlank()
+                        && !text.contains(token.toLowerCase(java.util.Locale.ROOT))) {
+                    all = false;
+                    break;
+                }
+            }
+            if (all) return member;
+        }
+        return null;
+    }
+
     @Override
     public Viewable renderedInstance() {
         return viewable;
@@ -1095,6 +1155,9 @@ public class Card extends JPanel implements RenderedInstanceHost {
         // position hierarchy produced 124,087 live ReferenceRows behind 114 cards,
         // and every later layout, measure and rebuild walked all of them.
         if (viewableItems.size() > INLINE_VIRTUALIZATION_THRESHOLD) {
+            // The panel has to say which field it holds, or a search hit cannot find
+            // the list that owns its member.
+            panel.putClientProperty(INLINE_FIELD_PATH, fieldPath);
             installVirtualInlineCollection(
                     panel, viewableItems, fieldPath, nestedConfig);
             return panel;

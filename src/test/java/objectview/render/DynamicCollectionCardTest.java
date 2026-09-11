@@ -28,6 +28,7 @@ import java.util.Map;
 import javax.swing.border.TitledBorder;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -108,6 +109,42 @@ class DynamicCollectionCardTest {
         assertTrue(count(card[0], ReferenceRow.class) < 100,
                 "one Swing row per member is what a card cannot afford: "
                         + count(card[0], ReferenceRow.class));
+    }
+
+    @Test
+    void aHitDeepInAVirtualizedReferenceCollectionIsScrolledTo() throws Exception {
+        // Virtualizing the collection removed the freeze and took the matching row's
+        // component with it: search still found the value, found no component for it,
+        // and badged the hit as hidden — an honest count pointing at something the UI
+        // would not go to. Revealing the PATH opens the collection; revealing the
+        // MEMBER is the second step, and only the card knows the list to scroll.
+        Superclassed subject = new Superclassed("mayor of a place in France");
+        Superclassed deep = new Superclassed("Mayor of Kingersheim");
+        for (int i = 0; i < 14_000; i++) {
+            subject.superClasses.add(i == 9_137 ? deep
+                    : new Superclassed("Mayor of Commune " + i));
+        }
+        RenderContext context = new RenderContext();
+        context.setCollectionExpanded(subject.superClasses, true);
+
+        Card[] card = new Card[1];
+        javax.swing.SwingUtilities.invokeAndWait(() -> {
+            card[0] = new Card(subject, ViewConfig.all(Superclassed.class),
+                    context, false);
+            card[0].setSize(900, 700);
+            layoutTree(card[0]);
+        });
+        VirtualizedCardList virtual = find(card[0], VirtualizedCardList.class);
+        assertNotNull(virtual);
+        assertNull(virtual.builtCard(deep),
+                "the matching member starts unbuilt, which is why the hit was hidden");
+
+        boolean revealed = card[0].revealPathMember(
+                FieldPath.of("superClasses"), List.of("kingersheim"));
+
+        assertTrue(revealed, "the card must find the list holding the member");
+        assertNotNull(virtual.builtCard(deep),
+                "and scroll it into view so a component exists to highlight");
     }
 
     @Test

@@ -25,6 +25,21 @@ public interface RenderedInstanceHost extends RenderRefreshHost {
         return false;
     }
 
+    /**
+     * Scrolls a virtualized member matching {@code tokens} on {@code path} into view.
+     *
+     * <p>Expanding the collection is not enough once the collection is virtualized:
+     * the matching member has no component at all until its own list scrolls to it,
+     * so search finds an honest hit, fails to locate a row for it, and badges it as
+     * hidden. Revealing the PATH and revealing the MEMBER are therefore two steps,
+     * and only the host knows whether the second one has anywhere to go.
+     *
+     * @return true when a member was scrolled to, so the caller can look again
+     */
+    default boolean revealPathMember(FieldPath path, java.util.List<String> tokens) {
+        return false;
+    }
+
     /** The nearest containing rendered-instance root, or null. */
     static RenderedInstanceHost hostOf(Component component) {
         for (Component current = component; current != null;

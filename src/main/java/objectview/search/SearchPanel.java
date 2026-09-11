@@ -1390,6 +1390,15 @@ public class SearchPanel extends JPanel
         for (HitGroupQ group : groups) {
             List<JComponent> fieldHits = collectMatchingFieldRows(
                     component, group.fieldPath.path(), group.queryTokens);
+            if (fieldHits.isEmpty()
+                    && host.revealPathMember(
+                            group.fieldPath.path(), group.queryTokens)) {
+                // The collection was open but virtualized, so the matching member had
+                // no component to find. Now that its list has scrolled to it, look
+                // again rather than reporting a hit the reader cannot reach.
+                fieldHits = collectMatchingFieldRows(
+                        component, group.fieldPath.path(), group.queryTokens);
+            }
             if (fieldHits.isEmpty()) {
                 addHiddenHitBadge(component, group.title);
                 continue;
