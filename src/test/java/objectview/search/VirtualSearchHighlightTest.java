@@ -301,6 +301,59 @@ class VirtualSearchHighlightTest {
         });
     }
 
+    @Test void aHitInsideAVirtualizedNestedCollectionIsRevealed() {
+        // Virtualizing a card's collections stopped it freezing on 40,193 members and
+        // took the matching row's component with it, so search reported an honest hit
+        // and had nothing to scroll to. Expanding the collection is not enough once
+        // the member itself is virtual.
+        EdtTests.onEdt(() -> {
+            Referencing item = new Referencing("mayor of a place in France");
+            Detail deep = new Detail("Mayor of Kingersheim");
+            for (int i = 0; i < 14_000; i++) {
+                item.details.add(i == 9_137 ? deep
+                        : new Detail("Mayor of Commune " + i));
+            }
+            String display = objectview.field.ViewableContractFieldSet.DISPLAY_KEY;
+            objectview.viewconfig.ViewConfig detail =
+                    objectview.viewconfig.ViewConfig.of(Detail.class);
+            detail.setAllFields(false);
+            detail.addField(display, objectview.viewconfig.ViewConfig.leaf());
+            objectview.viewconfig.ViewConfig config =
+                    objectview.viewconfig.ViewConfig.of(Referencing.class);
+            config.setAllFields(false);
+            config.addField(display, objectview.viewconfig.ViewConfig.leaf());
+            config.addField("details", detail);
+
+            SearchableView view = SearchableView.builder(List.of(item))
+                    .sample(item)
+                    .mode(RenderingMode.CARD)
+                    .collapsible(true)
+                    .configState(new SearchPanel.ConfigState(config, null, config))
+                    .build();
+            materialize(view, item);
+            view.search().setFieldHighlight(true);
+            view.search().runCoordinatedSearch("kingersheim");
+
+            // Guard the guard: if the collection is not virtualized the rows all
+            // exist and revealing is trivial, so this test would pass while proving
+            // nothing about the case it is named for.
+            objectview.virtual.VirtualizedCardList nested =
+                    (objectview.virtual.VirtualizedCardList)
+                            findVirtual(materialize(view, item));
+            assertNotNull(nested,
+                    "the nested collection must be virtualized for this to mean anything");
+            // The collection's own component carries the whole collection as its value,
+            // so it matches the query too. Highlighting THAT is what "expanded but the
+            // hit is not brought to view" looks like; the member must be materialized.
+            assertNotNull(nested.builtCard(deep),
+                    "the matching member itself must be brought into view");
+            assertTrue(hasHighlightedPath(materialize(view, item),
+                            objectview.field.FieldPath.of("details"),
+                            List.of("kingersheim")),
+                    "the hit must be brought into view, not badged as hidden");
+        });
+    }
+
     @Test void firstTopLevelHitAlsoRevealsTheSameCardsNestedHit() {
         EdtTests.onEdt(() -> {
             Element item = new Element("resonant");
@@ -470,6 +523,17 @@ class VirtualSearchHighlightTest {
         }
     }
 
+    private static Object findVirtual(java.awt.Component root) {
+        if (root instanceof objectview.virtual.VirtualizedCardList v) return v;
+        if (root instanceof java.awt.Container c) {
+            for (java.awt.Component child : c.getComponents()) {
+                Object found = findVirtual(child);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
     private static JComponent materialize(SearchableView view, Viewable item) {
         return view.mode() == RenderingMode.TABLE
                 ? view.table().row(item)
@@ -504,6 +568,18 @@ class VirtualSearchHighlightTest {
 
     // Package-private: a PRIVATE nested class's fields are not reflectable, so a
     // field-level search would silently find nothing and prove nothing.
+    /** A @Reference collection — the path a generated entity reference takes. */
+    public static final class Referencing extends ViewableAdapter {
+        private final String name;
+        @objectview.annotations.Reference
+        public final List<Detail> details = new java.util.ArrayList<>();
+
+        public Referencing(String name) { this.name = name; }
+
+        @Override public String getIdentifier() { return name; }
+        @Override public String getDisplayName() { return name; }
+    }
+
     public static class Element extends ViewableAdapter {
         private final String name;
         public String note = "";

@@ -1388,17 +1388,15 @@ public class SearchPanel extends JPanel
         highlightInstance(component);
         if (!fieldHighlightBox.isSelected()) return;
         for (HitGroupQ group : groups) {
+            // BEFORE collecting, not as a fallback for finding nothing. A collection's
+            // own field component carries the whole collection as its value, and
+            // matchesWithTokens recurses into it — so the container always matches and
+            // the search would scroll to the container while the member that actually
+            // matched stayed unbuilt. Materialize the member first and
+            // replaceAncestorWithDescendantIfNeeded then prefers its row.
+            host.revealPathMember(group.fieldPath.path(), group.queryTokens);
             List<JComponent> fieldHits = collectMatchingFieldRows(
                     component, group.fieldPath.path(), group.queryTokens);
-            if (fieldHits.isEmpty()
-                    && host.revealPathMember(
-                            group.fieldPath.path(), group.queryTokens)) {
-                // The collection was open but virtualized, so the matching member had
-                // no component to find. Now that its list has scrolled to it, look
-                // again rather than reporting a hit the reader cannot reach.
-                fieldHits = collectMatchingFieldRows(
-                        component, group.fieldPath.path(), group.queryTokens);
-            }
             if (fieldHits.isEmpty()) {
                 addHiddenHitBadge(component, group.title);
                 continue;
