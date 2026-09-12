@@ -216,6 +216,7 @@ class VirtualSearchHighlightTest {
                     .collapsible(true)
                     .configState(new SearchPanel.ConfigState(config, null, config))
                     .build();
+            layoutView(view);
             materialize(view, item);
             view.search().setFieldHighlight(true);
             view.search().runCoordinatedSearch("resonant");
@@ -252,6 +253,7 @@ class VirtualSearchHighlightTest {
                     .collapsible(true)
                     .configState(new SearchPanel.ConfigState(config, null, config))
                     .build();
+            layoutView(view);
             materialize(view, item);
             view.search().setFieldHighlight(true);
             view.search().runCoordinatedSearch("resonant");
@@ -331,6 +333,7 @@ class VirtualSearchHighlightTest {
                     .collapsible(true)
                     .configState(new SearchPanel.ConfigState(config, null, config))
                     .build();
+            layoutView(view);
             materialize(view, item);
             view.search().setFieldHighlight(true);
             view.search().runCoordinatedSearch("kingersheim");
@@ -338,24 +341,105 @@ class VirtualSearchHighlightTest {
             // Guard the guard: if the collection is not virtualized the rows all
             // exist and revealing is trivial, so this test would pass while proving
             // nothing about the case it is named for.
-            objectview.virtual.VirtualizedCardList nested =
-                    (objectview.virtual.VirtualizedCardList)
-                            findVirtual(materialize(view, item));
-            assertNotNull(nested,
+            assertNotNull(findVirtual(materialize(view, item)),
                     "the nested collection must be virtualized for this to mean anything");
-            // The collection's own component carries the whole collection as its value,
-            // so it matches the query too. Highlighting THAT is what "expanded but the
-            // hit is not brought to view" looks like; the member must be materialized.
-            assertNotNull(nested.builtCard(deep),
-                    "the matching member itself must be brought into view");
-            assertTrue(hasHighlightedPath(materialize(view, item),
+            // The root card itself may be rematerialized by the outer virtual list; the
+            // navigation result is the live rendered row and must retain the exact member.
+            JComponent row = view.search().currentHitRow();
+            assertNotNull(row, "the matching member must have a rendered hit row");
+            assertTrue(containingRenderedValue(row) == deep,
+                    "the row must belong to the member the field-path match identified");
+            assertTrue(hasHighlightedPath(row,
                             objectview.field.FieldPath.of("details"),
                             List.of("kingersheim")),
                     "the hit must be brought into view, not badged as hidden");
         });
     }
 
-    @Test void everyMatchInsideOneCardIsCountedAndNavigable() {
+    @Test void aNestedFieldHitRevealsItsMemberEvenWhenTheMemberNameDoesNotMatch() {
+        // The index found details.note, but member revelation used to search only the
+        // Detail's display name. The counter advanced while the actual member remained
+        // virtual and therefore had no row that could be highlighted or scrolled to.
+        EdtTests.onEdt(() -> {
+            Referencing item = new Referencing("office holder");
+            Detail deep = new Detail("ordinary position", "apostolic qualifier");
+            for (int i = 0; i < 14_000; i++) {
+                item.details.add(i == 9_137 ? deep
+                        : new Detail("position " + i, "qualifier " + i));
+            }
+            objectview.viewconfig.ViewConfig detail =
+                    objectview.viewconfig.ViewConfig.of(Detail.class);
+            detail.setAllFields(false);
+            detail.addField("note", objectview.viewconfig.ViewConfig.leaf());
+            objectview.viewconfig.ViewConfig config =
+                    objectview.viewconfig.ViewConfig.of(Referencing.class);
+            config.setAllFields(false);
+            config.addField("details", detail);
+
+            SearchableView view = SearchableView.builder(List.of(item))
+                    .sample(item)
+                    .mode(RenderingMode.CARD)
+                    .collapsible(true)
+                    .configState(new SearchPanel.ConfigState(config, null, config))
+                    .build();
+            layoutView(view);
+            materialize(view, item);
+            view.search().setFieldHighlight(true);
+            view.search().runCoordinatedSearch("apostolic qualifier");
+
+            objectview.virtual.VirtualizedCardList nested =
+                    (objectview.virtual.VirtualizedCardList)
+                            findVirtual(materialize(view, item));
+            assertNotNull(nested.builtCard(deep),
+                    "the field-path match must identify its containing member");
+            assertTrue(javax.swing.SwingUtilities.isDescendingFrom(
+                            view.search().currentHitRow(), nested.builtCard(deep)),
+                    "navigation must select a row inside that exact member");
+        });
+    }
+
+    @Test void deferredNavigationLeavesTheExactNestedHitVisibleInEveryViewport() {
+        SearchableView[] view = new SearchableView[1];
+        EdtTests.onEdt(() -> {
+            Referencing item = new Referencing("office holder");
+            for (int i = 0; i < 14_000; i++) {
+                item.details.add(new Detail(
+                        "position " + i,
+                        i == 9_137 ? "apostolic qualifier" : "qualifier " + i));
+            }
+            objectview.viewconfig.ViewConfig detail =
+                    objectview.viewconfig.ViewConfig.of(Detail.class);
+            detail.setAllFields(false);
+            detail.addField("note", objectview.viewconfig.ViewConfig.leaf());
+            objectview.viewconfig.ViewConfig config =
+                    objectview.viewconfig.ViewConfig.of(Referencing.class);
+            config.setAllFields(false);
+            config.addField("details", detail);
+            view[0] = SearchableView.builder(List.of(item))
+                    .sample(item)
+                    .mode(RenderingMode.CARD)
+                    .collapsible(true)
+                    .configState(new SearchPanel.ConfigState(config, null, config))
+                    .build();
+            layoutView(view[0]);
+            materialize(view[0], item);
+            view[0].search().setFieldHighlight(true);
+            view[0].search().runCoordinatedSearch("apostolic qualifier");
+        });
+
+        // scrollTo is deliberately deferred until revealed components have their
+        // final bounds. Cross the EDT boundary before observing the viewport.
+        EdtTests.onEdt(() -> { });
+        EdtTests.onEdt(() -> {
+            assertVisibleInEveryViewport(view[0].search().currentHitRow());
+            writeArtifact(view[0], "nested-search-navigation.png");
+        });
+    }
+
+    @ParameterizedTest
+    @EnumSource(RenderingMode.class)
+    void everyMatchInsideOneRenderedInstanceIsCountedAndNavigable(
+            RenderingMode mode) {
         // A card was one hit however many times it matched: 26 of head of state's 349
         // positions contained "king" and all 26 reported as a single stop, with no way
         // to walk them. Counted from the values, so a virtualized collection is counted
@@ -379,24 +463,214 @@ class VirtualSearchHighlightTest {
 
             SearchableView view = SearchableView.builder(List.of(item))
                     .sample(item)
-                    .mode(RenderingMode.CARD)
+                    .mode(mode)
                     .collapsible(true)
                     .configState(new SearchPanel.ConfigState(config, null, config))
                     .build();
+            layoutView(view);
             materialize(view, item);
             view.search().setFieldHighlight(true);
             view.search().runCoordinatedSearch("king");
 
             assertEquals(27, view.search().virtualHitTotal(),
-                    "one card, 27 matching values, 27 navigable hits");
+                    mode + ": one instance, 27 matching values, 27 navigable hits");
 
             java.util.Set<JComponent> visited = new java.util.LinkedHashSet<>();
             for (int i = 0; i < 5; i++) {
-                visited.add(view.search().currentHitRow());
+                JComponent row = view.search().currentHitRow();
+                visited.add(row);
+                if (mode == RenderingMode.CARD) {
+                    assertTrue(containingRenderedValue(row) == item.details.get(i * 13),
+                            mode + ": the counter and rendered member must agree");
+                } else {
+                    assertEquals(item.details.get(i * 13).getDisplayName(),
+                            row.getClientProperty(objectview.field.FieldProperties
+                                    .FIELD_VALUE_PROPERTY),
+                            mode + ": the counter and flattened table occurrence must agree");
+                }
+                assertTrue(row instanceof objectview.render.TextRow textRow
+                                && textRow.selectedOccurrenceValue() != null,
+                        "a Viewable member route uses occurrence zero inside its "
+                                + "already-selected member row");
                 view.search().navigateVirtualForTest(1);
             }
             assertEquals(5, visited.size(),
-                    "each step must land on a different match, not repeat the first");
+                    mode + ": each step must land on a different match, not repeat the first");
+        });
+    }
+
+    @Test void aFieldsNavigatorSelectsThatFieldsOccurrenceNotAnotherMatchingField() {
+        EdtTests.onEdt(() -> {
+            Referencing item = new Referencing("king at the root");
+            Detail first = new Detail("King of First");
+            Detail second = new Detail("King of Second");
+            item.details.add(first);
+            item.details.add(second);
+            String display = objectview.field.ViewableContractFieldSet.DISPLAY_KEY;
+            objectview.viewconfig.ViewConfig detail =
+                    objectview.viewconfig.ViewConfig.of(Detail.class);
+            detail.setAllFields(false);
+            detail.addField(display, objectview.viewconfig.ViewConfig.leaf());
+            objectview.viewconfig.ViewConfig config =
+                    objectview.viewconfig.ViewConfig.of(Referencing.class);
+            config.setAllFields(false);
+            config.addField(display, objectview.viewconfig.ViewConfig.leaf());
+            config.addField("details", detail);
+
+            SearchableView view = SearchableView.builder(List.of(item))
+                    .sample(item)
+                    .mode(RenderingMode.CARD)
+                    .collapsible(true)
+                    .configState(new SearchPanel.ConfigState(config, null, config))
+                    .build();
+            layoutView(view);
+            materialize(view, item);
+            view.search().setFieldHighlight(true);
+            view.search().runCoordinatedSearch("king");
+
+            view.search().navigateVirtualForTest(
+                    objectview.field.FieldPath.of("details", display), 1);
+
+            assertEquals("King of Second", view.search().currentHitRow()
+                            .getClientProperty(
+                                    objectview.field.FieldProperties.FIELD_VALUE_PROPERTY),
+                    "the details navigator must target its second detail, not the "
+                            + "root display field or another matching group");
+        });
+    }
+
+    @Test void consecutiveMatchesShowWhichOccurrenceNavigationSelected() {
+        // Both rows are already visible, and every match is deliberately tinted. A
+        // scroll-only navigator therefore made Next appear to show the first occurrence
+        // twice even though its counter advanced to the adjacent row.
+        EdtTests.onEdt(() -> {
+            ScalarReferencing item = new ScalarReferencing("head of government");
+            ScalarReferencing next = new ScalarReferencing("another office");
+            String italy = "Prime Minister of the Kingdom of Italy";
+            String sardinia = "Prime Minister of the Kingdom of Sardinia";
+            String third = "Prime Minister of the Kingdom of Elsewhere";
+            for (int i = 0; i < 349; i++) {
+                item.offices.add(i == 177 ? italy : i == 178 ? sardinia
+                        : "position " + i);
+            }
+            next.offices.add(third);
+            objectview.viewconfig.ViewConfig config =
+                    objectview.viewconfig.ViewConfig.of(ScalarReferencing.class);
+            config.setAllFields(false);
+            config.addField("offices", objectview.viewconfig.ViewConfig.leaf());
+
+            SearchableView view = SearchableView.builder(List.of(item, next))
+                    .sample(item)
+                    .mode(RenderingMode.CARD)
+                    .collapsible(true)
+                    .configState(new SearchPanel.ConfigState(config, null, config))
+                    .build();
+            layoutView(view);
+            materialize(view, item);
+            materialize(view, next);
+            view.search().setFieldHighlight(true);
+            view.search().runCoordinatedSearch("Prime Minister of the Kingdom");
+
+            JComponent firstRow = view.search().currentHitRow();
+            assertTrue(firstRow instanceof objectview.render.TextRow,
+                    () -> "expected TextRow, got "
+                            + (firstRow == null ? "null" : firstRow.getClass().getName()));
+            assertEquals("• " + italy, ((objectview.render.TextRow) firstRow)
+                    .selectedOccurrenceValue());
+
+            view.search().navigateVirtualForTest(1);
+
+            JComponent secondRow = view.search().currentHitRow();
+            assertTrue(secondRow instanceof objectview.render.TextRow);
+            assertEquals("• " + sardinia, ((objectview.render.TextRow) secondRow)
+                            .selectedOccurrenceValue(),
+                    "Next selects Sardinia, not the Italy row again");
+            BufferedImage selectedImage = renderImage(secondRow);
+            assertEquals(1, countVerticalColorBands(selectedImage,
+                            objectview.render.InstancePaint
+                                    .SEARCH_OCCURRENCE_BORDER.getRGB()),
+                    "exactly one occurrence must carry the current marker; painting "
+                            + "every match would make Next visually meaningless");
+            writeArtifact(materialize(view, item),
+                    "consecutive-search-hit-navigation.png");
+
+            view.search().navigateVirtualForTest(1);
+
+            JComponent thirdRow = view.search().currentHitRow();
+            assertTrue(thirdRow instanceof objectview.render.TextRow);
+            assertEquals("• " + third, ((objectview.render.TextRow) thirdRow)
+                            .selectedOccurrenceValue());
+            assertFalse(containsLineBorderColor(
+                            materialize(view, next).getBorder(),
+                            new java.awt.Color(0xFF8800)),
+                    "crossing to the third hit must not add an orange card border "
+                            + "beside the blue collapse gutter");
+            writeArtifact(materialize(view, next),
+                    "third-search-hit-navigation.png");
+        });
+    }
+
+    @Test void anIndexedPhraseAcrossAdjacentValuesRemainsACardLevelHit() {
+        EdtTests.onEdt(() -> {
+            ScalarReferencing item = new ScalarReferencing("offices");
+            item.offices.add("Mayor of Aast");
+            item.offices.add("King of Spain");
+            objectview.viewconfig.ViewConfig config =
+                    objectview.viewconfig.ViewConfig.of(ScalarReferencing.class);
+            config.setAllFields(false);
+            config.addField("offices", objectview.viewconfig.ViewConfig.leaf());
+
+            SearchableView view = SearchableView.builder(List.of(item))
+                    .sample(item)
+                    .mode(RenderingMode.CARD)
+                    .collapsible(true)
+                    .configState(new SearchPanel.ConfigState(config, null, config))
+                    .build();
+            layoutView(view);
+            materialize(view, item);
+            view.search().setFieldHighlight(true);
+            view.search().runCoordinatedSearch("aast king");
+
+            assertEquals(1, view.search().virtualHitTotal(),
+                    "the index decides that the flattened path matches even when "
+                            + "no individual scalar contains the whole phrase");
+            assertTrue(host(view, item).isHighlighted());
+        });
+    }
+
+    @Test void thirdTextHitDoesNotRecolorItsFieldComponent() {
+        EdtTests.onEdt(() -> {
+            Element first = new Element("King of First");
+            Element second = new Element("King of Second");
+            Element third = new Element("King of Third");
+            String display = objectview.field.ViewableContractFieldSet.DISPLAY_KEY;
+            objectview.viewconfig.ViewConfig config =
+                    objectview.viewconfig.ViewConfig.of(Element.class);
+            config.setAllFields(false);
+            config.addField(display, objectview.viewconfig.ViewConfig.leaf());
+
+            SearchableView view = SearchableView.builder(List.of(first, second, third))
+                    .sample(first)
+                    .mode(RenderingMode.CARD)
+                    .collapsible(true)
+                    .configState(new SearchPanel.ConfigState(config, null, config))
+                    .build();
+            layoutView(view);
+            materializeAll(view, List.of(first, second, third));
+            view.search().setFieldHighlight(true);
+            view.search().runCoordinatedSearch("King of");
+            view.search().navigateVirtualForTest(1);
+            view.search().navigateVirtualForTest(1);
+
+            JComponent thirdCard = materialize(view, third);
+            JComponent displayComponent = findFieldComponent(thirdCard,
+                    objectview.field.FieldPath.of(display));
+            assertNotNull(displayComponent,
+                    "the third display-label hit must have a rendered address");
+            assertFalse(displayComponent.isOpaque(),
+                    "navigation must not turn the third hit's field component into "
+                            + "a red layer over the yellow card and collapse gutter");
+            writeArtifact(thirdCard, "third-display-hit-navigation.png");
         });
     }
 
@@ -482,6 +756,45 @@ class VirtualSearchHighlightTest {
         });
     }
 
+    @Test void anExpandedVirtualCollectionIsTheVisibleAddressOfItsUnbuiltHit() {
+        EdtTests.onEdt(() -> {
+            Element item = new Element("resonant");
+            java.util.List<Detail> details = new java.util.ArrayList<>();
+            for (int i = 0; i < 349; i++) {
+                details.add(new Detail(i == 300 ? "resonant" : "detail " + i));
+            }
+            item.details = details;
+            String display = objectview.field.ViewableContractFieldSet.DISPLAY_KEY;
+            objectview.viewconfig.ViewConfig detail =
+                    objectview.viewconfig.ViewConfig.of(Detail.class);
+            detail.setAllFields(false);
+            detail.addField(display, objectview.viewconfig.ViewConfig.leaf());
+            objectview.viewconfig.ViewConfig config =
+                    objectview.viewconfig.ViewConfig.of(Element.class);
+            config.setAllFields(false);
+            config.addField(display, objectview.viewconfig.ViewConfig.leaf());
+            config.addField("details", detail);
+
+            SearchableView view = SearchableView.builder(List.of(item))
+                    .sample(item)
+                    .mode(RenderingMode.CARD)
+                    .collapsible(true)
+                    .configState(new SearchPanel.ConfigState(config, null, config))
+                    .build();
+            layoutView(view);
+            materialize(view, item);
+            view.search().setFieldHighlight(true);
+            view.search().runCoordinatedSearch("resonant");
+
+            JComponent card = materialize(view, item);
+            assertTrue(view.renderContext().isCollectionExpanded(details, false),
+                    "the concurrently matching nested path must be expanded");
+            assertFalse(hasLabelStartingWith(card, "hidden hit:"),
+                    "an expanded collection header is an honest visible address while "
+                            + "its matching virtual member remains unbuilt");
+        });
+    }
+
     @ParameterizedTest
     @EnumSource(RenderingMode.class)
     void subtypeNestedSearchPathIsComparedWithItsSubtypeViewBranch(RenderingMode mode) {
@@ -527,13 +840,14 @@ class VirtualSearchHighlightTest {
             java.awt.Component root, objectview.field.FieldPath path,
             List<String> tokens) {
         if (root instanceof objectview.render.TextBlock block
-                && block.hasMatchingRow(path, tokens) && block.isOpaque()) {
+                && block.hasMatchingRow(path, tokens)
+                && block.isHighlighting(path, tokens)) {
             return true;
         }
         if (root instanceof objectview.render.TextRow component
                 && path.equals(component.getClientProperty(
                 objectview.field.FieldProperties.FIELD_PATH_PROPERTY))
-                && component.isOpaque()) {
+                && component.isHighlighting(tokens)) {
             return true;
         }
         if (root instanceof java.awt.Container container) {
@@ -546,21 +860,46 @@ class VirtualSearchHighlightTest {
 
     private static void writeArtifact(JComponent component, String name) {
         try {
-            component.setSize(Math.max(420, component.getPreferredSize().width),
-                    Math.max(180, component.getPreferredSize().height));
-            component.doLayout();
             File artifact = new File("target/ui-artifacts", name);
             assertTrue(artifact.getParentFile().mkdirs()
                     || artifact.getParentFile().isDirectory());
-            BufferedImage image = new BufferedImage(component.getWidth(),
-                    component.getHeight(), BufferedImage.TYPE_INT_ARGB);
-            java.awt.Graphics2D graphics = image.createGraphics();
-            component.printAll(graphics);
-            graphics.dispose();
-            ImageIO.write(image, "png", artifact);
+            ImageIO.write(renderImage(component), "png", artifact);
         } catch (java.io.IOException e) {
             throw new AssertionError("Cannot write UI artifact", e);
         }
+    }
+
+    private static BufferedImage renderImage(JComponent component) {
+        component.setSize(Math.max(420, component.getPreferredSize().width),
+                Math.max(180, component.getPreferredSize().height));
+        component.doLayout();
+        BufferedImage image = new BufferedImage(component.getWidth(),
+                component.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D graphics = image.createGraphics();
+        component.printAll(graphics);
+        graphics.dispose();
+        return image;
+    }
+
+    /** Counts contiguous horizontal slices containing the selected-occurrence color.
+     * An outlined occurrence contributes one vertical band even though its rectangle
+     * contains two horizontal edges and two vertical edges. */
+    private static int countVerticalColorBands(BufferedImage image, int rgb) {
+        int wanted = rgb & 0x00FFFFFF;
+        int bands = 0;
+        boolean inside = false;
+        for (int y = 0; y < image.getHeight(); y++) {
+            boolean rowContainsColor = false;
+            for (int x = 0; x < image.getWidth(); x++) {
+                if ((image.getRGB(x, y) & 0x00FFFFFF) == wanted) {
+                    rowContainsColor = true;
+                    break;
+                }
+            }
+            if (rowContainsColor && !inside) bands++;
+            inside = rowContainsColor;
+        }
+        return bands;
     }
 
     private static final String[] DISPLAY_ONLY = {
@@ -613,6 +952,57 @@ class VirtualSearchHighlightTest {
         }
     }
 
+    private static void layoutView(SearchableView view) {
+        view.setSize(900, 700);
+        layoutTree(view);
+        view.refreshViewport();
+        layoutTree(view);
+    }
+
+    private static void layoutTree(java.awt.Container container) {
+        container.doLayout();
+        for (java.awt.Component child : container.getComponents()) {
+            if (child instanceof java.awt.Container nested) layoutTree(nested);
+        }
+    }
+
+    private static Object containingRenderedValue(JComponent component) {
+        for (java.awt.Component current = component; current != null;
+             current = current.getParent()) {
+            if (current instanceof JComponent jc) {
+                Object value = jc.getClientProperty(
+                        objectview.field.FieldProperties.FIELD_VALUE_PROPERTY);
+                if (value instanceof Viewable) return value;
+            }
+        }
+        return null;
+    }
+
+    private static void assertVisibleInEveryViewport(JComponent row) {
+        assertNotNull(row, "navigation must retain the exact rendered hit row");
+        int viewports = 0;
+        for (java.awt.Component current = row.getParent(); current != null;
+             current = current.getParent()) {
+            if (!(current instanceof javax.swing.JViewport viewport)
+                    || viewport.getView() == null) continue;
+            viewports++;
+            java.awt.Rectangle rowBounds = javax.swing.SwingUtilities.convertRectangle(
+                    row.getParent(), row.getBounds(), viewport.getView());
+            assertTrue(viewport.getViewRect().intersects(rowBounds),
+                    "the selected hit must intersect every viewport containing it");
+        }
+        assertTrue(viewports >= 2,
+                "the forcing case must cross both nested and outer virtual viewports: "
+                        + ancestorTypes(row));
+    }
+
+    private static String ancestorTypes(java.awt.Component component) {
+        java.util.List<String> names = new java.util.ArrayList<>();
+        for (java.awt.Component current = component; current != null;
+             current = current.getParent()) names.add(current.getClass().getSimpleName());
+        return String.join(" > ", names);
+    }
+
     private static Object findVirtual(java.awt.Component root) {
         if (root instanceof objectview.virtual.VirtualizedCardList v) return v;
         if (root instanceof java.awt.Container c) {
@@ -622,6 +1012,47 @@ class VirtualSearchHighlightTest {
             }
         }
         return null;
+    }
+
+    private static boolean containsLineBorderColor(
+            javax.swing.border.Border border, java.awt.Color color) {
+        if (border instanceof javax.swing.border.LineBorder line) {
+            return color.equals(line.getLineColor());
+        }
+        if (border instanceof javax.swing.border.CompoundBorder compound) {
+            return containsLineBorderColor(compound.getOutsideBorder(), color)
+                    || containsLineBorderColor(compound.getInsideBorder(), color);
+        }
+        return false;
+    }
+
+    private static JComponent findFieldComponent(
+            java.awt.Component root, objectview.field.FieldPath path) {
+        if (root instanceof JComponent component
+                && path.equals(component.getClientProperty(
+                objectview.field.FieldProperties.FIELD_PATH_PROPERTY))) {
+            return component;
+        }
+        if (root instanceof java.awt.Container container) {
+            for (java.awt.Component child : container.getComponents()) {
+                JComponent found = findFieldComponent(child, path);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static boolean hasLabelStartingWith(
+            java.awt.Component root, String prefix) {
+        if (root instanceof javax.swing.JLabel label
+                && label.getText() != null
+                && label.getText().startsWith(prefix)) return true;
+        if (root instanceof java.awt.Container container) {
+            for (java.awt.Component child : container.getComponents()) {
+                if (hasLabelStartingWith(child, prefix)) return true;
+            }
+        }
+        return false;
     }
 
     private static JComponent materialize(SearchableView view, Viewable item) {
@@ -670,6 +1101,16 @@ class VirtualSearchHighlightTest {
         @Override public String getDisplayName() { return name; }
     }
 
+    /** Loaded snapshots collapse unstamped entity references to display strings. */
+    public static final class ScalarReferencing extends ViewableAdapter {
+        private final String name;
+        public final List<String> offices = new java.util.ArrayList<>();
+
+        public ScalarReferencing(String name) { this.name = name; }
+        @Override public String getIdentifier() { return name; }
+        @Override public String getDisplayName() { return name; }
+    }
+
     public static class Element extends ViewableAdapter {
         private final String name;
         public String note = "";
@@ -689,11 +1130,16 @@ class VirtualSearchHighlightTest {
     }
 
     public static final class Detail extends ViewableAdapter {
+        private final String name;
         public String note;
 
-        public Detail(String note) { this.note = note; }
-        @Override public String getIdentifier() { return note; }
-        @Override public String getDisplayName() { return note; }
+        public Detail(String note) { this(note, note); }
+        public Detail(String name, String note) {
+            this.name = name;
+            this.note = note;
+        }
+        @Override public String getIdentifier() { return name; }
+        @Override public String getDisplayName() { return name; }
     }
 
     public static final class ReferencingRecord extends ViewableAdapter {

@@ -38,7 +38,8 @@ public class TextRow extends JComponent implements TextSelectable {
                              int baseline,
                              int top,
                              int bottom,
-                             int lineIndex) {
+                             int lineIndex,
+                             int sourceLineIndex) {
     }
 
     private record TextPosition(int lineIndex, int offset) {
@@ -48,6 +49,7 @@ public class TextRow extends JComponent implements TextSelectable {
     private final FieldPath fieldPath;
     private final List<String> lines;
     private List<String> highlightTokens = List.of();
+    private int selectedSearchSourceLine = -1;
 
     private final TextSelection selection =
             new TextSelection();
@@ -423,9 +425,68 @@ public class TextRow extends JComponent implements TextSelectable {
         repaint();
     }
 
+    /** Whether this renderer currently owns the requested text highlight. */
+    public boolean isHighlighting(List<String> tokens) {
+        return highlightTokens.equals(tokens == null ? List.of() : tokens);
+    }
+
     public void clearHighlight() {
         highlightTokens = List.of();
+        clearSelectedSearchOccurrence();
+    }
+
+    /** Clears only the per-navigation marker; query-wide text highlighting stays. */
+    public void clearSelectedSearchOccurrence() {
+        selectedSearchSourceLine = -1;
         repaint();
+    }
+
+    /** Selects the Nth matching source value in this possibly multi-value row. */
+    public boolean selectMatchingOccurrence(
+            List<String> tokens, boolean exact, int occurrence) {
+        int found = 0;
+        for (int sourceLine = 0; sourceLine < lines.size(); sourceLine++) {
+            if (!sourceLineMatches(lines.get(sourceLine), tokens, exact)) continue;
+            if (found++ != occurrence) continue;
+            selectedSearchSourceLine = sourceLine;
+            repaint();
+            return true;
+        }
+        selectedSearchSourceLine = -1;
+        repaint();
+        return false;
+    }
+
+    public String selectedOccurrenceValue() {
+        return selectedSearchSourceLine < 0 || selectedSearchSourceLine >= lines.size()
+                ? null : lines.get(selectedSearchSourceLine);
+    }
+
+    public Rectangle selectedOccurrenceBounds() {
+        if (selectedSearchSourceLine < 0) return null;
+        Rectangle bounds = null;
+        for (PaintLine line : computePaintLines(getWidth())) {
+            if (line.sourceLineIndex() != selectedSearchSourceLine) continue;
+            Rectangle part = new Rectangle(
+                    PAD_X - 2, line.top() - 1,
+                    Math.max(1, getWidth() - 2 * PAD_X + 4),
+                    line.bottom() - line.top() + 2);
+            bounds = bounds == null ? part : bounds.union(part);
+        }
+        return bounds;
+    }
+
+    private static boolean sourceLineMatches(
+            String line, List<String> tokens, boolean exact) {
+        if (line == null || tokens == null || tokens.isEmpty()) return false;
+        String sourceText = line.startsWith("• ") ? line.substring(2) : line;
+        String rendered = sourceText.toLowerCase().trim();
+        List<String> wanted = tokens.stream()
+                .map(value -> value == null ? "" : value.toLowerCase().trim())
+                .filter(value -> !value.isBlank()).toList();
+        if (wanted.isEmpty()) return false;
+        if (exact) return rendered.equals(String.join(" ", wanted));
+        return wanted.stream().allMatch(rendered::contains);
     }
 
     private Font fieldFont() {
@@ -527,7 +588,8 @@ public class TextRow extends JComponent implements TextSelectable {
 
             g2.setFont(valueFont);
 
-            for (PaintLine line : computePaintLines(getWidth())) {
+            List<PaintLine> paintLines = computePaintLines(getWidth());
+            for (PaintLine line : paintLines) {
                 paintTextLine(g2,
                               line.text(),
                               line.x(),
@@ -535,9 +597,26 @@ public class TextRow extends JComponent implements TextSelectable {
                               fmValue,
                               line.lineIndex());
             }
+            InstancePaint.paintCurrentSearchOccurrence(
+                    g2, selectedOccurrencePaintBounds(paintLines, fmValue));
         } finally {
             g2.dispose();
         }
+    }
+
+    private Rectangle selectedOccurrencePaintBounds(
+            List<PaintLine> paintLines, FontMetrics metrics) {
+        if (selectedSearchSourceLine < 0) return null;
+        Rectangle bounds = null;
+        for (PaintLine line : paintLines) {
+            if (line.sourceLineIndex() != selectedSearchSourceLine) continue;
+            Rectangle part = new Rectangle(
+                    line.x() - 2, line.top() - 1,
+                    metrics.stringWidth(line.text()) + 4,
+                    line.bottom() - line.top() + 2);
+            bounds = bounds == null ? part : bounds.union(part);
+        }
+        return bounds;
     }
 
     private List<PaintLine> computePaintLines(int width) {
@@ -554,18 +633,22 @@ public class TextRow extends JComponent implements TextSelectable {
                 + (prefix.isEmpty() ? 0 : prefixWidth + GAP);
         int valueWidth = Math.max(80, width - valueX - PAD_X);
 
-        List<String> wrapped = wrappedLines(fmValue, valueWidth);
         List<PaintLine> out = new ArrayList<>();
 
         int y = PAD_Y + fmValue.getAscent();
-
-        for (int i = 0; i < wrapped.size(); i++) {
-            String line = wrapped.get(i);
-            out.add(new PaintLine(line, valueX, y,
-                                  y - fmValue.getAscent(),
-                                  y + fmValue.getDescent(),
-                                  i));
-            y += fmValue.getHeight();
+        int paintLine = 0;
+        List<String> sourceLines = lines.isEmpty() ? List.of("") : lines;
+        for (int sourceLine = 0; sourceLine < sourceLines.size(); sourceLine++) {
+            List<String> wrapped = new ArrayList<>();
+            wrapOneLine(sourceLines.get(sourceLine), fmValue, valueWidth, wrapped);
+            if (wrapped.isEmpty()) wrapped.add("");
+            for (String line : wrapped) {
+                out.add(new PaintLine(line, valueX, y,
+                                      y - fmValue.getAscent(),
+                                      y + fmValue.getDescent(),
+                                      paintLine++, sourceLine));
+                y += fmValue.getHeight();
+            }
         }
 
         cachedWidth = width;

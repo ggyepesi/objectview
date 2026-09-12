@@ -99,6 +99,12 @@ public class CollectionHeader extends JComponent {
         return fieldName.isBlank() ? "(" + count + ")" : fieldName + " (" + count + ")";
     }
 
+    /** An expanded header is a summary/control; its concrete rendered children own
+     * search-hit navigation. A collapsed header remains the only available target. */
+    public boolean isExpanded() {
+        return expanded;
+    }
+
     @Override
     public Dimension getPreferredSize() {
         FontMetrics fm = getFontMetrics(labelFont());

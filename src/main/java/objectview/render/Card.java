@@ -164,66 +164,85 @@ public class Card extends JPanel implements RenderedInstanceHost {
         return expandCollectionsOnPath(path);
     }
 
-    /** Scrolls the virtualized member matching {@code tokens} on {@code path} into
-     *  view, after {@link #revealPath} has opened the collection holding it. */
+    /** Scrolls the exact collection members retained by field-path resolution into
+     * view, after {@link #revealPath} has opened the collections holding them. */
     @Override
-    public boolean revealPathMember(
-            FieldPath path, List<String> tokens, int occurrence) {
-        return revealMemberIn(this, path, tokens, occurrence);
+    public Component revealPathMember(
+            FieldPath path, List<Viewable> collectionMembers) {
+        return revealPathMemberIn(this, path, collectionMembers);
     }
 
-    private static boolean revealMemberIn(
-            Container parent, FieldPath path, List<String> tokens, int occurrence) {
+    /** Shared member-routing implementation for every host built from Card's field
+     * renderer, including table rows. The collection metadata lives on rendered
+     * field panels, not on the outer layout. */
+    public static Component revealPathMemberIn(
+            Container root, FieldPath path, List<Viewable> collectionMembers) {
+        if (collectionMembers == null || collectionMembers.isEmpty()) return null;
+        // A table cell may flatten a nested route straight to its leaf row. Prefer
+        // that exact retained identity when present; cards that render intermediate
+        // member containers fall through to the stepwise route below.
+        Component direct = revealMemberIn(root, path,
+                collectionMembers.get(collectionMembers.size() - 1));
+        if (direct != null) return direct;
+        Container scope = root;
+        Component deepest = null;
+        for (Viewable member : collectionMembers) {
+            Component rendered = revealMemberIn(scope, path, member);
+            if (rendered == null) return deepest;
+            deepest = rendered;
+            if (rendered instanceof Container container) scope = container;
+        }
+        return deepest;
+    }
+
+    /** Records a rendered leaf against the member identity that produced it. Table
+     * cells flatten paths while cards nest them, but both publish the same metadata
+     * and are discovered by {@link #revealPathMemberIn}. */
+    public static void registerRenderedMember(
+            JComponent container, FieldPath path,
+            Viewable member, JComponent rendered) {
+        if (container == null || path == null || member == null || rendered == null) {
+            return;
+        }
+        container.putClientProperty(INLINE_FIELD_PATH, path);
+        Object stored = container.getClientProperty(INLINE_RENDERED);
+        @SuppressWarnings("unchecked")
+        Map<Viewable, JComponent> members = stored instanceof Map<?, ?> map
+                ? (Map<Viewable, JComponent>) map : new IdentityHashMap<>();
+        members.put(member, rendered);
+        container.putClientProperty(INLINE_RENDERED, members);
+    }
+
+    private static Component revealMemberIn(
+            Container parent, FieldPath path, Viewable member) {
+        if (parent instanceof JComponent panel
+                && holdsPath(panel, path)
+                && panel.getClientProperty(INLINE_VIRTUAL_LIST)
+                        instanceof VirtualizedCardList virtual) {
+            JComponent rendered = virtual.ensureVisible(member);
+            if (rendered != null) return rendered;
+        }
+        if (parent instanceof JComponent panel
+                && holdsPath(panel, path)
+                && panel.getClientProperty(INLINE_RENDERED)
+                        instanceof Map<?, ?> rendered) {
+            Object exact = rendered.get(member);
+            if (exact instanceof Component found) return found;
+        }
         for (Component component : parent.getComponents()) {
-            if (component instanceof JComponent panel
-                    && panel.getClientProperty(INLINE_VIRTUAL_LIST)
-                            instanceof VirtualizedCardList virtual
-                    && holdsPath(panel, path)) {
-                Viewable member = matchingMember(virtual.items(), tokens, occurrence);
-                if (member != null) {
-                    virtual.ensureVisible(member);
-                    return true;
-                }
-            }
-            if (component instanceof Container nested
-                    && revealMemberIn(nested, path, tokens, occurrence)) {
-                return true;
+            if (component instanceof Container nested) {
+                Component found = revealMemberIn(nested, path, member);
+                if (found != null) return found;
             }
         }
-        return false;
+        return null;
     }
 
-    /** The searched path starts at the field this panel holds — the rest of it
-     *  addresses something INSIDE a member, which is why the member must be found
-     *  before the remaining segments can match anything. */
     private static boolean holdsPath(JComponent panel, FieldPath path) {
         return panel.getClientProperty(INLINE_FIELD_PATH) instanceof FieldPath held
                 && path != null && !held.isRoot()
                 && path.size() >= held.size()
                 && path.segments().subList(0, held.size()).equals(held.segments());
-    }
-
-    /** The {@code occurrence}-th member whose visible text matches, so navigating
-     *  inside one collection walks its matches in the order they are rendered. */
-    private static Viewable matchingMember(
-            List<Viewable> members, List<String> tokens, int occurrence) {
-        if (members == null || tokens == null || tokens.isEmpty()) return null;
-        int seen = 0;
-        for (Viewable member : members) {
-            String text = (ReferenceRow.referenceLabel(member) + " "
-                    + (member.getDisplayName() == null ? "" : member.getDisplayName()))
-                    .toLowerCase(java.util.Locale.ROOT);
-            boolean all = true;
-            for (String token : tokens) {
-                if (token != null && !token.isBlank()
-                        && !text.contains(token.toLowerCase(java.util.Locale.ROOT))) {
-                    all = false;
-                    break;
-                }
-            }
-            if (all && seen++ == Math.max(0, occurrence)) return member;
-        }
-        return null;
     }
 
     @Override
@@ -1139,6 +1158,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
 
         JPanel panel = new JPanel(new GridBagLayout());
         panel.setOpaque(false);
+        panel.putClientProperty(INLINE_FIELD_PATH, fieldPath);
         if (fieldName != null && !fieldName.isBlank()) {
             panel.setBorder(BorderFactory.createTitledBorder(fieldName));
         }
@@ -1149,6 +1169,9 @@ public class Card extends JPanel implements RenderedInstanceHost {
         for (Object item : items) {
             if (item instanceof Viewable q) viewableItems.add(q);
         }
+        java.util.IdentityHashMap<Viewable, JComponent> rendered =
+                new java.util.IdentityHashMap<>();
+        panel.putClientProperty(INLINE_RENDERED, rendered);
 
         // The SAME ceiling the @Inline path uses, because this is the same problem:
         // one Swing component per member is what a card cannot afford. A reference
@@ -1157,9 +1180,6 @@ public class Card extends JPanel implements RenderedInstanceHost {
         // position hierarchy produced 124,087 live ReferenceRows behind 114 cards,
         // and every later layout, measure and rebuild walked all of them.
         if (viewableItems.size() > INLINE_VIRTUALIZATION_THRESHOLD) {
-            // The panel has to say which field it holds, or a search hit cannot find
-            // the list that owns its member.
-            panel.putClientProperty(INLINE_FIELD_PATH, fieldPath);
             installVirtualInlineCollection(
                     panel, viewableItems, fieldPath, nestedConfig);
             return panel;
@@ -1167,7 +1187,9 @@ public class Card extends JPanel implements RenderedInstanceHost {
 
         int row = 0;
         for (Viewable q : viewableItems) {
-            addReferenceToPanel(panel, "", q, fieldPath, nestedConfig, row++);
+            JComponent component = addReferenceToPanel(
+                    panel, "", q, fieldPath, nestedConfig, row++);
+            if (component != null) rendered.put(q, component);
         }
 
         return row == 0 ? null : panel;
@@ -1319,6 +1341,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
             this.target = target;
             this.owner = owner;
             setOpaque(false);
+            putClientProperty(FieldProperties.FIELD_VALUE_PROPERTY, target);
             add(collapsibleReference(
                     "", fieldPath, target, false, nestedConfig), BorderLayout.CENTER);
         }
@@ -1540,7 +1563,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
         return nested.hasRenderedConfiguredContent() ? nested : null;
     }
 
-    private void addReferenceToPanel(
+    private JComponent addReferenceToPanel(
             JPanel panel,
             String fieldName,
             Viewable q,
@@ -1548,14 +1571,17 @@ public class Card extends JPanel implements RenderedInstanceHost {
             ViewConfig nestedConfig,
             int row
     ) {
-        panel.add(collapsibleReference(
-                        fieldName, fieldPath, q, false, nestedConfig),
+        JComponent component = collapsibleReference(
+                fieldName, fieldPath, q, false, nestedConfig);
+        if (component == null) return null;
+        panel.add(component,
                 GridBagUtils.weighted(
                         0, row,
                         1.0, 0.0,
                         GridBagConstraints.NORTHWEST,
                         GridBagConstraints.HORIZONTAL,
                         new Insets(2, 6, 2, 6)));
+        return component;
     }
 
     // A Viewable reference renders as a collapsed chip by default; clicking

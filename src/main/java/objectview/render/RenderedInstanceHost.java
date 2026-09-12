@@ -26,7 +26,7 @@ public interface RenderedInstanceHost extends RenderRefreshHost {
     }
 
     /**
-     * Scrolls a virtualized member matching {@code tokens} on {@code path} into view.
+     * Scrolls the exact collection-member route for a hit on {@code path} into view.
      *
      * <p>Expanding the collection is not enough once the collection is virtualized:
      * the matching member has no component at all until its own list scrolls to it,
@@ -34,11 +34,12 @@ public interface RenderedInstanceHost extends RenderRefreshHost {
      * hidden. Revealing the PATH and revealing the MEMBER are therefore two steps,
      * and only the host knows whether the second one has anywhere to go.
      *
-     * @return true when a member was scrolled to, so the caller can look again
+     * @return the rendered component for the deepest member, or null when this
+     * host has no virtualized member to reveal
      */
-    default boolean revealPathMember(
-            FieldPath path, java.util.List<String> tokens, int occurrence) {
-        return false;
+    default Component revealPathMember(
+            FieldPath path, java.util.List<Viewable> collectionMembers) {
+        return null;
     }
 
     /** The nearest containing rendered-instance root, or null. */

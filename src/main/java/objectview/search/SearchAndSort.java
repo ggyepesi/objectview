@@ -3,6 +3,7 @@ package objectview.search;
 import objectview.field.ValueText;
 import objectview.field.ViewableFieldPaths;
 import objectview.field.FieldPath;
+import objectview.field.ResolvedFieldPath;
 
 import objectview.annotations.Numeric;
 import objectview.render.Card;
@@ -29,6 +30,18 @@ import java.util.function.Function;
  * - navigation result rows
  */
 public class SearchAndSort {
+
+    /** One matching value, its position among this path's matches, and the exact
+     * collection-member route that renders it. The position is load-bearing for
+     * scalar collections: snapshot loading deliberately collapses bare entity
+     * references to their display strings, so there is no Viewable identity to retain. */
+    record ValueMatch(Object value, List<objectview.Viewable> collectionMembers,
+                      int occurrence) {
+        ValueMatch {
+            collectionMembers = collectionMembers == null
+                    ? List.of() : List.copyOf(collectionMembers);
+        }
+    }
 
     private final List<SearchEntry> searchIndex =
             new ArrayList<>();
@@ -224,13 +237,12 @@ public class SearchAndSort {
         Function<objectview.Viewable, objectview.field.FieldSchema> schemas =
                 batchSchemaResolver();
         for (PathWork pathWork : work.paths()) {
-            List<SearchText> texts = new ArrayList<>(pathWork.viewables().size());
+            List<IndexedText> texts = new ArrayList<>(pathWork.viewables().size());
             for (objectview.Viewable viewable : pathWork.viewables()) {
                 if (Thread.currentThread().isInterrupted()) {
                     throw new java.util.concurrent.CancellationException();
                 }
-                texts.add(searchText(pathWork.path(),
-                        extractValue(viewable, pathWork.path().path(), schemas)));
+                texts.add(indexedText(viewable, pathWork.path(), schemas));
             }
             extracted.add(new ExtractedPath(
                     pathWork.path(), pathWork.viewables(), texts));
@@ -246,15 +258,17 @@ public class SearchAndSort {
                     extracted.path().path(), ignored -> new PathIndex());
             for (int i = 0; i < extracted.viewables().size(); i++) {
                 objectview.Viewable viewable = extracted.viewables().get(i);
-                SearchText text = extracted.texts().get(i);
+                IndexedText text = extracted.texts().get(i);
                 Integer row = index.rows.get(viewable);
                 if (row == null) {
-                    index.rows.put(viewable, index.items.size());
+                    row = index.items.size();
+                    index.rows.put(viewable, row);
                     index.items.add(viewable);
-                    index.texts.add(text);
+                    index.texts.add(text.combined());
                 } else {
-                    index.texts.set(row, text);
+                    index.texts.set(row, text.combined());
                 }
+                index.setOccurrences(row, text);
             }
         }
         viewableSearchIndexRevision++;
@@ -300,6 +314,165 @@ public class SearchAndSort {
             }
         }
         return out;
+    }
+
+    /**
+     * Resolves the concrete matches behind one indexed card hit. The index answers
+     * which root instances match cheaply; this preserves the identities encountered
+     * by the same field-path resolution so navigation can reveal the exact rendered
+     * member instead of trying to find it again from its label.
+     */
+    List<ValueMatch> matchingValues(
+            objectview.Viewable root,
+            ViewableFieldPaths.PathInfo field,
+            List<String> queryTokens,
+            boolean exact) {
+        if (root == null || field == null || queryTokens == null
+                || queryTokens.isEmpty()) return List.of();
+        ResolvedFieldPath resolved = ResolvedFieldPath.resolve(
+                root, field.path(), batchSchemaResolver());
+        List<ValueMatch> result = new ArrayList<>();
+        for (ResolvedFieldPath.Occurrence occurrence : resolved.occurrences()) {
+            addMatchingValues(result, field, occurrence.value(),
+                    occurrence.collectionMembers(), queryTokens, exact);
+        }
+        return List.copyOf(result);
+    }
+
+    /** Concrete-match counts from the already-extracted index. Querying must not
+     * repeat a reflective field-path walk for every hit on the Swing event thread;
+     * identity routes are resolved lazily for the one occurrence being navigated. */
+    List<ValueMatch> matchingIndexedValues(
+            objectview.Viewable root,
+            ViewableFieldPaths.PathInfo field,
+            List<String> queryTokens,
+            boolean exact) {
+        if (root == null || field == null) return List.of();
+        PathIndex index = viewableIndex.get(field.path());
+        if (index == null) return List.of();
+        Integer row = index.rows.get(root);
+        if (row == null) return List.of();
+        SearchText combined = index.texts.get(row);
+        List<ValueMatch> matches = new ArrayList<>();
+        for (SearchText occurrence : index.occurrences(row)) {
+            if (matches(occurrence, queryTokens, exact)) {
+                matches.add(new ValueMatch(null, List.of(), matches.size()));
+            }
+        }
+        if (matches.isEmpty() && matches(combined, queryTokens, exact)) {
+            // The phrase spans adjacent values. The index remains authoritative,
+            // but there is no single rendered occurrence to address.
+            matches.add(new ValueMatch(null, List.of(), 0));
+        }
+        return List.copyOf(matches);
+    }
+
+    private IndexedText indexedText(
+            objectview.Viewable root,
+            ViewableFieldPaths.PathInfo field,
+            Function<objectview.Viewable, objectview.field.FieldSchema> schemas) {
+        List<SearchText> occurrences = new ArrayList<>();
+        try {
+            ResolvedFieldPath resolved = ResolvedFieldPath.resolve(
+                    root, field.path(), schemas);
+            for (ResolvedFieldPath.Occurrence occurrence : resolved.occurrences()) {
+                addOccurrenceTexts(occurrences, field, occurrence.value());
+            }
+        } catch (ConcurrentModificationException movedUnderneath) {
+            throw movedUnderneath;
+        } catch (RuntimeException ignored) {
+            return new IndexedText(new SearchText("", List.of()), List.of());
+        }
+        List<String> atoms = new ArrayList<>();
+        for (SearchText occurrence : occurrences) atoms.addAll(occurrence.atoms());
+        SearchText combined = new SearchText(
+                atoms.size() == 1 ? atoms.get(0) : String.join(" ", atoms), atoms);
+        return new IndexedText(combined, occurrences);
+    }
+
+    private void addOccurrenceTexts(
+            List<SearchText> out,
+            ViewableFieldPaths.PathInfo field,
+            Object value) {
+        if (value instanceof Collection<?> collection) {
+            for (Object member : collection) addOccurrenceTexts(out, field, member);
+            return;
+        }
+        if (value instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                Map<Object, Object> rendered = new LinkedHashMap<>();
+                rendered.put(entry.getKey(), entry.getValue());
+                out.add(searchText(field, rendered));
+            }
+            return;
+        }
+        if (value != null && value.getClass().isArray()) {
+            int length = java.lang.reflect.Array.getLength(value);
+            for (int i = 0; i < length; i++) {
+                addOccurrenceTexts(out, field, java.lang.reflect.Array.get(value, i));
+            }
+            return;
+        }
+        out.add(searchText(field, value));
+    }
+
+    private void addMatchingValues(
+            List<ValueMatch> result,
+            ViewableFieldPaths.PathInfo field,
+            Object value,
+            List<objectview.Viewable> collectionMembers,
+            List<String> queryTokens,
+            boolean exact) {
+        if (value instanceof Collection<?> collection) {
+            for (Object member : collection) {
+                addMatchingLeaf(result, field, member,
+                        appendMember(collectionMembers, member), queryTokens, exact);
+            }
+            return;
+        }
+        if (value instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                Map<Object, Object> rendered = new LinkedHashMap<>();
+                rendered.put(entry.getKey(), entry.getValue());
+                addMatchingLeaf(result, field, rendered,
+                        appendMember(collectionMembers, entry.getValue()),
+                        queryTokens, exact);
+            }
+            return;
+        }
+        if (value != null && value.getClass().isArray()) {
+            int length = java.lang.reflect.Array.getLength(value);
+            for (int i = 0; i < length; i++) {
+                Object member = java.lang.reflect.Array.get(value, i);
+                addMatchingLeaf(result, field, member,
+                        appendMember(collectionMembers, member), queryTokens, exact);
+            }
+            return;
+        }
+        addMatchingLeaf(result, field, value, collectionMembers, queryTokens, exact);
+    }
+
+    private void addMatchingLeaf(
+            List<ValueMatch> result,
+            ViewableFieldPaths.PathInfo field,
+            Object value,
+            List<objectview.Viewable> collectionMembers,
+            List<String> queryTokens,
+            boolean exact) {
+        if (matches(searchText(field, value), queryTokens, exact)) {
+            result.add(new ValueMatch(value, collectionMembers, result.size()));
+        }
+    }
+
+    private static List<objectview.Viewable> appendMember(
+            List<objectview.Viewable> members, Object candidate) {
+        if (!(candidate instanceof objectview.Viewable viewable)) return members;
+        if (!members.isEmpty() && members.get(members.size() - 1) == viewable) {
+            return members;
+        }
+        List<objectview.Viewable> result = new ArrayList<>(members);
+        result.add(viewable);
+        return List.copyOf(result);
     }
 
     public List<Card> sortPanels(
@@ -540,6 +713,25 @@ public class SearchAndSort {
         private final List<SearchText> texts = new ArrayList<>();
         private final Map<objectview.Viewable, Integer> rows =
                 new java.util.IdentityHashMap<>();
+        /** Scalar fields remain exactly as compact as the original text index. Only
+         * genuinely multi-valued paths pay for occurrence boundaries. */
+        private final Map<Integer, List<SearchText>> multipleOccurrences =
+                new HashMap<>();
+
+        private void setOccurrences(int row, IndexedText indexed) {
+            List<SearchText> occurrences = indexed.occurrences();
+            if (occurrences.isEmpty() || occurrences.size() == 1
+                    && occurrences.get(0).equals(indexed.combined())) {
+                multipleOccurrences.remove(row);
+            } else {
+                multipleOccurrences.put(row, occurrences);
+            }
+        }
+
+        private List<SearchText> occurrences(int row) {
+            List<SearchText> multiple = multipleOccurrences.get(row);
+            return multiple != null ? multiple : List.of(texts.get(row));
+        }
     }
 
     record PathWork(
@@ -555,7 +747,7 @@ public class SearchAndSort {
     record ExtractedPath(
             ViewableFieldPaths.PathInfo path,
             List<objectview.Viewable> viewables,
-            List<SearchText> texts) {
+            List<IndexedText> texts) {
         ExtractedPath {
             viewables = List.copyOf(viewables);
             texts = List.copyOf(texts);
@@ -576,6 +768,13 @@ public class SearchAndSort {
         private SearchText {
             flattened = flattened == null ? "" : flattened;
             atoms = atoms == null ? List.of() : List.copyOf(atoms);
+        }
+    }
+
+    private record IndexedText(SearchText combined, List<SearchText> occurrences) {
+        private IndexedText {
+            combined = combined == null ? new SearchText("", List.of()) : combined;
+            occurrences = occurrences == null ? List.of() : List.copyOf(occurrences);
         }
     }
 

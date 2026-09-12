@@ -139,10 +139,10 @@ class DynamicCollectionCardTest {
         assertNull(virtual.builtCard(deep),
                 "the matching member starts unbuilt, which is why the hit was hidden");
 
-        boolean revealed = card[0].revealPathMember(
-                FieldPath.of("superClasses"), List.of("kingersheim"), 0);
+        Component revealed = card[0].revealPathMember(
+                FieldPath.of("superClasses"), List.of(deep));
 
-        assertTrue(revealed, "the card must find the list holding the member");
+        assertNotNull(revealed, "the card must find the list holding the member");
         assertNotNull(virtual.builtCard(deep),
                 "and scroll it into view so a component exists to highlight");
     }

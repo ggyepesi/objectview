@@ -4,7 +4,9 @@ import objectview.field.FieldPath;
 import objectview.utils.swing.GridBagUtils;
 
 import javax.swing.JComponent;
+import javax.swing.BorderFactory;
 import javax.swing.JPanel;
+import java.awt.Graphics;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
@@ -43,8 +45,12 @@ public final class CollapsibleFieldRenderer {
         JComponent items = body.get();
         if (items == null) return header;
 
-        JPanel wrap = new JPanel(new GridBagLayout());
+        ExpandedCollectionPanel wrap = new ExpandedCollectionPanel();
         wrap.setOpaque(false);
+        wrap.arm(() -> {
+            context.setCollectionExpanded(key, false);
+            RenderRefreshHost.refreshAncestor(wrap);
+        });
         wrap.add(header, GridBagUtils.weighted(
                 0, 0, 1.0, 0.0,
                 GridBagConstraints.NORTHWEST,
@@ -54,5 +60,24 @@ public final class CollapsibleFieldRenderer {
                 GridBagConstraints.NORTHWEST,
                 GridBagConstraints.HORIZONTAL, new Insets(0, 16, 2, 0)));
         return wrap;
+    }
+
+    /** The same whole-height collapse affordance used by expanded cards and query-log
+     * entries, now owned by the shared collection presentation. */
+    private static final class ExpandedCollectionPanel extends JPanel {
+        private ExpandedCollectionPanel() {
+            super(new GridBagLayout());
+        }
+
+        private void arm(Runnable collapse) {
+            setBorder(BorderFactory.createEmptyBorder(
+                    0, CollapseGutter.WIDTH, 0, 0));
+            CollapseGutter.install(this, collapse);
+        }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            CollapseGutter.INSTANCE.paint(graphics, this, getHeight());
+            super.paintComponent(graphics);
+        }
     }
 }

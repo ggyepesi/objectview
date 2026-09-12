@@ -310,6 +310,11 @@ public final class ViewableColumnsView
             JComponent component = renderOccurrence(root, path, occurrence, rootConfig);
             if (component == null) continue;
             list.addItem(component);
+            List<Viewable> route = occurrence.collectionMembers();
+            if (!route.isEmpty()) {
+                Card.registerRenderedMember(
+                        list, path, route.get(route.size() - 1), component);
+            }
         }
         return list.getComponentCount() == 0 ? null : list;
     }
@@ -383,6 +388,11 @@ public final class ViewableColumnsView
 
         @Override public boolean revealPath(FieldPath path) {
             return context.revealPath(q, path);
+        }
+
+        @Override public Component revealPathMember(
+                FieldPath path, List<Viewable> collectionMembers) {
+            return Card.revealPathMemberIn(this, path, collectionMembers);
         }
 
         @Override public void doLayout() {

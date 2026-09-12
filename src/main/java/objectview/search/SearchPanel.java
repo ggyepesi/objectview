@@ -45,10 +45,6 @@ public class SearchPanel extends JPanel
 
     private static final Color CARD_HIT_BACKGROUND =
             new Color(255, 248, 200);
-    // The actual hit (field / text) is red-ish so it stands out clearly from
-    // the card's pale-yellow tint.
-    private static final Color FIELD_HIT_BACKGROUND =
-            new Color(255, 188, 170);
     private static final Color TEXT_HIGHLIGHT_BACKGROUND =
             new Color(255, 150, 130);
     private static final Color HIDDEN_HIT_BADGE_COLOR =
@@ -123,6 +119,8 @@ public class SearchPanel extends JPanel
      *  located. Navigating to a card and stopping there is what left a match sitting
      *  a hundred rows below the fold. */
     private JComponent currentHitRow;
+    /** Invalidates deferred scrolls from an older Next/Previous gesture. */
+    private long virtualNavigationGeneration;
 
     JComponent currentHitRow() { return currentHitRow; }
 
@@ -138,6 +136,16 @@ public class SearchPanel extends JPanel
             if (!g.hits.isEmpty()) { navigateVirtual(g, delta); return; }
         }
     }
+
+    void navigateVirtualForTest(FieldPath path, int delta) {
+        for (HitGroupQ g : currentVirtualGroups) {
+            if (g.fieldPath.path().equals(path) && !g.hits.isEmpty()) {
+                navigateVirtual(g, delta);
+                return;
+            }
+        }
+    }
+
     private Map<Viewable, List<HitGroupQ>> virtualGroupsByItem = Map.of();
     private JScrollPane targetScrollPane;
     private JDialog searchDialog;
@@ -377,7 +385,7 @@ public class SearchPanel extends JPanel
             // Newly materialized components were built from the already-banked
             // expansion state. Refreshing here would rematerialize table rows and
             // recursively invoke this listener.
-            revealAndHighlightMatches(host.renderedInstance(), component, false);
+            applyQueryHighlights(host.renderedInstance(), component, false);
         }
     }
 
@@ -1358,7 +1366,6 @@ public class SearchPanel extends JPanel
                         group.hits.add(hit);
                     }
 
-                    highlightField(hit);
                 }
 
                 highlightTextRecursively(
@@ -1386,25 +1393,17 @@ public class SearchPanel extends JPanel
                 built.add(java.util.Map.entry(item, component)));
         for (java.util.Map.Entry<Viewable, JComponent> entry : built) {
             if (virtualHits.contains(entry.getKey())) {
-                revealAndHighlightMatches(entry.getKey(), entry.getValue(), true);
+                applyQueryHighlights(entry.getKey(), entry.getValue(), true);
             }
         }
     }
 
-    /** Makes one materialized matching instance self-contained: every path by which
-     *  it matched is visible and highlighted. Off-screen instances remain lazy and
-     *  receive the same treatment from the materialization listener when scrolled in. */
-    /** @return the first matching FIELD row, so navigation can scroll to the match
-     *  rather than to the card containing it; null when only the card matched. */
-    private JComponent revealAndHighlightMatches(
+    /** Makes one newly materialized matching instance self-contained. This is
+     * query-wide work and runs once when the query or component changes—not once
+     * for every Next/Previous gesture. */
+    private void applyQueryHighlights(
             Viewable item, JComponent component, boolean refreshExisting) {
-        return revealAndHighlightMatches(item, component, refreshExisting, 0);
-    }
-
-    private JComponent revealAndHighlightMatches(
-            Viewable item, JComponent component, boolean refreshExisting,
-            int occurrence) {
-        if (!(component instanceof RenderedInstanceHost host)) return null;
+        if (!(component instanceof RenderedInstanceHost host)) return;
         List<HitGroupQ> groups = matchingGroups(item);
         for (HitGroupQ group : groups) {
             host.revealPath(group.fieldPath.path());
@@ -1413,31 +1412,55 @@ public class SearchPanel extends JPanel
         // component was refreshed, so every visible matching host gets one rebuild.
         if (refreshExisting && !groups.isEmpty()) host.refreshRenderedContent();
         highlightInstance(component);
-        if (!fieldHighlightBox.isSelected()) return null;
-        JComponent firstRow = null;
+        if (!fieldHighlightBox.isSelected()) return;
         for (HitGroupQ group : groups) {
-            // BEFORE collecting, not as a fallback for finding nothing. A collection's
-            // own field component carries the whole collection as its value, and
-            // matchesWithTokens recurses into it — so the container always matches and
-            // the search would scroll to the container while the member that actually
-            // matched stayed unbuilt. Materialize the member first and
-            // replaceAncestorWithDescendantIfNeeded then prefers its row.
-            host.revealPathMember(
-                    group.fieldPath.path(), group.queryTokens, occurrence);
             List<JComponent> fieldHits = collectMatchingFieldRows(
                     component, group.fieldPath.path(), group.queryTokens);
             if (fieldHits.isEmpty()) {
                 addHiddenHitBadge(component, group.title);
                 continue;
             }
-            for (JComponent hit : fieldHits) highlightField(hit);
-            if (firstRow == null) {
-                firstRow = fieldHits.get(Math.min(occurrence, fieldHits.size() - 1));
-            }
             highlightTextRecursively(
                     component, group.fieldPath.path(), group.queryTokens);
         }
-        return firstRow;
+    }
+
+    /** Changes only the current occurrence marker. Query tint, expansion and text
+     * highlights were established by {@link #applyQueryHighlights}; repeating those
+     * subtree walks here made a single Next gesture proportional to the whole card. */
+    private JComponent selectCurrentMatch(
+            JComponent component, HitGroupQ group,
+            SearchAndSort.ValueMatch match) {
+        if (!(component instanceof RenderedInstanceHost host)
+                || group == null || match == null
+                || !fieldHighlightBox.isSelected()) return null;
+        Component scope = component;
+        if (!match.collectionMembers().isEmpty()) {
+            Component member = host.revealPathMember(
+                    group.fieldPath.path(), match.collectionMembers());
+            if (member != null) scope = member;
+        }
+        // A virtualized nested member may have been constructed by the reveal above,
+        // after the card received its query-wide decoration. Bring only that exact
+        // member subtree up to date; never re-walk the containing 40k-member card.
+        if (scope != component) {
+            highlightTextRecursively(
+                    scope, group.fieldPath.path(), group.queryTokens);
+        }
+        List<JComponent> rows = collectMatchingFieldRows(
+                scope, group.fieldPath.path(), group.queryTokens);
+        if (rows.isEmpty()) return null;
+        int occurrence = match.collectionMembers().isEmpty()
+                ? match.occurrence() : 0;
+        JComponent selected = rows.get(Math.min(occurrence, rows.size() - 1));
+        if (selected instanceof TextBlock block) {
+            block.selectMatchingOccurrence(
+                    group.fieldPath.path(), group.queryTokens,
+                    exactMatch, occurrence);
+        } else if (selected instanceof TextRow row) {
+            row.selectMatchingOccurrence(group.queryTokens, exactMatch, occurrence);
+        }
+        return selected;
     }
 
     private List<HitGroupQ> matchingGroups(Viewable item) {
@@ -1445,6 +1468,7 @@ public class SearchPanel extends JPanel
     }
 
     private void clearVirtualSearchState() {
+        virtualNavigationGeneration++;
         virtualHits.clear();
         currentVirtualGroups = List.of();
         virtualGroupsByItem = Map.of();
@@ -1466,13 +1490,6 @@ public class SearchPanel extends JPanel
             remember(component);
         }
         host.setHighlightColor(CARD_HIT_BACKGROUND);
-    }
-
-    private void highlightField(JComponent c) {
-        remember(c);
-        c.setOpaque(true);
-        c.setBackground(FIELD_HIT_BACKGROUND);
-        c.repaint();
     }
 
     /** Adds presentation-neutral hidden-hit feedback. Cards honor the GridBag
@@ -1528,7 +1545,31 @@ public class SearchPanel extends JPanel
                 queryTokens,
                 hits);
 
+        // An expanded collection header is not a concrete occurrence while matching
+        // rows are built, but it remains the honest field-level address when the
+        // relevant member is virtualized or belongs to another concurrently matched
+        // group. Do not turn that state back into a "hidden hit" badge.
+        if (hits.isEmpty()) {
+            JComponent header = expandedCollectionHeader(root, selectedPath);
+            if (header != null) hits.add(header);
+        }
+
         return hits;
+    }
+
+    private JComponent expandedCollectionHeader(
+            Component root, FieldPath selectedPath) {
+        if (root instanceof CollectionHeader header
+                && header.isExpanded()
+                && selectedPath.equals(header.getClientProperty(
+                FIELD_PATH_PROPERTY))) return header;
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                JComponent found = expandedCollectionHeader(child, selectedPath);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     private void collectMatchingFieldRows(
@@ -1560,7 +1601,8 @@ public class SearchPanel extends JPanel
             Object val =
                     jc.getClientProperty(FIELD_VALUE_PROPERTY);
 
-            if (pathObj instanceof FieldPath rowPath
+            if (!(jc instanceof CollectionHeader header && header.isExpanded())
+                    && pathObj instanceof FieldPath rowPath
                     && rowPath.equals(selectedPath)
                     && matchesWithTokens(val, queryTokens)) {
 
@@ -1664,24 +1706,6 @@ public class SearchPanel extends JPanel
         if (!searchField.getText().isBlank()) {
             asyncSearch();
         }
-    }
-
-    /**
-     * How many VALUES at {@code path} match, which is how many times this card is a
-     * hit. It reuses {@link #matchesWithTokens} so a count can never disagree with the
-     * highlight applied to the row it counted, and it reads values rather than
-     * components because a virtualized collection has built only what is on screen.
-     */
-    private int matchingValueCount(
-            Viewable item, ViewableFieldPaths.PathInfo path, List<String> tokens) {
-        if (item == null || path == null || tokens == null || tokens.isEmpty()) return 1;
-        Object values = objectview.field.FieldAccess.getPathValues(item, path.path());
-        if (!(values instanceof Collection<?> collection)) return 1;
-        int count = 0;
-        for (Object value : collection) {
-            if (matchesWithTokens(value, tokens)) count++;
-        }
-        return Math.max(1, count);
     }
 
     private boolean matchesWithTokens(
@@ -1986,6 +2010,7 @@ public class SearchPanel extends JPanel
     private void clearHighlights() {
         currentHit =
                 null;
+        currentHitRow = null;
         // Whole-instance tint in a virtual presentation is data-derived, not
         // remembered component state. Clear only the components that still
         // exist; evicted components are deliberately not retained by SearchPanel.
@@ -2151,15 +2176,21 @@ public class SearchPanel extends JPanel
             if (c.getParent() == null) {
                 return;
             }
-            Rectangle rect =
-                    SwingUtilities.convertRectangle(
-                            c.getParent(),
-                            c.getBounds(),
-                            targetPanel);
-            rect.y -= 24;
-            rect.height += 48;
-            targetPanel.scrollRectToVisible(rect);
+            scrollToNow(c);
         });
+    }
+
+    private void scrollToNow(JComponent c) {
+        if (targetPanel == null || c == null || c.getParent() == null) return;
+        Rectangle selected = c instanceof TextBlock block
+                ? block.selectedOccurrenceBounds()
+                : c instanceof TextRow row ? row.selectedOccurrenceBounds() : null;
+        Rectangle local = selected != null ? selected
+                : new Rectangle(0, 0, c.getWidth(), c.getHeight());
+        Rectangle rect = SwingUtilities.convertRectangle(c, local, targetPanel);
+        rect.y -= 24;
+        rect.height += 48;
+        targetPanel.scrollRectToVisible(rect);
     }
 
     private void clearResults() {
@@ -2268,7 +2299,6 @@ public class SearchPanel extends JPanel
 
         // Remember the hits so a card rebuilt on scroll-back gets re-highlighted.
         clearVirtualSearchState();
-        matchesByField.values().forEach(virtualHits::addAll);
 
         Map<FieldPath, HitGroupQ> groups = new LinkedHashMap<>();
 
@@ -2279,12 +2309,16 @@ public class SearchPanel extends JPanel
                     path.title(),
                     path,
                     queryTokens);
-            g.hits.addAll(e.getValue());
             for (Viewable hit : e.getValue()) {
-                g.occurrences.put(hit, matchingValueCount(hit, path, queryTokens));
+                List<SearchAndSort.ValueMatch> matches =
+                        searchAndSort.matchingIndexedValues(
+                        hit, path, queryTokens, exactMatch);
+                g.hits.add(hit);
+                g.matches.put(hit, matches);
             }
-            groups.put(path.path(), g);
+            if (!g.hits.isEmpty()) groups.put(path.path(), g);
         }
+        groups.values().forEach(group -> virtualHits.addAll(group.hits));
 
         // Expansion belongs to each matching card, not to whichever logical hit is
         // currently navigated. Record it without materializing off-screen cards; they
@@ -2313,6 +2347,11 @@ public class SearchPanel extends JPanel
         }
         byItem.replaceAll((ignored, value) -> List.copyOf(value));
         virtualGroupsByItem = Collections.unmodifiableMap(byItem);
+
+        // Query-wide decoration is established once. Navigation below changes only
+        // the current occurrence marker; fresh virtual components receive the same
+        // stable decoration from the materialization listener.
+        highlightBuiltHits();
 
         HitGroupQ first = null;
         for (HitGroupQ g : groups.values()) {
@@ -2376,14 +2415,11 @@ public class SearchPanel extends JPanel
      * the table selects its field cell and matching collection/map entry.
      */
     private void navigateToCurrentVirtual(HitGroupQ g) {
-        clearHighlights();
-        // clearHighlights strips EVERY hit tint, and navigating re-applies only the
-        // one below — so re-tint the whole hit set first. Without this, an instance is
-        // highlighted only while it is the current hit or in the moment it is built
-        // and hits that were already on screen stay untinted.
-        highlightBuiltHits();
+        long navigation = ++virtualNavigationGeneration;
+        clearCurrentOccurrenceMarker();
 
         Viewable q = g.hits.get(g.index);
+        SearchAndSort.ValueMatch match = resolvedCurrentMatch(g, q);
         JComponent card = virtualList instanceof SearchNavigableContainer navigable
                 ? navigable.revealSearchHit(q, g.fieldPath, g.queryTokens)
                 : virtualList.navigateToTop(q);
@@ -2392,34 +2428,89 @@ public class SearchPanel extends JPanel
             return;
         }
 
-        // One instance can match several configured paths (Elia Kazan matches both
-        // Person.Display label and structuredName.givenName.Display label). The first
-        // logical hit must still reveal every matching path on THAT card; otherwise
-        // the nested match stays hidden until Next happens to navigate to its group.
-        // From here NOTHING is layout-specific: a card and a table row are both
-        // RenderedInstanceHosts, and the field/text helpers below walk any component
-        // subtree by field path. One highlighting path serves every render mode.
-        // Navigating scrolled the outer list to the CARD and stopped there. A match
-        // near the card's top was visible by luck; one sitting 100 rows down a
-        // collection never came into view, and the reader had to scroll to find what
-        // the search said it had found.
-        JComponent row = revealAndHighlightMatches(q, card, false, g.occurrence);
+        JComponent row = selectCurrentMatch(card, g, match);
 
-        markCurrentHitVirtual(card);
+        currentHit = card;
         currentHitRow = row != null && row != card ? row : null;
-        if (currentHitRow != null) scrollTo(currentHitRow);
 
+        targetPanel.revalidate();
+        targetPanel.repaint();
+        scrollToCurrentVirtual(
+                q, g, match, navigation, card, currentHitRow);
+    }
+
+    private SearchAndSort.ValueMatch resolvedCurrentMatch(
+            HitGroupQ group, Viewable item) {
+        SearchAndSort.ValueMatch indexed = group.currentMatch();
+        if (indexed == null) return null;
+        List<SearchAndSort.ValueMatch> resolved = group.resolvedMatches.get(item);
+        if (resolved == null) {
+            resolved = searchAndSort.matchingValues(
+                    item, group.fieldPath, group.queryTokens, exactMatch);
+            group.resolvedMatches.put(item, resolved);
+        }
+        return indexed.occurrence() < resolved.size()
+                ? resolved.get(indexed.occurrence()) : indexed;
+    }
+
+    private void clearCurrentOccurrenceMarker() {
+        if (currentHitRow instanceof TextBlock block) {
+            block.clearSelectedSearchOccurrence();
+        } else if (currentHitRow instanceof TextRow row) {
+            row.clearSelectedSearchOccurrence();
+        }
+        currentHit = null;
+        currentHitRow = null;
+    }
+
+    /** Resolve the component again after layout. A virtual list may replace the card
+     * between the navigation gesture and this deferred turn, so retaining the first
+     * row component is not a stable address for the hit. */
+    private void scrollToCurrentVirtual(
+            Viewable item, HitGroupQ group, SearchAndSort.ValueMatch match,
+            long navigation, JComponent expectedCard, JComponent expectedRow) {
+        SwingUtilities.invokeLater(() -> {
+            if (navigation != virtualNavigationGeneration) return;
+            JComponent liveCard = materializedComponent(item);
+            if (liveCard == null) {
+                virtualList.navigateToTop(item);
+                SwingUtilities.invokeLater(() -> scrollToCurrentVirtualNow(
+                        item, group, match, navigation, expectedCard, expectedRow));
+                return;
+            }
+            scrollToCurrentVirtualNow(
+                    item, group, match, navigation, expectedCard, expectedRow);
+        });
+    }
+
+    private void scrollToCurrentVirtualNow(
+            Viewable item, HitGroupQ group, SearchAndSort.ValueMatch match,
+            long navigation, JComponent expectedCard, JComponent expectedRow) {
+        if (navigation != virtualNavigationGeneration) return;
+        JComponent liveCard = materializedComponent(item);
+        if (liveCard == null) return;
+        JComponent liveRow = expectedRow;
+        if (liveCard != expectedCard || liveRow == null
+                || !SwingUtilities.isDescendingFrom(liveRow, liveCard)) {
+            // Only a component replacement pays another subtree lookup. The usual
+            // path retains the exact row selected synchronously above.
+            applyQueryHighlights(item, liveCard, false);
+            liveRow = selectCurrentMatch(liveCard, group, match);
+        }
+        currentHit = liveCard;
+        currentHitRow = liveRow != null && liveRow != liveCard ? liveRow : null;
+        if (currentHitRow != null) scrollToNow(currentHitRow);
         targetPanel.revalidate();
         targetPanel.repaint();
     }
 
-    private void markCurrentHitVirtual(JComponent c) {
-        currentHit = c;
-        remember(c);
-        c.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(0xFF8800), 3, true),
-                c.getBorder()));
-        c.repaint();
+    private JComponent materializedComponent(Viewable item) {
+        if (virtualList == null || item == null) return null;
+        JComponent[] found = new JComponent[1];
+        virtualList.forEachMaterialized((candidate, component) -> {
+            if (candidate == item) found[0] = component;
+        });
+        return found[0];
     }
 
     private static class HitGroupQ {
@@ -2436,11 +2527,22 @@ public class SearchPanel extends JPanel
          * its forty thousand rows, so components can only enumerate what is on screen.
          */
         int occurrence = 0;
-        final IdentityHashMap<Viewable, Integer> occurrences = new IdentityHashMap<>();
+        final IdentityHashMap<Viewable, List<SearchAndSort.ValueMatch>> matches =
+                new IdentityHashMap<>();
+        /** Exact identity routes are expensive and needed only for a navigated card. */
+        final IdentityHashMap<Viewable, List<SearchAndSort.ValueMatch>> resolvedMatches =
+                new IdentityHashMap<>();
         JLabel label;
 
         int countFor(Viewable q) {
-            return Math.max(1, occurrences.getOrDefault(q, 1));
+            return matches.getOrDefault(q, List.of()).size();
+        }
+
+        SearchAndSort.ValueMatch currentMatch() {
+            if (hits.isEmpty()) return null;
+            List<SearchAndSort.ValueMatch> values = matches.get(hits.get(index));
+            return values == null || occurrence < 0 || occurrence >= values.size()
+                    ? null : values.get(occurrence);
         }
 
         int total() {

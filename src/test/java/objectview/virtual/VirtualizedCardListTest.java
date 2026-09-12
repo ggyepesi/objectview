@@ -144,6 +144,26 @@ class VirtualizedCardListTest {
     }
 
     @Test
+    void ensureVisibleNeverReturnsAComponentItsVisibilityPassDetached() {
+        onEdt(() -> {
+            List<Item> items = makeItems(20);
+            VirtualizedCardList list = new VirtualizedCardList(this::card);
+            JScrollPane scroll = new JScrollPane();
+            list.install(scroll);
+            list.setItems(new ArrayList<>(items));
+
+            JComponent rendered = list.ensureVisible(items.get(10));
+
+            assertNotNull(rendered,
+                    "an explicit reveal must materialize its target before layout");
+            assertTrue(rendered.getParent() == list,
+                    "the returned component must still belong to the live virtual list");
+            assertTrue(rendered == list.builtCard(items.get(10)),
+                    "the returned component must be the current map entry, not an evicted one");
+        });
+    }
+
+    @Test
     void twentyThousandResultsMaterializeOnlyTheViewportBuffer() {
         onEdt(() -> {
             List<Item> items = makeItems(20_000);

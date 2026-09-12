@@ -28,7 +28,13 @@ public final class ResolvedFieldPath {
 
     /** One real leaf reached in the source graph. */
     public record Occurrence(Object owner, Viewable renderOwner,
-                             FieldRef field, Object value) {}
+                             FieldRef field, Object value,
+                             List<Viewable> collectionMembers) {
+        public Occurrence {
+            collectionMembers = collectionMembers == null
+                    ? List.of() : List.copyOf(collectionMembers);
+        }
+    }
 
     private final FieldPath path;
     private final List<Occurrence> occurrences = new ArrayList<>();
@@ -50,7 +56,8 @@ public final class ResolvedFieldPath {
         ResolvedFieldPath result = new ResolvedFieldPath(path);
         if (root == null || result.path.isRoot()) return result;
         result.walk(root, 0, root instanceof Viewable q ? q : null,
-                root, schemaResolver == null ? ignored -> null : schemaResolver);
+                root, List.of(),
+                schemaResolver == null ? ignored -> null : schemaResolver);
         return result;
     }
 
@@ -80,7 +87,7 @@ public final class ResolvedFieldPath {
     }
 
     private void walk(Object current, int index, Viewable nearestViewable,
-                      Object root,
+                      Object root, List<Viewable> collectionMembers,
                       Function<Viewable, FieldSchema> schemaResolver) {
         if (current == null || index >= path.size()) return;
 
@@ -88,7 +95,8 @@ public final class ResolvedFieldPath {
             if (!enter(current, index)) return;
             rememberContainer(current);
             for (Object value : collection) {
-                walk(value, index, nearestViewable, root, schemaResolver);
+                walk(value, index, nearestViewable, root,
+                        appendMember(collectionMembers, value), schemaResolver);
             }
             return;
         }
@@ -96,15 +104,17 @@ public final class ResolvedFieldPath {
             if (!enter(current, index)) return;
             rememberContainer(current);
             for (Object value : map.values()) {
-                walk(value, index, nearestViewable, root, schemaResolver);
+                walk(value, index, nearestViewable, root,
+                        appendMember(collectionMembers, value), schemaResolver);
             }
             return;
         }
         if (current.getClass().isArray()) {
             if (!enter(current, index)) return;
             for (int i = 0; i < Array.getLength(current); i++) {
-                walk(Array.get(current, i), index, nearestViewable, root,
-                        schemaResolver);
+                Object value = Array.get(current, i);
+                walk(value, index, nearestViewable, root,
+                        appendMember(collectionMembers, value), schemaResolver);
             }
             return;
         }
@@ -123,9 +133,11 @@ public final class ResolvedFieldPath {
             if (field == null) field = described(segment, value);
             if (index == path.size() - 1) {
                 rememberLeafContainer(value);
-                occurrences.add(new Occurrence(viewable, viewable, field, value));
+                occurrences.add(new Occurrence(
+                        viewable, viewable, field, value, collectionMembers));
             } else {
-                walk(value, index + 1, viewable, root, schemaResolver);
+                walk(value, index + 1, viewable, root, collectionMembers,
+                        schemaResolver);
             }
             return;
         }
@@ -140,13 +152,25 @@ public final class ResolvedFieldPath {
             if (index == path.size() - 1) {
                 rememberLeafContainer(value);
                 occurrences.add(new Occurrence(
-                        current, nearestViewable, field, value));
+                        current, nearestViewable, field, value, collectionMembers));
             } else {
-                walk(value, index + 1, nearestViewable, root, schemaResolver);
+                walk(value, index + 1, nearestViewable, root, collectionMembers,
+                        schemaResolver);
             }
         } catch (ReflectiveOperationException ignored) {
             // Arbitrary nested values are inspected tolerantly, like FieldAccess.
         }
+    }
+
+    /** Members crossed through a collection are the renderer's exact route to a
+     * leaf. They are deliberately retained by identity rather than reconstructed
+     * later from their display text. */
+    private static List<Viewable> appendMember(
+            List<Viewable> members, Object candidate) {
+        if (!(candidate instanceof Viewable viewable)) return members;
+        List<Viewable> result = new ArrayList<>(members);
+        result.add(viewable);
+        return List.copyOf(result);
     }
 
     private void rememberContainer(Object container) {

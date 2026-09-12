@@ -400,7 +400,21 @@ public final class VirtualizedCardList
 
         updateVisible();
 
-        return built.get(q);
+        // A nested viewport can still have a zero extent on its first layout pass.
+        // updateVisible then cannot infer the requested row from the viewport and may
+        // evict the component buildIfNeeded just made. The method's contract is
+        // stronger than the current viewport estimate: its requested item is built
+        // when it returns, so the caller has an exact component to highlight.
+        JComponent rendered = built.get(q);
+        if (rendered == null || rendered.getParent() != this) {
+            // Never return a component the visible-range pass (or a build listener)
+            // detached. A stale map entry would make search retain a row whose
+            // scrollToVisible necessarily no-ops because it has no parent.
+            if (rendered != null) built.remove(q);
+            buildIfNeeded(q);
+            rendered = built.get(q);
+        }
+        return rendered != null && rendered.getParent() == this ? rendered : null;
     }
 
     /**

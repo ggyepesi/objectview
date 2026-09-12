@@ -64,6 +64,14 @@ class IndexedViewableSearchTest {
         apostolic.searchableName = "Changed after indexing";
 
         assertEquals(List.of(apostolic), distinct(search.searchIndexedViewables(List.of("apostolic"), false, paths, null)));
+        ViewableFieldPaths.PathInfo matchedPath = search.searchIndexedViewables(
+                        List.of("apostolic"), false, paths, null)
+                .entrySet().stream().filter(entry -> entry.getValue().contains(apostolic))
+                .map(java.util.Map.Entry::getKey).findFirst().orElseThrow();
+        assertEquals(1, search.matchingIndexedValues(
+                        apostolic, matchedPath, List.of("apostolic"), false).size(),
+                "occurrence counting uses the same frozen extraction as membership; "
+                        + "it must not re-read the changed object graph on the EDT");
         assertEquals(List.of(minister), distinct(search.searchIndexedViewables(List.of("finance"), false, paths, null)));
         assertEquals(List.of(), distinct(search.searchIndexedViewables(List.of("changed"), false, paths, null)),
                 "typing another query must not traverse fields again");
@@ -84,6 +92,25 @@ class IndexedViewableSearchTest {
             for (int i = 0; i < 50; i++) {
                 assertEquals(1, distinct(search.searchIndexedViewables(List.of("apostolic"), false, paths, null)).size());
             }
+        });
+
+        ViewableFieldPaths.PathInfo searchablePath = paths.stream()
+                .filter(path -> path.path().equals(FieldPath.of("searchableName")))
+                .findFirst().orElseThrow();
+        assertTimeout(Duration.ofSeconds(2), () -> {
+            List<objectview.Viewable> broadHits = search.searchIndexedViewables(
+                            List.of("position"), false,
+                            List.of(searchablePath), null)
+                    .get(searchablePath);
+            assertEquals(99_999, broadHits.size());
+            int occurrences = 0;
+            for (objectview.Viewable hit : broadHits) {
+                occurrences += search.matchingIndexedValues(
+                        hit, searchablePath, List.of("position"), false).size();
+            }
+            assertEquals(99_999, occurrences,
+                    "planning every hit in a broad search reads occurrence boundaries "
+                            + "from the index rather than resolving 100 000 paths on the EDT");
         });
     }
 

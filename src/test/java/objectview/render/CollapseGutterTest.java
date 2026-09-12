@@ -42,10 +42,28 @@ class CollapseGutterTest {
         return rendered[0];
     }
 
-    private static MouseEvent pressAt(Card card, int x) {
-        return new MouseEvent(card, MouseEvent.MOUSE_PRESSED,
+    private static MouseEvent pressAt(javax.swing.JComponent component, int x) {
+        return new MouseEvent(component, MouseEvent.MOUSE_PRESSED,
                               System.currentTimeMillis(), 0, x, 40, 1, false,
                               MouseEvent.BUTTON1);
+    }
+
+    @Test void anExpandedCollectionCollapsesFromItsWholeHeightStrip() {
+        RenderContext context = new RenderContext();
+        java.util.List<String> values = java.util.List.of("one", "two", "three");
+        context.setCollectionExpanded(values, true);
+        javax.swing.JComponent expanded = CollapsibleFieldRenderer.create(
+                "values", objectview.field.FieldPath.of("values"),
+                values, values, context, javax.swing.JPanel::new);
+
+        assertTrue(java.util.Arrays.stream(expanded.getMouseListeners())
+                .anyMatch(CollapseGutter.class::isInstance));
+        assertTrue(expanded.getInsets().left >= CollapseGutter.WIDTH);
+
+        CollapseGutter.INSTANCE.mousePressed(pressAt(expanded, 3));
+
+        assertFalse(context.isCollectionExpanded(values, false),
+                "the collection itself collapses; its containing card stays open");
     }
 
     private static RenderContext collapsibleContext() {

@@ -8,14 +8,22 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 class FieldAccessValuesTest {
     @Test void nestedCollectionPathPreservesEveryLeafValue() {
-        Parent parent = new Parent(List.of(new Child("A"), new Child("B")));
+        Child first = new Child("A");
+        Child second = new Child("B");
+        Parent parent = new Parent(List.of(first, second));
 
         assertEquals(List.of("A", "B"),
                 FieldAccess.getPathValues(
                         parent, FieldPath.of("children", "name")));
+
+        List<ResolvedFieldPath.Occurrence> occurrences = ResolvedFieldPath.resolve(
+                parent, FieldPath.of("children", "name")).occurrences();
+        assertSame(first, occurrences.get(0).collectionMembers().get(0));
+        assertSame(second, occurrences.get(1).collectionMembers().get(0));
     }
 
     @Test void nestedReadsUseTheDeclaredSchemaForAnUnstoredDisplayField() {
