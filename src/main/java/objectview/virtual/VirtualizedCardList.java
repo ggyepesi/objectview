@@ -235,6 +235,25 @@ public final class VirtualizedCardList
         updateVisible();
     }
 
+    /** Removes only the named items, retaining every unaffected materialized card. */
+    public void removeItems(java.util.Collection<? extends Viewable> removals) {
+        if (removals == null || removals.isEmpty()) return;
+        java.util.Set<Viewable> removed = java.util.Collections.newSetFromMap(
+                new java.util.IdentityHashMap<>());
+        removed.addAll(removals);
+        for (Viewable item : removed) {
+            JComponent card = built.remove(item);
+            if (card != null) remove(card);
+            heights.remove(item);
+        }
+        items.removeIf(removed::contains);
+        reindex();
+        rebuildTops();
+        revalidate();
+        repaint();
+        updateVisible();
+    }
+
     /** Identity-based membership check, matching the list's navigation semantics. */
     public boolean containsItem(Viewable q) {
         return q != null && indexByItem.containsKey(q);

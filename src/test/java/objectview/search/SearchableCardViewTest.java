@@ -21,11 +21,76 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class SearchableCardViewTest {
+
+    @Test void aLiveAppendAddsEachItemOnceHoweverOftenItIsOffered() {
+        // Membership is by identity, and it is decided against what the append has
+        // already accepted as well as what the browser already held — offering one item
+        // twice in a single call used to produce two cards for one instance.
+        EdtTests.onEdt(() -> {
+            Item first = new Item("first");
+            Item added = new Item("added");
+            SearchableView view = SearchableView.builder(List.of(first))
+                    .sample(first).build();
+
+            view.appendViewables(List.of(added, added, first));
+
+            assertEquals(List.of(first, added),
+                    view.cardList().getVirtualList().items());
+        });
+    }
+
+    @Test void removingOneCardKeepsTheOtherSelectedCardsSelected() {
+        // Clearing the whole selection was safe against a stale reference but untrue:
+        // three selected, one removed, and the remaining two came back deselected while
+        // every selection listener was told the selection was empty.
+        EdtTests.onEdt(() -> {
+            Item kept = new Item("kept");
+            Item alsoKept = new Item("also kept");
+            Item removed = new Item("removed");
+            SearchableView view = SearchableView.builder(List.of(kept, alsoKept, removed))
+                    .sample(kept).build();
+            var context = view.cardList().getRenderContext();
+            context.setMultipleSelectionEnabled(true);
+            java.util.List<java.util.List<Object>> announced = new java.util.ArrayList<>();
+            context.addSelectionSetListener(announced::add);
+            context.select(kept);
+            context.select(alsoKept, true);
+            context.select(removed, true);
+            announced.clear();
+
+            view.removeViewables(List.of(removed));
+
+            assertEquals(List.of(kept, alsoKept), context.selectedObjects(),
+                    "only the removed card loses its selection");
+            assertEquals(List.of(List.of(kept, alsoKept)), announced,
+                    "listeners are told once, and told what is actually selected");
+        });
+    }
+
+    @Test void liveAddAndRemoveKeepUnaffectedMaterializedCards() {
+        EdtTests.onEdt(() -> {
+            Item first = new Item("first");
+            Item added = new Item("added");
+            SearchableView view = SearchableView.builder(List.of(first))
+                    .sample(first).build();
+            JComponent originalCard = view.cardList().getVirtualList().buildIfNeeded(first);
+
+            view.appendViewables(List.of(added));
+            assertEquals(List.of(first, added), view.cardList().getVirtualList().items());
+            assertSame(originalCard, view.cardList().getVirtualList().builtCard(first));
+
+            view.removeViewables(List.of(added));
+            assertEquals(List.of(first), view.cardList().getVirtualList().items());
+            assertSame(originalCard, view.cardList().getVirtualList().builtCard(first),
+                    "removing another card must not rebuild the Members panel");
+        });
+    }
 
     @Test void wiresCardsSearchAndContextOnce() {
         EdtTests.onEdt(() -> {

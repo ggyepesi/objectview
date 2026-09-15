@@ -326,11 +326,14 @@ public class SearchPanel extends JPanel
             return;
         }
 
-        if (virtualList != null) {
-            for (Card qp : added) {
-                if (qp != null) originalViewables.add(qp.getViewable());
-            }
-        }
+        viewablesAdded(added == null ? List.of() : added.stream()
+                .filter(java.util.Objects::nonNull).map(Card::getViewable).toList());
+    }
+
+    /** Data-level live addition, shared by card and table layouts. */
+    public void viewablesAdded(java.util.Collection<? extends Viewable> added) {
+        if (targetPanel == null) return;
+        if (virtualList != null && added != null) originalViewables.addAll(added);
 
         invalidateSearchIndex();
 
@@ -368,6 +371,20 @@ public class SearchPanel extends JPanel
             sortTargetPanels();
         }
 
+        maybeRefreshSearch();
+    }
+
+    @Override
+    public void viewablesRemoved(List<Viewable> removed) {
+        if (removed == null || removed.isEmpty()) return;
+        // By identity, and in one pass: scanning the removal list per retained item is
+        // quadratic, and these lists are the 40k-member ones this panel exists to serve.
+        java.util.Set<Viewable> gone = java.util.Collections.newSetFromMap(
+                new java.util.IdentityHashMap<>());
+        gone.addAll(removed);
+        originalViewables.removeIf(gone::contains);
+        invalidateSearchIndex();
+        if (sorted) sortTargetPanels();
         maybeRefreshSearch();
     }
 

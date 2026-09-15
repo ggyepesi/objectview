@@ -24,6 +24,9 @@ public interface CardListener {
      */
     void cardsUpdated(List<Card> updated);
 
+    /** Called after backing items were removed, whether or not their cards were visible. */
+    default void viewablesRemoved(List<objectview.Viewable> removed) { }
+
     /**
      * Called when a single card is (re)materialized during virtualized scrolling —
      * so a listener can re-apply transient decoration a freshly-built card lacks,

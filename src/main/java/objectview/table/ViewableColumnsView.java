@@ -172,6 +172,27 @@ public final class ViewableColumnsView
         list.setItems(items);
     }
 
+    public void appendItems(java.util.Collection<? extends Viewable> additions) {
+        if (additions == null || additions.isEmpty()) return;
+        items.addAll(additions);
+        context.addTopLevels(additions);
+        list.appendItems(additions);
+    }
+
+    public void removeItems(java.util.Collection<? extends Viewable> removals) {
+        if (removals == null || removals.isEmpty()) return;
+        java.util.Set<Viewable> removed = java.util.Collections.newSetFromMap(
+                new java.util.IdentityHashMap<>());
+        removed.addAll(removals);
+        items.removeIf(removed::contains);
+        list.removeItems(removals);
+    }
+
+    public void refreshItems(java.util.Collection<? extends Viewable> changed) {
+        if (changed == null) return;
+        for (Viewable value : changed) list.invalidateCard(value);
+    }
+
     @Override
     public void setViewConfigResolver(Function<Viewable, ViewConfig> resolver) {
         if (resolver == null) return;

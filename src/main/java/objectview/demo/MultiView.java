@@ -35,6 +35,7 @@ public class MultiView extends JPanel {
 
     private final RenderContext context = new RenderContext();
     private final List<Section> sections = new ArrayList<>();
+    private final List<SearchableView> sectionViews = new ArrayList<>();
     private boolean built;
 
     public MultiView() {
@@ -140,6 +141,7 @@ public class MultiView extends JPanel {
                 .coordinated(true)
                 .columns(columns)
                 .build();
+        sectionViews.add(view);
 
         JPanel body = new JPanel(new BorderLayout(4, 4));
         // Class name + instance count on the section border, so each class shows
@@ -157,6 +159,26 @@ public class MultiView extends JPanel {
 
         body.add(view, BorderLayout.CENTER);
         return body;
+    }
+
+    public void appendViewables(java.util.Collection<? extends Viewable> values) {
+        if (values == null) return;
+        for (Viewable value : values) {
+            for (int i = 0; i < sections.size(); i++) {
+                if (java.util.Objects.equals(sections.get(i).title(), value.typeName())) {
+                    sectionViews.get(i).appendViewables(java.util.List.of(value));
+                    break;
+                }
+            }
+        }
+    }
+
+    public void removeViewables(java.util.Collection<? extends Viewable> values) {
+        for (SearchableView view : sectionViews) view.removeViewables(values);
+    }
+
+    public void refreshViewables(java.util.Collection<? extends Viewable> values) {
+        for (SearchableView view : sectionViews) view.refreshViewables(values);
     }
 
     /**

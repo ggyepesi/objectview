@@ -707,6 +707,31 @@ public class RenderContext {
         notifySelection();
     }
 
+    /**
+     * Drops exactly these objects from the selection and keeps the rest, notifying once.
+     *
+     * <p>What a removal needs. Clearing the whole selection instead is safe against a
+     * stale reference but says something untrue: five rows selected and one removed left
+     * the other four deselected, and told every selection listener the selection was
+     * empty while they were still on screen. Identity, because two equal Viewables are
+     * still two rows — the same membership test the rest of this class uses.
+     */
+    public void deselect(java.util.Collection<?> objects) {
+        if (objects == null || objects.isEmpty() || selectedObjects.isEmpty()) return;
+        java.util.Set<Object> gone = java.util.Collections.newSetFromMap(
+                new java.util.IdentityHashMap<>());
+        for (Object object : objects) {
+            if (object != null) gone.add(object);
+        }
+        java.util.List<Object> previous = java.util.List.copyOf(selectedObjects);
+        if (!selectedObjects.removeIf(gone::contains)) return;
+        if (selectionAnchor != null && gone.contains(selectionAnchor)) {
+            selectionAnchor = null;
+        }
+        previous.forEach(this::repaintCard);
+        notifySelection();
+    }
+
     private static int identityIndex(java.util.List<Object> values, Object sought) {
         for (int i = 0; i < values.size(); i++) {
             if (values.get(i) == sought) return i;

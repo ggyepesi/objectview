@@ -336,6 +336,27 @@ public class CardListView {
         }
     }
 
+    /** Removes cards locally without rebuilding the remaining virtualized list. */
+    public void removeViewablesLive(java.util.Collection<? extends Viewable> values) {
+        if (values == null || values.isEmpty() || virtualList == null) return;
+        // One pass over the card list, not one per removed value. Identity is the
+        // membership test everywhere in this path, so the set is an identity set.
+        java.util.Set<Viewable> wanted = java.util.Collections.newSetFromMap(
+                new java.util.IdentityHashMap<>());
+        for (Viewable value : values) if (value != null) wanted.add(value);
+        java.util.List<Viewable> removed = new java.util.ArrayList<>();
+        for (java.util.Iterator<Viewable> it = viewables.iterator(); it.hasNext(); ) {
+            Viewable value = it.next();
+            if (wanted.contains(value)) {
+                removed.add(value);
+                it.remove();
+            }
+        }
+        if (removed.isEmpty()) return;
+        virtualList.removeItems(removed);
+        for (CardListener listener : targetListeners) listener.viewablesRemoved(removed);
+    }
+
     /**
      * Re-renders the card backing {@code q} in place after its fields
      * changed, and notifies target listeners (the search panel) so they

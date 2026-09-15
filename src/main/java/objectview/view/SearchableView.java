@@ -172,6 +172,67 @@ public final class SearchableView extends JPanel {
         if (cardList != null) cardList.dispose();
     }
 
+    /** Adds only the new suffix; search, configuration, selection and scroll survive. */
+    public void appendViewables(Collection<? extends Viewable> additions) {
+        if (additions == null || additions.isEmpty()) return;
+        // One identity set for the whole append: asking the member list per addition is
+        // quadratic, and appending a page to a large browser is the normal case here.
+        java.util.Set<Viewable> known = identitySet(builder.members);
+        List<Viewable> fresh = new ArrayList<>();
+        for (Viewable value : additions) {
+            if (value != null && known.add(value)) fresh.add(value);
+        }
+        if (fresh.isEmpty()) return;
+        builder.members.addAll(fresh);
+        context.setSelectionOrder(builder.members);
+        if (cardList != null) fresh.forEach(cardList::addViewableLive);
+        else if (table != null) {
+            table.appendItems(fresh);
+            if (search != null) search.viewablesAdded(fresh);
+        }
+    }
+
+    /** Removes only the requested rows/cards; the containing browser is not rebuilt. */
+    public void removeViewables(Collection<? extends Viewable> removals) {
+        if (removals == null || removals.isEmpty()) return;
+        java.util.Set<Viewable> removed = identitySet(removals);
+        builder.members.removeIf(removed::contains);
+        context.setSelectionOrder(builder.members);
+        if (cardList != null) cardList.removeViewablesLive(removals);
+        else if (table != null) {
+            table.removeItems(removals);
+            if (search != null) search.viewablesRemoved(new ArrayList<>(removed));
+        }
+        // Last, so the one selection notification describes the browser as it now is:
+        // only the removed rows lose their selection, and a listener reading the members
+        // during it does not see the items that have just gone.
+        context.deselect(removals);
+    }
+
+    /** Rebuilds only affected materialized cards/rows (off-screen items rebuild lazily). */
+    public void refreshViewables(Collection<? extends Viewable> changed) {
+        if (changed == null || changed.isEmpty()) return;
+        java.util.Set<Viewable> members = identitySet(builder.members);
+        List<Viewable> known = new ArrayList<>();
+        for (Viewable value : changed) {
+            if (value != null && members.contains(value)) known.add(value);
+        }
+        if (cardList != null) known.forEach(cardList::refreshViewable);
+        else if (table != null) table.refreshItems(known);
+    }
+
+    /** Membership by identity, which is what every live update here means by "the same
+     *  item" — two equal Viewables are still two rows. */
+    private static java.util.Set<Viewable> identitySet(
+            Collection<? extends Viewable> values) {
+        java.util.Set<Viewable> set = java.util.Collections.newSetFromMap(
+                new java.util.IdentityHashMap<>());
+        if (values != null) for (Viewable value : values) {
+            if (value != null) set.add(value);
+        }
+        return set;
+    }
+
     /** Re-measure a newly installed virtual list after its host receives real bounds. */
     public void refreshViewport() {
         revalidate();
