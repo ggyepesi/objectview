@@ -184,13 +184,10 @@ public class MultiView extends JPanel {
     /**
      * Lays the sections out side by side (split for two, grid for more).
      *
-     * This is deliberate, not cosmetic: navigation relies on the target
-     * card being visible. {@code focusTopLevel} scrolls to + flashes the
-     * card and brings the window forward, but it does not reveal a hidden
-     * container — so a tabbed layout would jump to a card on an inactive
-     * tab without selecting that tab. Switching to tabs would require a
-     * "reveal" hook (select the owning tab before scrolling) wired through
-     * the shared context.
+     * This remains deliberate: ordinary multi-class results benefit from seeing
+     * related cards simultaneously. A tabbed owner is supported now, but it must call
+     * {@link RenderContext#registerTopLevelRevealer(Object, Runnable)} for each hidden
+     * card so {@code focusTopLevel} selects the owning tab before it scrolls.
      */
     private JComponent layout(List<JComponent> bodies) {
         if (bodies.isEmpty()) {
