@@ -32,6 +32,15 @@ public class RenderContext {
     private final Map<Object, JComponent> topLevelComponents =
             new IdentityHashMap<>();
 
+    // A top-level card may live behind a tab. Reveal its owning container before
+    // resolving/scrolling the virtualized card; otherwise navigation succeeds in an
+    // invisible component and appears to do nothing.
+    private final Map<Object, Runnable> topLevelRevealers = new IdentityHashMap<>();
+
+    public void registerTopLevelRevealer(Object object, Runnable revealer) {
+        if (object != null && revealer != null) topLevelRevealers.putIfAbsent(object, revealer);
+    }
+
     // When the view is virtualized, a top-level target may not have a live card
     // (it's off-screen). A resolver builds + positions it on demand so navigation
     // (focusTopLevel) can still scroll to it. There is one resolver PER virtualized
@@ -365,6 +374,8 @@ public class RenderContext {
     private static final boolean NAV_DEBUG = Boolean.getBoolean("quiz.nav.debug");
 
     public boolean focusTopLevel(Object object) {
+        Runnable revealer = topLevelRevealers.get(object);
+        if (revealer != null) revealer.run();
         JComponent fromMap = topLevelComponents.get(object);
         JComponent component = fromMap;
 
