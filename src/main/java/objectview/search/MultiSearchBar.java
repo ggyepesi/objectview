@@ -61,7 +61,8 @@ public class MultiSearchBar extends JPanel {
                                                     SearchPanel::searchEditor,
                                                     SearchPanel::applySearch));
         sortCfg.addActionListener(e -> openConfig("Sort Configuration",
-                                                  SearchPanel::sortEditor, SearchPanel::applySort));
+                                                  SearchPanel::sortEditor, SearchPanel::applySort,
+                                                  true));
         viewCfg.addActionListener(e -> openConfig("View Configuration",
                                                   SearchPanel::viewEditor, SearchPanel::applyView));
 
@@ -96,10 +97,18 @@ public class MultiSearchBar extends JPanel {
     }
 
     // Single config dialog with one tab per class (classes as roots): each tab
-    // hosts that section's editor; Apply re-applies + re-runs for every section.
+    // hosts that section's editor. Apply belongs to the visible class tab; changing
+    // one class's configuration must not re-run every hidden class section.
     private void openConfig(String title,
                             Function<SearchPanel, JComponent> editor,
                             Consumer<SearchPanel> onApply) {
+        openConfig(title, editor, onApply, false);
+    }
+
+    private void openConfig(String title,
+                            Function<SearchPanel, JComponent> editor,
+                            Consumer<SearchPanel> onApply,
+                            boolean sortConfiguration) {
         JTabbedPane tabs = new JTabbedPane();
         for (SearchPanel e : engines) {
             tabs.addTab(e.sectionTypeName(), editor.apply(e));
@@ -108,14 +117,54 @@ public class MultiSearchBar extends JPanel {
         JDialog dialog = new JDialog(
                 SwingUtilities.getWindowAncestor(this), title,
                 Dialog.ModalityType.MODELESS);
-        JButton apply = new JButton("Apply");
-        apply.addActionListener(a -> {
-            for (SearchPanel e : engines) {
-                onApply.accept(e);
+        JButton apply = new JButton();
+        JLabel state = new JLabel(" ");
+        Runnable labelApply = () -> {
+            int selected = tabs.getSelectedIndex();
+            apply.setText(selected < 0
+                    ? "Apply" : "Apply to " + tabs.getTitleAt(selected));
+            apply.setEnabled(selected >= 0 && (!sortConfiguration
+                    || engines.get(selected).hasUnappliedSortConfiguration()));
+            if (sortConfiguration && selected >= 0) {
+                state.setText(engines.get(selected).isSortedByCurrentSortConfiguration()
+                        ? "Instances are sorted by this configuration."
+                        : "This configuration has not been applied.");
             }
+        };
+        labelApply.run();
+        tabs.addChangeListener(e -> labelApply.run());
+        if (sortConfiguration) {
+            engines.forEach(engine -> engine.setSortConfigurationListener(labelApply));
+        }
+        apply.addActionListener(a -> {
+            int selected = tabs.getSelectedIndex();
+            if (selected < 0 || selected >= engines.size()) return;
+            if (!sortConfiguration) {
+                applySelected(tabs, engines, onApply);
+                return;
+            }
+            SearchPanel engine = engines.get(selected);
+            String type = tabs.getTitleAt(selected);
+            apply.setEnabled(false);
+            apply.setText("Sorting " + type + "…");
+            state.setText("Sorting " + type + " instances…");
+            // Let Swing paint the explicit running state before the synchronous
+            // sorter starts; the button remains disabled until it finishes.
+            javax.swing.Timer start = new javax.swing.Timer(50, ignored -> {
+                try {
+                    onApply.accept(engine);
+                } finally {
+                    labelApply.run();
+                }
+            });
+            start.setRepeats(false);
+            start.start();
         });
-        JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        south.add(apply);
+        JPanel south = new JPanel(new BorderLayout(8, 0));
+        south.add(state, BorderLayout.CENTER);
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        actions.add(apply);
+        south.add(actions, BorderLayout.EAST);
 
         dialog.setLayout(new BorderLayout());
         dialog.add(tabs, BorderLayout.CENTER);
@@ -123,5 +172,14 @@ public class MultiSearchBar extends JPanel {
         dialog.pack();
         dialog.setLocationRelativeTo(this);
         dialog.setVisible(true);
+    }
+
+    /** Applies a tabbed configuration only to the section named by the visible tab. */
+    static <T> void applySelected(
+            JTabbedPane tabs, List<T> sections, Consumer<T> apply) {
+        if (tabs == null || sections == null || apply == null) return;
+        int selected = tabs.getSelectedIndex();
+        if (selected < 0 || selected >= sections.size()) return;
+        apply.accept(sections.get(selected));
     }
 }

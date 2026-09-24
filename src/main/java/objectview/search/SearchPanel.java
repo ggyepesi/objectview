@@ -177,6 +177,8 @@ public class SearchPanel extends JPanel
     private final JButton sortButton = new JButton("Sort");
     private final JButton restoreOrderButton = new JButton("Restore Order");
     private Consumer<ConfigState> configListener;
+    private java.util.List<String> appliedSortConfiguration;
+    private Runnable sortConfigurationListener;
     private final java.util.List<SubtypeConfig> subtypeConfigs;
     private final FieldTypeSource rootFieldTypes;
     private final Viewable fieldPathSample;
@@ -430,6 +432,8 @@ public class SearchPanel extends JPanel
         if (renderContext != null) renderContext.setSelectionOrder(ordered);
         if (anchor != null) virtualList.navigateToTop(anchor);
         sorted = true;
+        appliedSortConfiguration = sortConfigurationSignature();
+        sortConfigurationChanged();
     }
 
 
@@ -544,6 +548,7 @@ public class SearchPanel extends JPanel
         // VIEW editor keeps them, so a portrait / flag can be shown or hidden on cards.
         searchEditor.setHideMedia(true);
         sortEditor.setHideMedia(true);
+        sortEditor.setChangeListener(this::sortConfigurationChanged);
 
         debounceTimer =
                 new javax.swing.Timer(
@@ -1068,6 +1073,13 @@ public class SearchPanel extends JPanel
 
     /** The class this section searches (for the shared config's per-class tab). */
     public String sectionTypeName() {
+        // A dynamic object is a carrier, not the reader's class. Its semantic type
+        // names the section (GraphConstraint, PositionReplacementExpansion, ...),
+        // just as it names cards and references everywhere else in ObjectView.
+        if (fieldPathSample != null && fieldPathSample.typeName() != null
+                && !fieldPathSample.typeName().isBlank()) {
+            return fieldPathSample.typeName();
+        }
         return searchClass == null ? "" : searchClass.getSimpleName();
     }
 
@@ -1078,8 +1090,37 @@ public class SearchPanel extends JPanel
     public ViewConfigEditor viewEditor() { return viewEditor; }
 
     public void applySearch() { refreshSearch(); }
-    public void applySort() { sortTargetPanels(); notifyConfigChanged(); }
+    public void applySort() {
+        if (!hasUnappliedSortConfiguration()) return;
+        sortTargetPanels();
+        notifyConfigChanged();
+    }
     public void applyView() { applyViewConfig(); notifyConfigChanged(); }
+
+    public boolean hasUnappliedSortConfiguration() {
+        java.util.List<String> current = sortConfigurationSignature();
+        return !current.isEmpty() && !current.equals(appliedSortConfiguration);
+    }
+
+    public boolean isSortedByCurrentSortConfiguration() {
+        java.util.List<String> current = sortConfigurationSignature();
+        return sorted && !current.isEmpty() && current.equals(appliedSortConfiguration);
+    }
+
+    public void setSortConfigurationListener(Runnable listener) {
+        sortConfigurationListener = listener;
+    }
+
+    private void sortConfigurationChanged() {
+        if (sortConfigurationListener != null) sortConfigurationListener.run();
+    }
+
+    private java.util.List<String> sortConfigurationSignature() {
+        return configuredPaths(sortEditor, subtypeSortEditors, true).stream()
+                .map(path -> path.dotted() + "\u0000" + path.valueKind()
+                        + "\u0000" + path.role())
+                .toList();
+    }
 
     /** Sets the field-highlight option from the shared bar and re-runs. */
     public void setFieldHighlight(boolean on) {
@@ -1712,6 +1753,8 @@ public class SearchPanel extends JPanel
 
     private void restoreOriginalTargetOrder() {
         sorted = false;
+        appliedSortConfiguration = null;
+        sortConfigurationChanged();
 
         if (virtualList == null) return;
         virtualList.setItems(originalViewables);
