@@ -82,6 +82,39 @@ class NestedValueSearchTest {
                                 "https://www.wikidata.org/w/api.php?ids=q42&props=claims")));
     }
 
+    /** Navigation routes into a match the way the card draws it. A reference is a chip,
+     *  so a hit on it addresses the chip even when the referent's own fields hold the
+     *  same text; routing into those fields named a path nothing renders. An inline
+     *  collection is drawn open, so its hit still routes down to the request row. */
+    @Test
+    void aHitOnAReferenceAddressesItsChipWhileAnInlineHitAddressesItsRow() {
+        Step chip = new Step("Q42 answer", "Q42 in a request the chip does not draw");
+        Step root = new Step("Generate domain", null)
+                .with(new Step("Acquire", null)
+                        .with(new Step("Request", "ids=Q29971182")));
+        root.other = chip;
+        SearchAndSort search = new SearchAndSort();
+
+        List<SearchAndSort.ValueMatch> onReference = search.matchingValues(
+                root, path("other"), List.of("q42"), false);
+        assertEquals(1, onReference.size());
+        assertEquals(objectview.field.FieldPath.of("other"),
+                onReference.get(0).renderedPath());
+        assertEquals(List.of(chip), onReference.get(0).collectionMembers());
+
+        List<SearchAndSort.ValueMatch> inline = search.matchingValues(
+                root, path("steps"), List.of("q29971182"), false);
+        assertEquals(1, inline.size());
+        assertEquals("request", inline.get(0).renderedPath().leaf(),
+                "an inline hit still routes to the row that paints it");
+    }
+
+    private static ViewableFieldPaths.PathInfo path(String name) {
+        return paths().stream()
+                .filter(info -> info.path().equals(objectview.field.FieldPath.of(name)))
+                .findFirst().orElseThrow();
+    }
+
     @Test
     void findsTextOnAnInlineRowSeveralLevelsBelowTheCard() {
         Step root = tree();

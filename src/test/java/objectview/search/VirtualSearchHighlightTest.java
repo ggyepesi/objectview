@@ -24,6 +24,7 @@ import java.util.function.Consumer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -36,6 +37,50 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * a mode that grows its own is a regression, not a variation.
  */
 class VirtualSearchHighlightTest {
+
+    @Test void recursiveSearchSelectsTheRenderedLeafRatherThanItsAncestorCollection() {
+        EdtTests.onEdt(() -> {
+            RecursiveStep request = new RecursiveStep("API 17");
+            request.request = "https://www.wikidata.org/w/api.php?ids=Q29971182";
+            RecursiveStep root = new RecursiveStep("Generate History")
+                    .with(new RecursiveStep("Generate classes")
+                            .with(new RecursiveStep("Load referent fields")
+                                    .with(new RecursiveStep("Wikidata API requests")
+                                            .with(request))));
+
+            SearchableView view = SearchableView.builder(List.of(root))
+                    .sample(root)
+                    .mode(RenderingMode.CARD)
+                    .collapsible(true)
+                    .build();
+            materialize(view, root);
+            view.search().setFieldHighlight(true);
+            view.search().runCoordinatedSearch("Q29971182");
+
+            JComponent row = view.search().currentHitRow();
+            assertNotNull(row, "the matching request must be selected, not only counted");
+            Object path = row.getClientProperty(
+                    objectview.field.FieldProperties.FIELD_PATH_PROPERTY);
+            assertTrue(path instanceof objectview.field.FieldPath fieldPath
+                            && "request".equals(fieldPath.leaf()),
+                    "navigation must reach the request field, was " + path);
+            assertTrue(hasHighlightedPath(row, (objectview.field.FieldPath) path,
+                            List.of("q29971182")),
+                    "the visible request text must carry the search highlight");
+
+            view.search().setFieldHighlight(false);
+            assertSame(row, view.search().currentHitRow(),
+                    "turning highlighting off must retain the addressed request row");
+            view.search().setFieldHighlight(true);
+            JComponent highlightedAgain = view.search().currentHitRow();
+            assertNotNull(highlightedAgain);
+            Object highlightedPath = highlightedAgain.getClientProperty(
+                    objectview.field.FieldProperties.FIELD_PATH_PROPERTY);
+            assertTrue(highlightedPath instanceof objectview.field.FieldPath fieldPath
+                            && "request".equals(fieldPath.leaf()),
+                    "turning highlighting on must retain the addressed request field");
+        });
+    }
 
     @ParameterizedTest
     @EnumSource(RenderingMode.class)
@@ -1138,6 +1183,18 @@ class VirtualSearchHighlightTest {
             this.name = name;
             this.note = note;
         }
+        @Override public String getIdentifier() { return name; }
+        @Override public String getDisplayName() { return name; }
+    }
+
+    public static final class RecursiveStep extends ViewableAdapter {
+        private final String name;
+        public String request;
+        @objectview.annotations.Inline
+        public final List<RecursiveStep> steps = new ArrayList<>();
+
+        RecursiveStep(String name) { this.name = name; }
+        RecursiveStep with(RecursiveStep child) { steps.add(child); return this; }
         @Override public String getIdentifier() { return name; }
         @Override public String getDisplayName() { return name; }
     }

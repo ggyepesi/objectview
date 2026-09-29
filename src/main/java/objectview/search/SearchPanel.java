@@ -119,6 +119,9 @@ public class SearchPanel extends JPanel
      *  located. Navigating to a card and stopping there is what left a match sitting
      *  a hundred rows below the fold. */
     private JComponent currentHitRow;
+    /** The group whose exact occurrence is currently addressed. Highlight display
+     *  may be toggled without changing this navigation state. */
+    private HitGroupQ currentVirtualGroup;
     /** Invalidates deferred scrolls from an older Next/Previous gesture. */
     private long virtualNavigationGeneration;
 
@@ -627,7 +630,7 @@ public class SearchPanel extends JPanel
         restoreOrderButton.addActionListener(
                 e -> restoreOriginalTargetOrder());
 
-        fieldHighlightBox.addActionListener(e -> refreshSearch());
+        fieldHighlightBox.addActionListener(e -> fieldHighlightChanged());
         updateTargetCapabilities();
     }
 
@@ -1126,7 +1129,28 @@ public class SearchPanel extends JPanel
     public void setFieldHighlight(boolean on) {
         if (fieldHighlightBox.isSelected() != on) {
             fieldHighlightBox.setSelected(on);
+            fieldHighlightChanged();
         }
+    }
+
+    private void fieldHighlightChanged() {
+        if (virtualList != null && !currentVirtualGroups.isEmpty()) {
+            clearFieldHighlightsOnly();
+            if (fieldHighlightBox.isSelected()) {
+                highlightBuiltHits();
+                if (currentVirtualGroup != null && currentHit != null) {
+                    Viewable item = currentVirtualGroup.hits.get(
+                            currentVirtualGroup.index);
+                    JComponent row = selectCurrentMatch(
+                            currentHit, currentVirtualGroup,
+                            resolvedCurrentMatch(currentVirtualGroup, item));
+                    currentHitRow = row != null && row != currentHit ? row : null;
+                }
+            }
+            notifyConfigChanged();
+            return;
+        }
+        refreshSearch();
     }
 
     private void refreshSearch() {
@@ -1490,30 +1514,36 @@ public class SearchPanel extends JPanel
             JComponent component, HitGroupQ group,
             SearchAndSort.ValueMatch match) {
         if (!(component instanceof RenderedInstanceHost host)
-                || group == null || match == null
-                || !fieldHighlightBox.isSelected()) return null;
+                || group == null || match == null) return null;
+        FieldPath renderedPath = match.renderedPath() == null
+                ? group.fieldPath.path() : match.renderedPath();
+        if (!renderedPath.equals(group.fieldPath.path())
+                && host.revealPath(renderedPath)) {
+            host.refreshRenderedContent();
+        }
         Component scope = component;
         if (!match.collectionMembers().isEmpty()) {
             Component member = host.revealPathMember(
-                    group.fieldPath.path(), match.collectionMembers());
+                    renderedPath, match.collectionMembers());
             if (member != null) scope = member;
         }
         // A virtualized nested member may have been constructed by the reveal above,
         // after the card received its query-wide decoration. Bring only that exact
         // member subtree up to date; never re-walk the containing 40k-member card.
-        if (scope != component) {
+        if (scope != component && fieldHighlightBox.isSelected()) {
             highlightTextRecursively(
-                    scope, group.fieldPath.path(), group.queryTokens);
+                    scope, renderedPath, group.queryTokens);
         }
         List<JComponent> rows = collectMatchingFieldRows(
-                scope, group.fieldPath.path(), group.queryTokens);
+                scope, renderedPath, group.queryTokens);
         if (rows.isEmpty()) return null;
         int occurrence = match.collectionMembers().isEmpty()
                 ? match.occurrence() : 0;
         JComponent selected = rows.get(Math.min(occurrence, rows.size() - 1));
+        if (!fieldHighlightBox.isSelected()) return selected;
         if (selected instanceof TextBlock block) {
             block.selectMatchingOccurrence(
-                    group.fieldPath.path(), group.queryTokens,
+                    renderedPath, group.queryTokens,
                     exactMatch, occurrence);
         } else if (selected instanceof TextRow row) {
             row.selectMatchingOccurrence(group.queryTokens, exactMatch, occurrence);
@@ -1529,6 +1559,7 @@ public class SearchPanel extends JPanel
         virtualNavigationGeneration++;
         virtualHits.clear();
         currentVirtualGroups = List.of();
+        currentVirtualGroup = null;
         virtualGroupsByItem = Map.of();
     }
 
@@ -2104,6 +2135,21 @@ public class SearchPanel extends JPanel
         }
     }
 
+    /** Removes field text decoration without changing the addressed match, its
+     *  expanded route, or the viewport. The Highlight checkbox is presentation;
+     *  it must not become a navigation command. */
+    private void clearFieldHighlightsOnly() {
+        if (rememberedSearchComponents.isEmpty()) return;
+        for (JComponent component : new ArrayList<>(rememberedSearchComponents)) {
+            restoreRememberedComponent(component);
+        }
+        rememberedSearchComponents.clear();
+        if (targetPanel != null) {
+            targetPanel.revalidate();
+            targetPanel.repaint();
+        }
+    }
+
     private void restoreRememberedComponent(JComponent jc) {
         if (jc instanceof TextRow row) {
             row.clearHighlight();
@@ -2477,9 +2523,19 @@ public class SearchPanel extends JPanel
     private void navigateToCurrentVirtual(HitGroupQ g) {
         long navigation = ++virtualNavigationGeneration;
         clearCurrentOccurrenceMarker();
+        currentVirtualGroup = g;
 
         Viewable q = g.hits.get(g.index);
         SearchAndSort.ValueMatch match = resolvedCurrentMatch(g, q);
+        if (renderContext != null && match != null) {
+            // A recursive inline collection can be deeper than the finite field
+            // path used by the search index. The resolved match retains those
+            // additional member identities; bank their disclosure state before
+            // materializing the card, just as revealPath does for the finite part.
+            for (Viewable member : match.collectionMembers()) {
+                renderContext.setExpanded(member, true);
+            }
+        }
         JComponent card = virtualList instanceof SearchNavigableContainer navigable
                 ? navigable.revealSearchHit(q, g.fieldPath, g.queryTokens)
                 : virtualList.navigateToTop(q);

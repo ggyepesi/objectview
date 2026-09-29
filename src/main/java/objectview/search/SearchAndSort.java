@@ -36,7 +36,7 @@ public class SearchAndSort {
      * scalar collections: snapshot loading deliberately collapses bare entity
      * references to their display strings, so there is no Viewable identity to retain. */
     record ValueMatch(Object value, List<objectview.Viewable> collectionMembers,
-                      int occurrence) {
+                      FieldPath renderedPath, int occurrence) {
         ValueMatch {
             collectionMembers = collectionMembers == null
                     ? List.of() : List.copyOf(collectionMembers);
@@ -356,13 +356,13 @@ public class SearchAndSort {
         List<ValueMatch> matches = new ArrayList<>();
         for (SearchText occurrence : index.occurrences(row)) {
             if (matches(occurrence, queryTokens, exact)) {
-                matches.add(new ValueMatch(null, List.of(), matches.size()));
+                matches.add(new ValueMatch(null, List.of(), field.path(), matches.size()));
             }
         }
         if (matches.isEmpty() && matches(combined, queryTokens, exact)) {
             // The phrase spans adjacent values. The index remains authoritative,
             // but there is no single rendered occurrence to address.
-            matches.add(new ValueMatch(null, List.of(), 0));
+            matches.add(new ValueMatch(null, List.of(), field.path(), 0));
         }
         return List.copyOf(matches);
     }
@@ -460,7 +460,87 @@ public class SearchAndSort {
             List<String> queryTokens,
             boolean exact) {
         if (matches(searchText(field, value), queryTokens, exact)) {
-            result.add(new ValueMatch(value, collectionMembers, result.size()));
+            InlineMatch nested = matchingInlineRoute(
+                    value, field, queryTokens, exact, searchDepth(field),
+                    java.util.Collections.newSetFromMap(
+                            new java.util.IdentityHashMap<>()));
+            List<objectview.Viewable> addressed = collectionMembers;
+            for (objectview.Viewable member : nested == null
+                    ? List.<objectview.Viewable>of() : nested.route()) {
+                addressed = appendMember(addressed, member);
+            }
+            FieldPath rendered = field.path();
+            if (nested != null && !nested.segments().isEmpty()) {
+                List<String> segments = new ArrayList<>(rendered.segments());
+                segments.addAll(nested.segments());
+                rendered = FieldPath.of(segments.toArray(String[]::new));
+            }
+            result.add(new ValueMatch(value, addressed, rendered, result.size()));
+        }
+    }
+
+    /** Finds the identity route to text which {@link ValueText} reads recursively.
+     *  A field-path capped at a recursive collection (query logs report this as
+     *  steps.steps.steps) still needs the deeper member identities to open the chips
+     *  containing the actual request. The walk reads in ValueText's order and to its
+     *  depth — a name before the fields below it, and a reference only as its chip —
+     *  so it never routes into text the card does not draw. */
+    private InlineMatch matchingInlineRoute(
+            Object value, ViewableFieldPaths.PathInfo field,
+            List<String> queryTokens, boolean exact, int depth,
+            java.util.Set<Object> visited) {
+        if (value == null) return null;
+        if (value instanceof objectview.Viewable viewable) {
+            if (matches(searchText(field, viewable.getName()), queryTokens, exact)) {
+                return new InlineMatch(List.of(viewable), List.of());
+            }
+            if (depth > 0 && visited.add(viewable)) {
+                objectview.field.FieldSet fields = objectview.field.FieldSet.of(viewable);
+                for (objectview.field.FieldRef nested : fields.fields()) {
+                    InlineMatch tail = matchingInlineRoute(
+                            fields.read(nested.name()), field, queryTokens, exact,
+                            nested.embedded() ? depth - 1 : 0, visited);
+                    if (tail != null) {
+                        List<objectview.Viewable> route = new ArrayList<>();
+                        route.add(viewable);
+                        route.addAll(tail.route());
+                        List<String> segments = new ArrayList<>();
+                        segments.add(nested.name());
+                        segments.addAll(tail.segments());
+                        return new InlineMatch(route, segments);
+                    }
+                }
+            }
+            return null;
+        }
+        if (value instanceof Collection<?> collection) {
+            for (Object member : collection) {
+                InlineMatch route = matchingInlineRoute(
+                        member, field, queryTokens, exact, depth, visited);
+                if (route != null) return route;
+            }
+            return null;
+        }
+        if (value instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (matches(searchText(field, entry.getKey()), queryTokens, exact)) {
+                    return new InlineMatch(List.of(), List.of());
+                }
+                InlineMatch route = matchingInlineRoute(
+                        entry.getValue(), field, queryTokens, exact, depth, visited);
+                if (route != null) return route;
+            }
+            return null;
+        }
+        return matches(searchText(field, value), queryTokens, exact)
+                ? new InlineMatch(List.of(), List.of()) : null;
+    }
+
+    private record InlineMatch(List<objectview.Viewable> route,
+                               List<String> segments) {
+        InlineMatch {
+            route = List.copyOf(route);
+            segments = List.copyOf(segments);
         }
     }
 
@@ -601,11 +681,15 @@ public class SearchAndSort {
      *  reference renders as a name chip and is read as one, at the top of a path exactly
      *  as inside it. A dynamic field has no declared Java field to ask, and reads as a
      *  reference. */
+    /** How deep a field's value is read: through inline nesting, or as a chip. */
+    private static int searchDepth(ViewableFieldPaths.PathInfo field) {
+        return objectview.ViewableAdapter.isInline(field.leafField())
+                ? ValueText.NESTED_DEPTH : 0;
+    }
+
     private SearchText searchText(
             ViewableFieldPaths.PathInfo field, Object value) {
-        int depth = objectview.ViewableAdapter.isInline(field.leafField())
-                ? ValueText.NESTED_DEPTH : 0;
-        List<String> atoms = ValueText.shown(value, depth).stream()
+        List<String> atoms = ValueText.shown(value, searchDepth(field)).stream()
                 .map(this::normalize).filter(s -> !s.isBlank()).toList();
         // One atom IS the haystack. Joining a single-element list copies its
         // characters into an equal String, and an index over a loaded domain keeps
