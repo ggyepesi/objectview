@@ -1,6 +1,7 @@
 package objectview.render;
 
 import objectview.Viewable;
+import objectview.viewconfig.FieldTypeSource;
 
 import javax.swing.JComponent;
 import java.util.ServiceLoader;
@@ -25,6 +26,16 @@ public interface CardSearchBarFactory {
      * {@code null} for no bar.
      */
     JComponent createSearchBar(CardListView view, Class<? extends Viewable> viewableType);
+
+    /** Schema-aware form used by dynamic/snapshot domains. Older hosts keep the
+     * class-only behavior through the default implementation. */
+    default JComponent createSearchBar(
+            CardListView view,
+            Class<? extends Viewable> viewableType,
+            Viewable sample,
+            FieldTypeSource fieldTypes) {
+        return createSearchBar(view, viewableType);
+    }
 
     AtomicReference<CardSearchBarFactory> ACTIVE = new AtomicReference<>();
 

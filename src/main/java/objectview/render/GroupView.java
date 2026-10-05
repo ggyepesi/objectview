@@ -2,6 +2,8 @@ package objectview.render;
 
 import objectview.Viewable;
 import objectview.group.ViewableGroup;
+import objectview.field.FieldSchema;
+import objectview.viewconfig.FieldTypeSource;
 
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -18,9 +20,23 @@ import java.util.function.Consumer;
 public class GroupView extends JPanel {
     private final GroupTreeView treeView;
     private final Map<ViewableGroup<?>, CardListView> memberViews = new IdentityHashMap<>();
+    private final Viewable fieldConfigurationSample;
+    private final FieldTypeSource fieldTypes;
+    private final java.util.function.Function<Viewable, FieldSchema> fieldSchemas;
 
     public GroupView(ViewableGroup<?> rootGroup) {
+        this(rootGroup, null, null, null);
+    }
+
+    public GroupView(
+            ViewableGroup<?> rootGroup,
+            Viewable fieldConfigurationSample,
+            FieldTypeSource fieldTypes,
+            java.util.function.Function<Viewable, FieldSchema> fieldSchemas) {
         super(new BorderLayout());
+        this.fieldConfigurationSample = fieldConfigurationSample;
+        this.fieldTypes = fieldTypes;
+        this.fieldSchemas = fieldSchemas;
         treeView = new GroupTreeView(rootGroup);
         treeView.setShowGroupHandler(this::showGroup);
         add(treeView, BorderLayout.CENTER);
@@ -30,6 +46,12 @@ public class GroupView extends JPanel {
         if (group == null || group.getMembers().isEmpty()) return;
         CardListView view = memberViews.computeIfAbsent(group, selected -> {
             CardListView created = new CardListView();
+            created.setFieldConfiguration(fieldConfigurationSample, fieldTypes);
+            if (fieldSchemas != null) {
+                RenderContext context = new RenderContext(selected.getMembers());
+                context.setFieldSchemaResolver(fieldSchemas);
+                created.setRenderContext(context);
+            }
             for (Viewable member : selected.getMembers()) created.addViewable(member);
             return created;
         });

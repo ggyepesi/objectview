@@ -7,6 +7,7 @@ import objectview.text.TextSelectable;
 import objectview.text.TextSelectionManager;
 import objectview.virtual.VirtualizedCardList;
 import objectview.viewconfig.ViewConfig;
+import objectview.viewconfig.FieldTypeSource;
 
 import javax.swing.*;
 import java.awt.*;
@@ -45,6 +46,8 @@ public class CardListView {
     // reference click can navigate to a card in a sibling view.
     private RenderContext sharedContext;
     private boolean inPlaceNavigation;
+    private Viewable fieldConfigurationSample;
+    private FieldTypeSource fieldTypes;
 
     public CardListView() {
     }
@@ -65,6 +68,13 @@ public class CardListView {
      */
     public void setInPlaceNavigation(boolean inPlaceNavigation) {
         this.inPlaceNavigation = inPlaceNavigation;
+    }
+
+    /** Authoritative fields for the window's Search/Sort/View configuration. */
+    public void setFieldConfiguration(
+            Viewable sample, FieldTypeSource fieldTypes) {
+        this.fieldConfigurationSample = sample;
+        this.fieldTypes = fieldTypes;
     }
 
     /**
@@ -613,7 +623,9 @@ public class CardListView {
             int listenerCount = targetListeners.size();
             JComponent searchBar = factory == null
                     ? null
-                    : factory.createSearchBar(this, viewables.get(0).getClass());
+                    : factory.createSearchBar(
+                            this, viewables.get(0).getClass(),
+                            fieldConfigurationSample, fieldTypes);
             // The factory owns how its bar is wired. Remember every listener it
             // registered rather than assuming the returned component is itself the
             // listener; a decorated/wrapped search bar remains just as detachable.

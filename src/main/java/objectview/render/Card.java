@@ -1633,6 +1633,20 @@ public class Card extends JPanel implements RenderedInstanceHost {
         ViewConfig targetConfig = nestedConfig == null
                 ? configForNested(target) : nestedConfig;
 
+        // A projected/structural wrapper can deliberately have no display label:
+        // its ViewConfig selected only fields below it. A collapsed reference chip
+        // would then paint an empty row and hide the very values the config asks to
+        // show. Render that wrapper's configured body directly. This is driven by
+        // the same ViewConfig as every other reference; it is not a second field
+        // mapping or a quiz-specific presentation path.
+        if (target != null
+                && ReferenceRow.referenceLabel(target).isBlank()
+                && targetHasContent(target)) {
+            JComponent body = inlineViewable(
+                    target, fieldPath, targetConfig, true, !navigateToTopLevel);
+            if (body != null) return body;
+        }
+
         // A reference to something that is itself a top-level card in this view
         // is a navigation link (jump to that card) rather than an expand-in-place
         // chip — so the same object never has two competing expand toggles.

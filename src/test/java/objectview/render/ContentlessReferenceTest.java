@@ -2,6 +2,8 @@ package objectview.render;
 
 import objectview.ViewableAdapter;
 import objectview.annotations.DisplayField;
+import objectview.field.FieldProperties;
+import objectview.field.ViewableContractFieldSet;
 import objectview.viewconfig.ViewConfig;
 import org.junit.jupiter.api.Test;
 
@@ -11,6 +13,7 @@ import java.awt.Container;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * A reference with nothing behind it is a value, not a door.
@@ -59,6 +62,32 @@ class ContentlessReferenceTest {
                    "a blank value renders nothing; the expander would open an empty box");
     }
 
+    @Test void aBlankStructuralReferenceRendersItsConfiguredChildInsteadOfABlankChip()
+            throws Exception {
+        Position position = new Position("President");
+        Holding projection = new Holding(position);
+        FilmWithHolding film = new FilmWithHolding("History", projection);
+
+        ViewConfig positionConfig = ViewConfig.of(Position.class);
+        positionConfig.setAllFields(false);
+        positionConfig.addField(ViewableContractFieldSet.DISPLAY_KEY, ViewConfig.leaf());
+        ViewConfig holdingConfig = ViewConfig.of(Holding.class);
+        holdingConfig.setAllFields(false);
+        holdingConfig.addField("position", positionConfig);
+        ViewConfig config = ViewConfig.of(FilmWithHolding.class);
+        config.setAllFields(false);
+        config.addField("holding", holdingConfig);
+
+        RenderContext context = new RenderContext();
+        Card[] rendered = new Card[1];
+        SwingUtilities.invokeAndWait(() -> rendered[0] =
+                new Card(film, config, context, false));
+
+        assertTrue(renders(rendered[0], "President"));
+        assertNull(findReference(rendered[0], ""),
+                "the blank intermediate wrapper must not become an empty chip");
+    }
+
     private static Card cardFor(Film film) throws Exception {
         RenderContext context = new RenderContext();
         Card[] rendered = new Card[1];
@@ -75,6 +104,39 @@ class ContentlessReferenceTest {
         if (root instanceof Container container) {
             for (Component child : container.getComponents()) {
                 T found = find(child, type);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static boolean renders(Component root, String text) {
+        if (root instanceof TextRow row
+                && row.matchesRenderedText(java.util.List.of(text), true)) {
+            return true;
+        }
+        if (root instanceof javax.swing.JComponent component
+                && text.equals(component.getClientProperty(
+                FieldProperties.FIELD_VALUE_PROPERTY))) {
+            return true;
+        }
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                if (renders(child, text)) return true;
+            }
+        }
+        return false;
+    }
+
+    private static ReferenceRow findReference(Component root, String text) {
+        if (root instanceof ReferenceRow row
+                && text.equals(row.getClientProperty(
+                FieldProperties.FIELD_VALUE_PROPERTY))) {
+            return row;
+        }
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                ReferenceRow found = findReference(child, text);
                 if (found != null) return found;
             }
         }
@@ -108,5 +170,36 @@ class ContentlessReferenceTest {
         @Override public String getIdentifier() { return personName; }
         @Override public String getDisplayName() { return personName; }
         @Override public String getReferenceLabel() { return personName; }
+    }
+
+    private static final class FilmWithHolding extends ViewableAdapter {
+        private final String title;
+        private final Holding holding;
+
+        private FilmWithHolding(String title, Holding holding) {
+            this.title = title;
+            this.holding = holding;
+        }
+
+        @Override public String getIdentifier() { return title; }
+        @Override public String getDisplayName() { return title; }
+    }
+
+    private static final class Holding extends ViewableAdapter {
+        private final Position position;
+
+        private Holding(Position position) { this.position = position; }
+
+        @Override public String getIdentifier() { return "holding"; }
+        @Override public String getDisplayName() { return ""; }
+    }
+
+    private static final class Position extends ViewableAdapter {
+        private final String name;
+
+        private Position(String name) { this.name = name; }
+
+        @Override public String getIdentifier() { return name; }
+        @Override public String getDisplayName() { return name; }
     }
 }
