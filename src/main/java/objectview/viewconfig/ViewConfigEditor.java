@@ -36,6 +36,10 @@ public class ViewConfigEditor extends JPanel {
 
     private FieldRowSource rowSource;
     private Set<String> hiddenFields = Set.of();
+    // Contextual exclusions are different from schema-hidden fields: their rows stay
+    // in allRows so changing the context can reveal the user's unchanged selection
+    // again, but they are absent from both the table and the effective ViewConfig.
+    private Set<FieldPath> excludedFieldPaths = Set.of();
     private FieldTypeSource typeSource;
     private boolean hideMedia;
     private java.util.List<ClassBranch> classBranches = java.util.List.of();
@@ -255,6 +259,28 @@ public class ViewConfigEditor extends JPanel {
         rebuildRows(true);
     }
 
+    /**
+     * Omits exact field paths (and their descendants) from this editor's visible and
+     * effective configuration without forgetting their checked state. This is for a
+     * consumer-specific rule such as hiding the field that defines a grouping the
+     * consumer is asking about; it does not change the field schema itself.
+     */
+    public void setExcludedFieldPaths(Set<FieldPath> paths) {
+        if (paths == null || paths.isEmpty()) {
+            excludedFieldPaths = Set.of();
+        } else {
+            java.util.LinkedHashSet<FieldPath> normalized =
+                    new java.util.LinkedHashSet<>();
+            for (FieldPath path : paths) {
+                if (path != null && !path.isRoot()) normalized.add(path);
+            }
+            excludedFieldPaths = Set.copyOf(normalized);
+        }
+        if (treeMode) rebuildVisible();
+        else rebuildRows(true);
+        fireConfigChanged();
+    }
+
     public void setFieldTypes(FieldTypeSource source) {
         typeSource = source;
         rebuildRows(true);
@@ -454,6 +480,7 @@ public class ViewConfigEditor extends JPanel {
 
         rows.clear();
         for (FieldRow row : rowSource.rows(rowContext())) {
+            if (isExcluded(row.path())) continue;
             RowState state = createState(row);
             RowSnapshot snapshot = old.get(row.path());
 
@@ -681,6 +708,7 @@ public class ViewConfigEditor extends JPanel {
         // The synthetic node supplies tree ancestry only; the top-level checkbox is
         // the sole user-facing control.
         if (state.row.isMinorBlock()) return false;
+        if (isExcluded(state.row.path())) return false;
         if (state.minorBranch
                 && !expandedPaths.contains(FieldRow.minorBlockPath())) {
             return false;
@@ -691,6 +719,22 @@ public class ViewConfigEditor extends JPanel {
                 return false;
             }
             ancestor = ancestor.parent();
+        }
+        return true;
+    }
+
+    private boolean isExcluded(FieldPath path) {
+        if (path == null || path.isRoot() || excludedFieldPaths.isEmpty()) return false;
+        for (FieldPath excluded : excludedFieldPaths) {
+            if (startsWith(path, excluded)) return true;
+        }
+        return false;
+    }
+
+    private static boolean startsWith(FieldPath path, FieldPath prefix) {
+        if (prefix.size() > path.size()) return false;
+        for (int i = 0; i < prefix.size(); i++) {
+            if (!path.segments().get(i).equals(prefix.segments().get(i))) return false;
         }
         return true;
     }
@@ -841,6 +885,7 @@ public class ViewConfigEditor extends JPanel {
         if (treeMode) {
             for (RowState state : allRows) {
                 if (state.row.isField() && state.use
+                        && !isExcluded(state.row.path())
                         && (!state.minorBranch || allMinorFieldsBox.isSelected())
                         && ancestorsSelected(state.row.path())) {
                     result.add(prefix.isRoot()
@@ -851,7 +896,8 @@ public class ViewConfigEditor extends JPanel {
             return;
         }
         for (RowState state : rows) {
-            if (!state.row.isField() || !state.use) {
+            if (!state.row.isField() || !state.use
+                    || isExcluded(state.row.path())) {
                 continue;
             }
 
@@ -970,6 +1016,9 @@ public class ViewConfigEditor extends JPanel {
             if (row.isMinorBlock()) {
                 continue;
             }
+            if (isExcluded(row.path())) {
+                continue;
+            }
             if (state.minorBranch && !allMinorFieldsBox.isSelected()) {
                 continue;
             }
@@ -1041,7 +1090,8 @@ public class ViewConfigEditor extends JPanel {
         // individually selected rows separately so a ConfigState rebuild can reopen
         // the gate without inventing defaults or losing nested child configuration.
         for (RowState state : allRows) {
-            if (!state.minorBranch || !state.row.isField() || !state.use) continue;
+            if (!state.minorBranch || !state.row.isField() || !state.use
+                    || isExcluded(state.row.path())) continue;
             ViewConfig remembered = explicitConfigFor(state, state.row.path());
             result.rememberField(state.row.configName(), remembered != null
                     ? remembered : ViewConfig.leaf());

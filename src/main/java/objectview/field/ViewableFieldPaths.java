@@ -68,8 +68,19 @@ public final class ViewableFieldPaths {
                                           FieldFilter filter) {
         List<PathInfo> out = new ArrayList<>();
 
-        if (config == null || config.getCls() == null) {
+        if (config == null) {
             return out;
+        }
+
+        // A saved-domain editor writes an explicit path tree but deliberately has no
+        // generated Java root class. The configuration already owns those paths; do
+        // not throw them away merely because reflection is unavailable.
+        if (config.getCls() == null) {
+            for (Map.Entry<String, ViewConfig> entry : config.getFields().entrySet()) {
+                addDynamicPath(entry.getKey(), entry.getValue(),
+                        FieldPath.ROOT, "", out);
+            }
+            return dedupByPath(out);
         }
 
         if (!Viewable.class.isAssignableFrom(config.getCls())) {

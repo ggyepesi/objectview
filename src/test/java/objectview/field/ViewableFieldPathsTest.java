@@ -45,6 +45,22 @@ class ViewableFieldPathsTest {
     }
 
     @Test
+    void classlessExplicitConfigOwnsItsCompleteDynamicPaths() {
+        ViewConfig place = new ViewConfig();
+        place.setAllFields(false);
+        place.addField("country", ViewConfig.leaf());
+        place.addField("city", ViewConfig.leaf());
+        ViewConfig config = new ViewConfig();
+        config.setAllFields(false);
+        config.addField("name", ViewConfig.leaf());
+        config.addField("place", place);
+
+        assertEquals(Set.of("name", "place.country", "place.city"),
+                pathStrings(ViewableFieldPaths.collect(
+                        config, ViewableFieldPaths.ALL_FIELDS)));
+    }
+
+    @Test
     void collectFromSampleKeepsTheConfiguredReferencePath() {
         TestChild child = new TestChild();
         child.name = "Meryl";
