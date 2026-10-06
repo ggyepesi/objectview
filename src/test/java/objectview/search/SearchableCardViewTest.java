@@ -104,8 +104,13 @@ class SearchableCardViewTest {
             assertNotNull(view.cardList().getVirtualList());
             assertNotNull(view.search());
             assertTrue(view.renderContext().collapsibleCards());
-            assertTrue(view.search().getViewConfig().isAllMinorFields(),
+            // The complete field set arrives as plain ticks, not as a shorthand flag
+            // each consumer would have to interpret (directive 24).
+            assertTrue(view.search().getViewConfig().hasField("name"),
                     "an expanded instance starts with its complete field set");
+            assertFalse(view.search().getViewConfig().isAllFields()
+                            || view.search().getViewConfig().isAllMinorFields(),
+                    "the config the editor emits is literal");
             });
     }
 

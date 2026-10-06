@@ -29,6 +29,10 @@ import java.util.function.Function;
 public class ViewConfigEditor extends JPanel {
 
     private ViewConfig sourceConfig;
+    // The config as it entered, kept until the editor's shape is final: a schema
+    // installed after construction (setFieldTypes) can name fields the sample or class
+    // did not, and the entered shorthand must be rewritten against that, not lost.
+    private ViewConfig enteredConfig;
     private final boolean nestedDefaultNameOnly;
     private final boolean minorOnly;
     private Viewable sample;
@@ -164,11 +168,11 @@ public class ViewConfigEditor extends JPanel {
                              Viewable sample,
                              FieldTableContributor contributor,
                              FieldRowSource rowSource) {
-        this.sourceConfig =
-                config == null ? new ViewConfig() : config.copy();
         this.nestedDefaultNameOnly = nestedDefaultNameOnly;
         this.minorOnly = minorOnly;
         this.sample = sample;
+        this.enteredConfig = config == null ? new ViewConfig() : config.copy();
+        this.sourceConfig = literal(enteredConfig);
         this.contributor = contributor == null
                 ? FieldTableContributor.DEFAULT
                 : contributor;
@@ -283,7 +287,41 @@ public class ViewConfigEditor extends JPanel {
 
     public void setFieldTypes(FieldTypeSource source) {
         typeSource = source;
+        // The schema can name the DISPLAY field and fields a sample did not carry:
+        // rewrite the entered config against it. Rows already shown keep their state.
+        sourceConfig = literal(enteredConfig == null ? sourceConfig : enteredConfig);
         rebuildRows(true);
+    }
+
+    /**
+     * Directive 24 at the editor's boundary: a config entering the editor is rewritten
+     * into plain ticks against the shape the editor shows, so a row is ticked exactly
+     * when the config ticks its path, and the config the editor emits is literal.
+     * Subtype-branch entries are this editor's own synthetic keys and are kept as given.
+     */
+    private ViewConfig literal(ViewConfig config) {
+        objectview.plan.TypeShape shape = editorShape(config);
+        if (shape == null) return config;
+        java.util.Map<String, ViewConfig> branches = new java.util.LinkedHashMap<>();
+        for (Map.Entry<String, ViewConfig> entry : config.getFields().entrySet()) {
+            if (entry.getKey().startsWith(CLASS_BRANCH_PREFIX)) {
+                branches.put(entry.getKey(), entry.getValue());
+            }
+        }
+        ViewConfig plain = config.copy();
+        branches.keySet().forEach(plain.getFields()::remove);
+        ViewConfig literal = objectview.plan.ViewConfigDesugar.literal(plain, shape);
+        branches.forEach(literal::addField);
+        return literal;
+    }
+
+    private objectview.plan.TypeShape editorShape(ViewConfig config) {
+        if (typeSource != null && !typeSource.fieldNames().isEmpty()) {
+            return objectview.plan.TypeShape.of(typeSource);
+        }
+        if (sample != null) return objectview.plan.TypeShape.ofSample(sample, null);
+        return config == null || config.getCls() == null
+                ? null : objectview.plan.TypeShape.ofClass(config.getCls());
     }
 
     public void setHideMedia(boolean hideMedia) {
@@ -325,6 +363,7 @@ public class ViewConfigEditor extends JPanel {
         }
 
         sourceConfig = base;
+        enteredConfig = base;
         rowSource = classBranches.isEmpty()
                 ? ConfigFieldRowSource.INSTANCE
                 : new ClassHierarchyFieldRowSource(classBranches);
@@ -368,9 +407,10 @@ public class ViewConfigEditor extends JPanel {
                               Viewable sample,
                               FieldTypeSource types,
                               Set<String> hidden) {
-        this.sourceConfig = config == null ? new ViewConfig() : config.copy();
         this.sample = sample;
         this.typeSource = types;
+        this.enteredConfig = config == null ? new ViewConfig() : config.copy();
+        this.sourceConfig = literal(enteredConfig);
         this.hiddenFields = hidden == null ? Set.of() : Set.copyOf(hidden);
         this.rowSource = ConfigFieldRowSource.INSTANCE;
         this.expandedPaths.clear();
@@ -538,7 +578,7 @@ public class ViewConfigEditor extends JPanel {
             RowState state = new RowState(placed);
             state.minorBranch = minorBranch;
             state.use = !placed.isClassBranch()
-                    && checkedInContext(raw, context.config());
+                    && checkedInContext(raw, context.config(), minorBranch);
             allRows.add(state);
 
             NestedFieldSource nested = placed.nested();
@@ -587,10 +627,14 @@ public class ViewConfigEditor extends JPanel {
      *  row source. Nested defaults are decided once by {@link #childContext}; asking
      *  the root config again here used to turn an implicitly selected reference into
      *  every descendant recursively, even in name-only mode. */
-    private boolean checkedInContext(FieldRow row, ViewConfig config) {
+    private boolean checkedInContext(FieldRow row, ViewConfig config, boolean minorBranch) {
         if (row == null || config == null) return false;
         String name = row.configName();
-        if (config.getRememberedFieldConfig(name) != null) return true;
+        // A remembered field is a choice kept while it is switched off: a minor field
+        // behind the closed minor-fields gate is still ticked, but a reference whose
+        // box was unticked is not. Reading every remembered field as ticked turned an
+        // unticked reference back on whenever the editor re-read its own output.
+        if (config.getRememberedFieldConfig(name) != null) return minorBranch;
         return row.field() != null
                 ? config.showsField(row.field())
                 : config.showsFieldByName(name);

@@ -417,7 +417,7 @@ public class SearchPanel extends JPanel
         }
 
         List<ViewableFieldPaths.PathInfo> sortPaths =
-                configuredPaths(sortEditor, subtypeSortEditors, true, false);
+                configuredPaths(sortEditor, subtypeSortEditors, true);
 
         if (sortPaths.isEmpty()) {
             return;
@@ -842,26 +842,57 @@ public class SearchPanel extends JPanel
         // Search configuration owns which field contents are searched. View
         // configuration owns their current presentation only: text, a link, or a
         // future renderer must not change whether the configured content is found.
-        return configuredPaths(searchEditor, subtypeSearchEditors, true, false);
+        return configuredPaths(searchEditor, subtypeSearchEditors, true);
     }
 
     /** Complete subtype-aware path projection used by the active presentation. */
     public List<ViewableFieldPaths.PathInfo> viewPaths() {
-        return configuredPaths(viewEditor, subtypeViewEditors, false, true);
+        // Read straight off the literal ticks, base type and each subtype branch, so the
+        // table's columns and the cards agree on what is ticked (directive 24: the view
+        // config's shorthand is rewritten once, here, where the table receives it).
+        List<ViewableFieldPaths.PathInfo> paths = new ArrayList<>();
+        if (rootFieldTypes != null) {
+            objectview.plan.TypeShape root = objectview.plan.TypeShape.of(rootFieldTypes);
+            paths.addAll(objectview.plan.LiteralPaths.leaves(
+                    objectview.plan.ViewConfigDesugar.literal(viewEditor.getConfig(), root), root));
+            java.util.Map<String, ViewConfig> branches = viewEditor.classBranchConfigs();
+            for (SubtypeConfig subtype : subtypeConfigs) {
+                ViewConfig config = branches.get(subtype.typeName());
+                if (config == null) {
+                    ViewConfigEditor editor = subtypeViewEditors.get(subtype.typeName());
+                    config = editor == null ? null : editor.getConfig();
+                }
+                if (config == null || subtype.fieldTypes() == null) continue;
+                objectview.plan.TypeShape shape =
+                        objectview.plan.TypeShape.of(subtype.fieldTypes());
+                paths.addAll(objectview.plan.LiteralPaths.leaves(
+                        objectview.plan.ViewConfigDesugar.literal(config, shape), shape));
+            }
+        } else {
+            objectview.plan.TypeShape shape = fieldPathSample != null
+                    ? objectview.plan.TypeShape.ofSample(fieldPathSample, null)
+                    : objectview.plan.TypeShape.ofClass(viewEditor.getConfig().getCls());
+            paths.addAll(objectview.plan.LiteralPaths.leaves(
+                    objectview.plan.ViewConfigDesugar.literal(
+                            effectiveConfig(viewEditor, subtypeViewEditors, null), shape),
+                    shape));
+        }
+        java.util.LinkedHashMap<String, ViewableFieldPaths.PathInfo> unique =
+                new java.util.LinkedHashMap<>();
+        for (ViewableFieldPaths.PathInfo path : paths) {
+            unique.putIfAbsent(path.dotted(), path);
+        }
+        return List.copyOf(unique.values());
     }
 
     private List<ViewableFieldPaths.PathInfo> configuredPaths(
             ViewConfigEditor baseEditor,
             java.util.Map<String, ViewConfigEditor> subtypeEditors,
-            boolean excludeMedia,
-            boolean rendering) {
+            boolean excludeMedia) {
         List<ViewableFieldPaths.PathInfo> paths = new ArrayList<>();
-        ViewableFieldPaths.Projection projection = rendering
-                ? ViewableFieldPaths.Projection.RENDERING
-                : ViewableFieldPaths.Projection.VALUES;
         if (rootFieldTypes != null) {
             paths.addAll(ViewableFieldPaths.collectFromSchema(
-                    baseEditor.getConfig(), rootFieldTypes, excludeMedia, projection));
+                    baseEditor.getConfig(), rootFieldTypes, excludeMedia));
             java.util.Map<String, ViewConfig> branches = baseEditor.classBranchConfigs();
             for (SubtypeConfig subtype : subtypeConfigs) {
                 ViewConfig config = branches.get(subtype.typeName());
@@ -871,7 +902,7 @@ public class SearchPanel extends JPanel
                 }
                 if (config != null && subtype.fieldTypes() != null) {
                     paths.addAll(ViewableFieldPaths.collectFromSchema(
-                            config, subtype.fieldTypes(), excludeMedia, projection));
+                            config, subtype.fieldTypes(), excludeMedia));
                 }
             }
         } else {
@@ -880,9 +911,9 @@ public class SearchPanel extends JPanel
                     ? ViewableFieldPaths.NOT_MEDIA_FIELDS
                     : ViewableFieldPaths.ALL_FIELDS;
             paths.addAll(fieldPathSample == null
-                    ? ViewableFieldPaths.collect(config, filter, projection)
+                    ? ViewableFieldPaths.collect(config, filter)
                     : ViewableFieldPaths.collectFromSample(
-                            fieldPathSample, config, filter, projection));
+                            fieldPathSample, config, filter));
         }
         java.util.LinkedHashMap<String, ViewableFieldPaths.PathInfo> unique =
                 new java.util.LinkedHashMap<>();
@@ -1124,7 +1155,7 @@ public class SearchPanel extends JPanel
 
     private java.util.List<String> sortConfigurationSignature() {
         return configuredPaths(
-                sortEditor, subtypeSortEditors, true, false).stream()
+                sortEditor, subtypeSortEditors, true).stream()
                 .map(path -> path.dotted() + "\u0000" + path.valueKind()
                         + "\u0000" + path.role())
                 .toList();

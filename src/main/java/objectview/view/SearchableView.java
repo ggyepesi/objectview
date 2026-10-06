@@ -326,7 +326,9 @@ public final class SearchableView extends JPanel {
             List<ViewableFieldPaths.PathInfo> ordered) {
         List<ViewableFieldPaths.PathInfo> out = new ArrayList<>(ordered);
         for (int i = 1; i < out.size(); i++) {
-            if (out.get(i).role() == objectview.field.FieldRole.DISPLAY) {
+            // The row's own DISPLAY leads, never a nested object's caption column.
+            if (out.get(i).role() == objectview.field.FieldRole.DISPLAY
+                    && out.get(i).path().size() == 1) {
                 out.add(0, out.remove(i));
                 break;
             }

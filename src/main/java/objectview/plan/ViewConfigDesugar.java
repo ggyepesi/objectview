@@ -93,7 +93,11 @@ public final class ViewConfigDesugar {
         out.setThumb(source.isThumb());
         out.setBlurImages(source.isBlurImages());
         out.setAnswerType(source.getAnswerType());
-        out.minorFieldsVisible(source.minorFieldsVisible());
+        // "All minor fields" also meant "show the minor-fields switch on". The ticks are
+        // expanded below; the switch keeps its own, already existing, setting.
+        out.minorFieldsVisible(source.minorFieldsVisible() != null
+                ? source.minorFieldsVisible()
+                : source.isAllMinorFields() ? Boolean.TRUE : null);
         return out;
     }
 }

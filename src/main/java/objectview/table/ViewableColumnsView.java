@@ -120,7 +120,7 @@ public final class ViewableColumnsView
         // The union itself is DEFERRED: it is O(items), and a SearchPanel installs the
         // real resolver before the first paint, so building it here would compute — and
         // throw away — a whole pass over every item.
-        this.configResolver = q -> ViewConfig.all(asViewableClass(q.getClass()));
+        this.configResolver = q -> null;   // no config yet: the one default (ViewDefaults)
         this.columnsStale = true;
         this.list.setItems(this.items);
     }
@@ -197,7 +197,7 @@ public final class ViewableColumnsView
     public void setViewConfigResolver(Function<Viewable, ViewConfig> resolver) {
         if (resolver == null) return;
         configResolver = resolver;
-        registerTypeConfigs(resolver);
+        literalConfigs.clear();
         columnsStale = true;
         list.setViewConfigResolver(resolver);   // discards + rebuilds rows via the factory
     }
@@ -261,9 +261,7 @@ public final class ViewableColumnsView
     private JComponent buildRow(Viewable q) {
         List<PathInfo> rowColumns = ensureColumns();
         ColumnRow row = new ColumnRow(q, rowColumns);
-        ViewConfig config = configResolver == null
-                ? ViewConfig.all(asViewableClass(q.getClass())) : configResolver.apply(q);
-        context.putConfigIfAbsent(q, config);
+        ViewConfig config = literalConfig(q);
         for (int columnIndex = 0; columnIndex < rowColumns.size(); columnIndex++) {
             PathInfo column = rowColumns.get(columnIndex);
             ResolvedFieldPath resolved = ResolvedFieldPath.resolve(
@@ -279,13 +277,25 @@ public final class ViewableColumnsView
         return row;
     }
 
-    private void registerTypeConfigs(Function<Viewable, ViewConfig> resolver) {
-        java.util.Set<String> registered = new java.util.LinkedHashSet<>();
-        for (Viewable value : items) {
-            if (value == null || !registered.add(value.typeName())) continue;
-            ViewConfig resolved = resolver.apply(value);
-            if (resolved != null) context.putConfig(value, resolved);
-        }
+    // A row's config, rewritten into plain ticks once per (config, logical type): the
+    // table's boundary for directive 24, as a card's is for cards. Cells then read only
+    // the literal ticks.
+    private final java.util.Map<ViewConfig, java.util.Map<String, ViewConfig>> literalConfigs =
+            new java.util.IdentityHashMap<>();
+    private static final ViewConfig NO_CONFIG = ViewConfig.leaf();
+
+    private ViewConfig literalConfig(Viewable q) {
+        ViewConfig configured = configResolver == null ? null : configResolver.apply(q);
+        return literalConfigs
+                .computeIfAbsent(configured == null ? NO_CONFIG : configured,
+                        ignored -> new java.util.HashMap<>())
+                .computeIfAbsent(q.typeName(), type -> {
+                    objectview.plan.TypeShape shape =
+                            objectview.plan.TypeShape.ofSample(q, context::fieldSchema);
+                    return configured == null
+                            ? objectview.plan.ViewDefaults.newView(shape)
+                            : objectview.plan.ViewConfigDesugar.literal(configured, shape);
+                });
     }
 
     /** Every image in a cell — a media field, or one inside a collapsed collection —
@@ -687,9 +697,6 @@ public final class ViewableColumnsView
     }
 
     @SuppressWarnings("unchecked")
-    private static Class<? extends Viewable> asViewableClass(Class<?> type) {
-        return (Class<? extends Viewable>) type;
-    }
 
     private static boolean sameIdentityMembers(List<Viewable> left, List<Viewable> right) {
         if (left.size() != right.size()) return false;
