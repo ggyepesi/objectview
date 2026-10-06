@@ -103,12 +103,22 @@ class ValueRendererDispatchTest {
         @Override public String getDisplayName() { return name; }
     }
 
+    /** A value as the field of a card, its collection opened, so a collection's members
+     *  reach the leaf painter through the same decisions a card makes. */
     private static JComponent render(Object value) {
-        Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
-        Set<Object> ancestors = Collections.newSetFromMap(new IdentityHashMap<>());
-        return ValueRenderer.createFieldComponent(
-                visited, ancestors, null, "value", FieldPath.ROOT,
-                value, ViewConfig.leaf(), false);
+        boolean many = value instanceof java.util.Collection<?> || value instanceof Map<?, ?>;
+        objectview.field.FieldRef field = objectview.field.FieldRef.of("value",
+                many ? objectview.field.FieldKind.COLLECTION : objectview.field.FieldKind.UNKNOWN,
+                null, false, many, false);
+        RenderContext context = new RenderContext();
+        if (many) context.setCollectionExpanded(value, true);
+        return Card.renderFieldComponent(new Owner(), field, FieldPath.of("value"), value,
+                null, null, context, false, true);
+    }
+
+    private static final class Owner extends objectview.ViewableAdapter {
+        @Override public String getIdentifier() { return "owner"; }
+        @Override public String getDisplayName() { return "owner"; }
     }
 
     private static <T extends Component> T find(Component root, Class<T> type) {

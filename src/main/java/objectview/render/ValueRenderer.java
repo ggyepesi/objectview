@@ -6,7 +6,6 @@ import objectview.media.MediaValue;
 import objectview.field.FieldProperties;
 import objectview.field.FieldPath;
 import objectview.Viewable;
-import objectview.viewconfig.ViewConfig;
 
 import javax.swing.*;
 import java.awt.*;
@@ -14,14 +13,17 @@ import java.util.*;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * Paints leaf values: an image, a URL as the link or picture it denotes, plain text,
+ * and a collection or map made only of plain text. Objects and object collections are
+ * never painted here; they reach a card as the executor's decisions.
+ */
 public final class ValueRenderer {
     private ValueRenderer() {
     }
 
-    public static JComponent createFieldComponent(
-            Set<Object> visited, Set<Object> ancestors, RenderContext renderContext,
-            String fieldName, FieldPath fieldPath, Object value,
-            ViewConfig config, boolean fill) {
+    /** One leaf value, or null when it paints nothing (a blank text, a missing image). */
+    public static JComponent leaf(String fieldName, FieldPath fieldPath, Object value) {
         if (value == null) {
             return null;
         }
@@ -39,36 +41,6 @@ public final class ValueRenderer {
             return imageComponent(fieldName, fieldPath, renderCopy(imagePane));
         }
 
-        if (value instanceof Viewable q) {
-            return viewableComponent(visited, ancestors, renderContext, fieldName, fieldPath, q, config, fill);
-        }
-
-        if (value instanceof Collection<?> collection) {
-            collection = RenderSnapshot.collection(collection);
-            if (collection.isEmpty()) {
-                return null;
-            }
-
-            if (isSimpleCollection(collection)) {
-                return simpleCollectionComponent(fieldName, fieldPath, collection);
-            }
-
-            return complexCollectionComponent(visited, ancestors, renderContext, fieldName, fieldPath, collection, config, fill);
-        }
-
-        if (value instanceof Map<?, ?> map) {
-            map = RenderSnapshot.map(map);
-            if (map.isEmpty()) {
-                return null;
-            }
-
-            if (isSimpleMap(map)) {
-                return simpleMapComponent(fieldName, fieldPath, map);
-            }
-
-            return mapComponent(visited, ancestors, renderContext, fieldName, fieldPath, map, config, fill);
-        }
-
         JComponent url = automaticUrlComponent(fieldName, fieldPath, value);
         if (url != null) {
             return url;
@@ -77,34 +49,24 @@ public final class ValueRenderer {
         return leafComponent(fieldName, fieldPath, value);
     }
 
+    /** A collection of plain text values as one bulleted row; null when any member is
+     *  not plain text (an object, an image, a URL, a nested collection). */
+    static JComponent plainCollection(String fieldName, FieldPath fieldPath, Collection<?> collection) {
+        collection = RenderSnapshot.collection(collection);
+        return isSimpleCollection(collection)
+                ? simpleCollectionComponent(fieldName, fieldPath, collection) : null;
+    }
+
+    /** A map of plain text values as one row; null when it is not plain text. */
+    static JComponent plainMap(String fieldName, FieldPath fieldPath, Map<?, ?> map) {
+        map = RenderSnapshot.map(map);
+        return isSimpleMap(map) ? simpleMapComponent(fieldName, fieldPath, map) : null;
+    }
+
     private static JComponent imageComponent(String fieldName, FieldPath fieldPath, ImagePane imagePane) {
         JPanel panel = basePanel(fieldName, fieldPath, imagePane);
 
         panel.add(imagePane, GridBagUtils.weighted(0, 0, 1.0, 1.0, GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(2, 2, 2, 2)));
-
-        return panel;
-    }
-
-    private static JComponent viewableComponent(
-            Set<Object> visited, Set<Object> ancestors, RenderContext renderContext,
-            String fieldName, FieldPath fieldPath, Viewable q, ViewConfig config, boolean fill) {
-        return viewableComponent(visited, ancestors, renderContext, fieldName, fieldPath, q, config, fill, false);
-    }
-
-    private static JComponent viewableComponent(
-            Set<Object> visited, Set<Object> ancestors, RenderContext renderContext,
-            String fieldName, FieldPath fieldPath, Viewable q, ViewConfig config, boolean fill,
-            boolean suppressTitle) {
-        JPanel panel = basePanel(fieldName, fieldPath, q);
-
-        Card nested = new Card(
-                visited, ancestors, renderContext, false, q, config, fill, fieldPath, null, null, suppressTitle);
-
-        if (!nested.hasRenderedConfiguredContent()) {
-            return null;
-        }
-
-        panel.add(nested, GridBagUtils.weighted(0, 0, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(2, 2, 2, 2)));
 
         return panel;
     }
@@ -119,56 +81,6 @@ public final class ValueRenderer {
         return new TextRow(fieldName, fieldPath, lines);
     }
 
-    private static JComponent complexCollectionComponent(Set<Object> visited, Set<Object> ancestors, RenderContext renderContext, String fieldName, FieldPath fieldPath, Collection<?> collection, ViewConfig config, boolean fill) {
-        JPanel panel = basePanel(fieldName, fieldPath, collection);
-
-        int row = 0;
-
-        for (Object item : collection) {
-            JComponent child = createCollectionItemComponent(visited, ancestors, renderContext, fieldPath, item, config, fill);
-
-            if (child == null) {
-                continue;
-            }
-
-            panel.add(child, GridBagUtils.weighted(0, row++, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(2, 2, 2, 2)));
-        }
-
-        return row == 0 ? null : panel;
-    }
-
-    private static JComponent mapComponent(Set<Object> visited, Set<Object> ancestors, RenderContext renderContext, String fieldName, FieldPath fieldPath, Map<?, ?> map, ViewConfig config, boolean fill) {
-        JPanel panel = basePanel(fieldName, fieldPath, map);
-
-        int row = 0;
-
-        for (Map.Entry<?, ?> entry : map.entrySet()) {
-            JPanel entryPanel = new JPanel(new BorderLayout(6, 0));
-            entryPanel.setOpaque(false);
-
-            JComponent keyComponent = automaticUrlComponent(
-                    "", fieldPath, entry.getKey());
-            if (keyComponent == null) {
-                JLabel keyLabel = new JLabel(String.valueOf(entry.getKey()));
-                keyLabel.setFont(keyLabel.getFont().deriveFont(Font.BOLD));
-                keyComponent = keyLabel;
-            }
-
-            JComponent valueComponent = createCollectionItemComponent(visited, ancestors, renderContext, fieldPath, entry.getValue(), config, fill);
-
-            if (valueComponent == null) {
-                continue;
-            }
-
-            entryPanel.add(keyComponent, BorderLayout.WEST);
-            entryPanel.add(valueComponent, BorderLayout.CENTER);
-
-            panel.add(entryPanel, GridBagUtils.weighted(0, row++, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(2, 2, 2, 2)));
-        }
-
-        return row == 0 ? null : panel;
-    }
-
     private static JComponent simpleMapComponent(String fieldName, FieldPath fieldPath, Map<?, ?> map) {
         String text = map.entrySet().stream().filter(e -> e.getKey() != null || e.getValue() != null).map(e -> e.getKey() + " -> " + e.getValue()).filter(s -> !s.isBlank()).collect(Collectors.joining(", "));
 
@@ -177,92 +89,6 @@ public final class ValueRenderer {
         }
 
         return new TextRow(fieldName, fieldPath, text);
-    }
-
-    private static JComponent createCollectionItemComponent(Set<Object> visited, Set<Object> ancestors, RenderContext renderContext, FieldPath fieldPath, Object item, ViewConfig config, boolean fill) {
-        if (item == null) {
-            return null;
-        }
-
-        if (item instanceof MediaValue media) {
-            ImagePane pane = MediaRenderSupport.imagePane(media);
-            return pane == null ? null : imageComponent("", fieldPath, pane);
-        }
-
-        if (item instanceof ImagePane imagePane) {
-            return imageComponent("", fieldPath, renderCopy(imagePane));
-        }
-
-
-        if (item instanceof Viewable q) {
-            // A member that is itself a top-level card navigates to it instead
-            // of expanding in place (see Card.collapsibleReference).
-            if (renderContext != null && renderContext.isTopLevel(q)) {
-                return Card.decorateReference(renderContext, new ReferenceRow(
-                        "", fieldPath, q, renderContext, config, q.getName(), false, true), q);
-            }
-
-            boolean exp = renderContext != null && renderContext.isExpanded(q);
-
-            ReferenceRow chip =
-                    new ReferenceRow(
-                            "", fieldPath, q, renderContext, config, q.getName(), exp);
-
-            if (!exp) {
-                return Card.decorateReference(renderContext, chip, q);
-            }
-
-            JPanel wrap = new JPanel(new GridBagLayout());
-            wrap.setOpaque(false);
-
-            wrap.add(Card.decorateReference(renderContext, chip, q), GridBagUtils.weighted(
-                    0, 0, 1.0, 0.0,
-                    GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL,
-                    new Insets(0, 0, 0, 0)));
-
-            // The chip above already shows the name, so suppress the expanded
-            // body's own title header (mirrors Card.collapsibleReference).
-            JComponent inline = viewableComponent(
-                    visited, ancestors, renderContext, "", fieldPath, q, config, fill, true);
-
-            if (inline != null) {
-                wrap.add(inline, GridBagUtils.weighted(
-                        0, 1, 1.0, 0.0,
-                        GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL,
-                        new Insets(0, 16, 4, 0)));
-            }
-
-            return wrap;
-        }
-
-        if (item instanceof Collection<?> collection) {
-            collection = RenderSnapshot.collection(collection);
-            if (collection.isEmpty()) {
-                return null;
-            }
-
-            if (isSimpleCollection(collection)) {
-                return simpleCollectionComponent("", fieldPath, collection);
-            }
-
-            return complexCollectionComponent(visited, ancestors, renderContext, "", fieldPath, collection, config, fill);
-        }
-
-        if (item instanceof Map<?, ?> map) {
-            map = RenderSnapshot.map(map);
-            if (map.isEmpty()) {
-                return null;
-            }
-
-            if (isSimpleMap(map)) {
-                return simpleMapComponent("", fieldPath, map);
-            }
-
-            return mapComponent(visited, ancestors, renderContext, "", fieldPath, map, config, fill);
-        }
-
-        JComponent url = automaticUrlComponent("", fieldPath, item);
-        return url != null ? url : leafComponent("", fieldPath, item);
     }
 
     private static JComponent leafComponent(String fieldName, FieldPath fieldPath, Object value) {
@@ -424,15 +250,5 @@ public final class ValueRenderer {
         panel.putClientProperty(FieldProperties.FIELD_VALUE_PROPERTY, value);
 
         return panel;
-    }
-
-    private static Set<Object> copyIdentitySet(Set<Object> original) {
-        Set<Object> copy = Collections.newSetFromMap(new IdentityHashMap<>());
-
-        if (original != null) {
-            copy.addAll(original);
-        }
-
-        return copy;
     }
 }

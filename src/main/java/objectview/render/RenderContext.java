@@ -90,6 +90,27 @@ public class RenderContext {
         fieldSchemaResolver = resolver == null ? ignored -> null : resolver;
     }
 
+    private objectview.plan.RenderExecutor executor;
+
+    /**
+     * The rendering decisions for this context: its schemas, its top-level cards and
+     * the reader's open/folded choices. One executor, and so one plan cache, per
+     * context.
+     */
+    public objectview.plan.RenderExecutor executor() {
+        if (executor == null) {
+            executor = new objectview.plan.RenderExecutor(
+                    new objectview.plan.PlanResolver(),
+                    this::fieldSchema,
+                    this::isTopLevel,
+                    (key, initiallyOpen) ->
+                            key instanceof Collection<?> || key instanceof Map<?, ?>
+                                    ? isCollectionExpanded(key, initiallyOpen)
+                                    : isExpanded(key, initiallyOpen));
+        }
+        return executor;
+    }
+
     public FieldSchema fieldSchema(Viewable viewable) {
         return viewable == null ? null : fieldSchemaResolver.apply(viewable);
     }

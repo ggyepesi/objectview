@@ -60,6 +60,18 @@ public final class CollapsibleFieldRenderer {
         Object key = expansionKey == null ? representedValue : expansionKey;
         boolean expanded = count > 0 && context != null
                 && context.isCollectionExpanded(key, defaultExpanded);
+        return create(fieldName, fieldPath, representedValue, key, count,
+                expanded, defaultExpanded, context, body);
+    }
+
+    /** A collection whose open state is already decided (by the render executor);
+     * {@code defaultExpanded} is what the header's toggle flips from. */
+    public static JComponent create(
+            String fieldName, FieldPath fieldPath,
+            Object representedValue, Object key, int count,
+            boolean expanded, boolean defaultExpanded,
+            RenderContext context, Supplier<JComponent> body) {
+        if (count < 0) return null;
         CollectionHeader header = new CollectionHeader(
                 fieldName, fieldPath, count, expanded, key, representedValue,
                 defaultExpanded, context);
