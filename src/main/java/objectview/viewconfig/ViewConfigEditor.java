@@ -1179,8 +1179,15 @@ public class ViewConfigEditor extends JPanel {
                 attach = ref.cfg;   // header (from explicit) + inline-checked children
             } else if (ref.classBranch) {
                 attach = ref.explicit == null ? ref.cfg : ref.explicit;
+            } else if (ref.state.cutNote != null && ref.explicit != null) {
+                // The tree did not expand this branch (a cycle or the depth cap), so its
+                // saved config is the only record of what is ticked below it.
+                attach = ref.explicit;
             } else {
-                attach = ref.explicit != null ? ref.explicit : ref.cfg;
+                // A ticked reference whose children are all unticked shows its field
+                // name alone (rule 3). Falling back to the saved config here turned the
+                // reader's last untick back into the old ticks.
+                attach = ref.cfg;
             }
             ref.parent.addField(ref.name, attach);
         }
