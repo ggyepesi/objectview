@@ -897,6 +897,72 @@ public class ViewConfigEditor extends JPanel {
         table.clearSelection();
     }
 
+    /**
+     * Unticks the field at {@code path}, as the reader unticking its box would. A
+     * reference left with nothing ticked under it is unticked too: a ticked reference
+     * with nothing chosen means its default (its display in a name-only editor), so
+     * keeping it would select the same field again.
+     *
+     * @return whether anything was unticked
+     */
+    public boolean uncheckFieldPath(FieldPath path) {
+        if (path == null || path.isRoot()) return false;
+        boolean changed = treeMode ? uncheckInTree(path) : uncheckInRows(path);
+        if (changed) {
+            tableModel.fireTableDataChanged();
+            fireConfigChanged();
+        }
+        return changed;
+    }
+
+    private boolean uncheckInTree(FieldPath path) {
+        RowState target = treeState(path);
+        if (target == null || !target.use) return false;
+        target.use = false;
+        for (FieldPath parent = path.parent(); !parent.isRoot(); parent = parent.parent()) {
+            RowState reference = treeState(parent);
+            if (reference == null || !reference.use || reference.row.nested() == null
+                    || hasTickedUnder(parent)) break;
+            reference.use = false;
+        }
+        return true;
+    }
+
+    private RowState treeState(FieldPath path) {
+        for (RowState state : allRows) {
+            if (state.row.isField() && state.row.path().equals(path)) return state;
+        }
+        return null;
+    }
+
+    private boolean hasTickedUnder(FieldPath reference) {
+        for (RowState state : allRows) {
+            if (state.use && state.row.isField() && isUnder(state.row.path(), reference)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean uncheckInRows(FieldPath path) {
+        for (RowState state : rows) {
+            if (!state.row.isField() || !state.use
+                    || !state.row.path().leaf().equals(path.first())) continue;
+            if (path.size() == 1) {
+                state.use = false;
+                return true;
+            }
+            if (state.childEditor == null) return false;
+            FieldPath rest = new FieldPath(path.segments().subList(1, path.size()));
+            boolean changed = state.childEditor.uncheckFieldPath(rest);
+            if (changed && state.childEditor.selectedFieldPaths().isEmpty()) {
+                state.use = false;
+            }
+            return changed;
+        }
+        return false;
+    }
+
     public List<FieldPath> selectedFieldPaths() {
         List<FieldPath> result = new ArrayList<>();
         collectSelected(FieldPath.ROOT, result);
