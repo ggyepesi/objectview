@@ -13,6 +13,7 @@ import java.awt.Container;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -62,6 +63,52 @@ class ContentlessReferenceTest {
                    "a blank value renders nothing; the expander would open an empty box");
     }
 
+    @Test void aSelectedObjectFieldWithNoChildrenShowsOnlyItsCaption() throws Exception {
+        Film film = new Film("12 Monkeys", new Person("Terry Gilliam"));
+        ViewConfig config = ViewConfig.of(Film.class);
+        config.setAllFields(false);
+        config.addField("director", ViewConfig.leaf());
+
+        Card card = cardFor(film, config);
+
+        assertNotNull(findByFieldName(card, "director"));
+        assertFalse(renders(card, "Terry Gilliam"),
+                "selecting the object field must not select DISPLAY implicitly");
+    }
+
+    @Test void nestedFieldsRenderWithoutLeakingAnUnselectedDisplay() throws Exception {
+        Person director = new Person("Terry Gilliam");
+        director.nationality = "British";
+        Film film = new Film("12 Monkeys", director);
+        ViewConfig person = ViewConfig.of(Person.class);
+        person.setAllFields(false);
+        person.addField("nationality", ViewConfig.leaf());
+        ViewConfig config = ViewConfig.of(Film.class);
+        config.setAllFields(false);
+        config.addField("director", person);
+
+        Card card = cardFor(film, config);
+
+        assertNotNull(find(card, TextBlock.class),
+                "the explicitly selected nationality is rendered");
+        assertFalse(renders(card, "Terry Gilliam"),
+                "DISPLAY is hidden like any other unselected field");
+    }
+
+    @Test void selectedNestedDisplayBecomesTheObjectFieldCaption() throws Exception {
+        Film film = new Film("12 Monkeys", new Person("Terry Gilliam"));
+        ViewConfig person = ViewConfig.of(Person.class);
+        person.setAllFields(false);
+        person.addField("personName", ViewConfig.leaf());
+        ViewConfig config = ViewConfig.of(Film.class);
+        config.setAllFields(false);
+        config.addField("director", person);
+
+        Card card = cardFor(film, config);
+
+        assertTrue(renders(card, "Terry Gilliam"));
+    }
+
     @Test void aBlankStructuralReferenceRendersItsConfiguredChildInsteadOfABlankChip()
             throws Exception {
         Position position = new Position("President");
@@ -89,11 +136,30 @@ class ContentlessReferenceTest {
     }
 
     private static Card cardFor(Film film) throws Exception {
+        return cardFor(film, ViewConfig.all(Film.class));
+    }
+
+    private static Card cardFor(Film film, ViewConfig config) throws Exception {
         RenderContext context = new RenderContext();
         Card[] rendered = new Card[1];
         SwingUtilities.invokeAndWait(() -> rendered[0] =
-                new Card(film, ViewConfig.all(Film.class), context, false));
+                new Card(film, config, context, false));
         return rendered[0];
+    }
+
+    private static Component findByFieldName(Component root, String fieldName) {
+        if (root instanceof javax.swing.JComponent component
+                && fieldName.equals(component.getClientProperty(
+                FieldProperties.FIELD_NAME_PROPERTY))) {
+            return root;
+        }
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                Component found = findByFieldName(child, fieldName);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     @SuppressWarnings("unchecked")

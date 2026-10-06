@@ -344,6 +344,21 @@ public final class ViewableColumnsView
             Viewable root, FieldPath path,
             ResolvedFieldPath.Occurrence occurrence,
             ViewConfig rootConfig) {
+        if (occurrence.field().role() == objectview.field.FieldRole.DISPLAY
+                && path.size() > 1
+                && occurrence.renderOwner() != null) {
+            FieldPath objectPath = path.parent();
+            ViewConfig objectConfig = configAtPath(rootConfig, objectPath);
+            objectview.field.FieldRef objectField = objectview.field.FieldRef.described(
+                    objectPath.leaf(), objectview.field.FieldKind.REFERENCE,
+                    objectview.field.FieldKind.REFERENCE,
+                    occurrence.renderOwner().typeName(), true, false,
+                    occurrence.renderOwner().typeName(), false, false,
+                    false, false, "", false);
+            return Card.renderFieldComponent(
+                    root, objectField, objectPath, occurrence.renderOwner(),
+                    rootConfig, objectConfig, context, false, false);
+        }
         Viewable owner = occurrence.renderOwner() == null
                 ? root : occurrence.renderOwner();
         ViewConfig ownerConfig = configAtPath(rootConfig, path.parent());

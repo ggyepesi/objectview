@@ -58,7 +58,26 @@ class NestedValueSearchTest {
 
     private static List<ViewableFieldPaths.PathInfo> paths() {
         return ViewableFieldPaths.collect(
-                ViewConfig.of(Step.class), ViewableFieldPaths.NOT_MEDIA_FIELDS);
+                stepConfig(4), ViewableFieldPaths.NOT_MEDIA_FIELDS);
+    }
+
+    private static ViewConfig stepConfig(int remainingDepth) {
+        ViewConfig config = ViewConfig.of(Step.class);
+        config.setAllFields(false);
+        config.addField(
+                objectview.field.ViewableContractFieldSet.DISPLAY_KEY,
+                ViewConfig.leaf());
+        config.addField("request", ViewConfig.leaf());
+        if (remainingDepth > 0) {
+            config.addField("steps", stepConfig(remainingDepth - 1));
+        }
+        ViewConfig reference = ViewConfig.of(Step.class);
+        reference.setAllFields(false);
+        reference.addField(
+                objectview.field.ViewableContractFieldSet.DISPLAY_KEY,
+                ViewConfig.leaf());
+        config.addField("other", reference);
+        return config;
     }
 
     /** Hits by the label the reader sees, over a search identified by field path.
@@ -96,14 +115,15 @@ class NestedValueSearchTest {
         SearchAndSort search = new SearchAndSort();
 
         List<SearchAndSort.ValueMatch> onReference = search.matchingValues(
-                root, path("other"), List.of("q42"), false);
+                root, path("other.@view:display"), List.of("q42"), false);
         assertEquals(1, onReference.size());
-        assertEquals(objectview.field.FieldPath.of("other"),
+        assertEquals(objectview.field.FieldPath.of("other", "@view:display"),
                 onReference.get(0).renderedPath());
-        assertEquals(List.of(chip), onReference.get(0).collectionMembers());
+        assertEquals(List.of(), onReference.get(0).collectionMembers(),
+                "a scalar display child is addressed directly, not as a collection route");
 
         List<SearchAndSort.ValueMatch> inline = search.matchingValues(
-                root, path("steps"), List.of("q29971182"), false);
+                root, path("steps.steps.request"), List.of("q29971182"), false);
         assertEquals(1, inline.size());
         assertEquals("request", inline.get(0).renderedPath().leaf(),
                 "an inline hit still routes to the row that paints it");
@@ -111,7 +131,8 @@ class NestedValueSearchTest {
 
     private static ViewableFieldPaths.PathInfo path(String name) {
         return paths().stream()
-                .filter(info -> info.path().equals(objectview.field.FieldPath.of(name)))
+                .filter(info -> info.path().equals(
+                        objectview.field.FieldPath.parse(name)))
                 .findFirst().orElseThrow();
     }
 
@@ -127,7 +148,7 @@ class NestedValueSearchTest {
     void deepMatchIsReportedUnderTheFieldThatOwnsIt() {
         Step root = tree();
 
-        assertEquals(List.of("steps"),
+        assertEquals(List.of("steps.steps.request"),
                 List.copyOf(find(List.of(root), "props=claims").keySet()),
                 "the hit belongs to the field the reader would open");
     }

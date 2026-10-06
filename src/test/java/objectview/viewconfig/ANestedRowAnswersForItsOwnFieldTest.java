@@ -39,8 +39,8 @@ class ANestedRowAnswersForItsOwnFieldTest {
         @Override public String getDisplayName() { return city; }
     }
 
-    /** A reference with no config of its own shows all its fields — its display too. */
-    @Test void aReferenceWithNoConfigOfItsOwnShowsItsFields() throws Exception {
+    /** A selected object field with no selected children shows only its own caption. */
+    @Test void aReferenceWithNoChildSelectionDoesNotSelectItsFields() throws Exception {
         ViewConfig config = ViewConfig.of(Parent.class);
         config.setAllFields(false);
         config.addField("nominee", ViewConfig.leaf());
@@ -54,8 +54,8 @@ class ANestedRowAnswersForItsOwnFieldTest {
             shown[1] = useOf(table, "city", 2);            // root's own city is row 0
         });
 
-        assertTrue(shown[0], "the reference's display name is one of its fields");
-        assertTrue(shown[1], "and so is every other field it has");
+        assertFalse(shown[0], "display is an ordinary child field");
+        assertFalse(shown[1], "other child fields also require their own selection");
     }
 
     /** And a nested row does not answer for a root field that is spelled the same. */

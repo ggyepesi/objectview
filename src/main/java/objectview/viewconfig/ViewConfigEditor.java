@@ -629,23 +629,13 @@ public class ViewConfigEditor extends JPanel {
                 ? Set.of(objectview.field.ViewableContractFieldSet.IDENTITY_KEY,
                         objectview.field.ViewableContractFieldSet.DISPLAY_KEY)
                 : Set.of();
-        ViewConfig effective = configured;
-        if (effective != null && effective.getFields().isEmpty()
-                && !effective.isAllFields()) {
-            // An explicitly stored bare reference is the legacy shorthand for all of
-            // that reference's fields. Convert the shorthand at the child boundary so
-            // an unrelated empty/unselected context does not acquire that meaning.
-            effective = ViewConfig.all(nested.type());
-        } else if (effective == null) {
-            effective = !parentSelected
-                    ? emptyConfig(nested.type())
-                    : nestedDefaultNameOnly
-                            ? nameOnlyConfig(nested.type())
-                            : ViewConfig.all(nested.type());
-            // The same default storedReferenceDefault writes when this reference is
-            // saved with nothing chosen inside it, and applyReferenceDefault ticks when
-            // the reader checks it later — rows and configuration say one thing.
-        }
+        // A reference and each of its fields are independent selections. Historically
+        // an empty child config was shorthand for the referenced object's display
+        // value (or all fields). That made DISPLAY unlike every other field and made
+        // the editor, renderer and search disagree about what a tick meant. Empty now
+        // means exactly empty: render the object-field caption, with no child values.
+        ViewConfig effective = configured == null
+                ? emptyConfig(nested.type()) : configured;
         return new FieldRowContext(
                 effective,
                 nested.sample(),
@@ -897,14 +887,9 @@ public class ViewConfigEditor extends JPanel {
         table.clearSelection();
     }
 
-    /**
-     * Unticks the field at {@code path}, as the reader unticking its box would. A
-     * reference left with nothing ticked under it is unticked too: a ticked reference
-     * with nothing chosen means its default (its display in a name-only editor), so
-     * keeping it would select the same field again.
-     *
-     * @return whether anything was unticked
-     */
+    /** Unticks exactly the field at {@code path}, as the reader unticking its box
+     * would. Parent object fields remain selected when their last child is unticked;
+     * that state deliberately renders the object-field caption alone. */
     public boolean uncheckFieldPath(FieldPath path) {
         if (path == null || path.isRoot()) return false;
         boolean changed = treeMode ? uncheckInTree(path) : uncheckInRows(path);
@@ -919,12 +904,6 @@ public class ViewConfigEditor extends JPanel {
         RowState target = treeState(path);
         if (target == null || !target.use) return false;
         target.use = false;
-        for (FieldPath parent = path.parent(); !parent.isRoot(); parent = parent.parent()) {
-            RowState reference = treeState(parent);
-            if (reference == null || !reference.use || reference.row.nested() == null
-                    || hasTickedUnder(parent)) break;
-            reference.use = false;
-        }
         return true;
     }
 
@@ -933,15 +912,6 @@ public class ViewConfigEditor extends JPanel {
             if (state.row.isField() && state.row.path().equals(path)) return state;
         }
         return null;
-    }
-
-    private boolean hasTickedUnder(FieldPath reference) {
-        for (RowState state : allRows) {
-            if (state.use && state.row.isField() && isUnder(state.row.path(), reference)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private boolean uncheckInRows(FieldPath path) {
@@ -954,11 +924,7 @@ public class ViewConfigEditor extends JPanel {
             }
             if (state.childEditor == null) return false;
             FieldPath rest = new FieldPath(path.segments().subList(1, path.size()));
-            boolean changed = state.childEditor.uncheckFieldPath(rest);
-            if (changed && state.childEditor.selectedFieldPaths().isEmpty()) {
-                state.use = false;
-            }
-            return changed;
+            return state.childEditor.uncheckFieldPath(rest);
         }
         return false;
     }
@@ -967,6 +933,26 @@ public class ViewConfigEditor extends JPanel {
         List<FieldPath> result = new ArrayList<>();
         collectSelected(FieldPath.ROOT, result);
         return result;
+    }
+
+    /** Whether {@code path} names an object/reference field rather than one of its
+     * value-bearing child fields. Object fields can be selected caption-only and
+     * therefore are not themselves search, sort or quiz-key values. */
+    public boolean isObjectFieldPath(FieldPath path) {
+        if (path == null || path.isRoot()) return false;
+        if (treeMode) {
+            RowState state = treeState(path);
+            return state != null && state.row.nested() != null;
+        }
+        for (RowState state : rows) {
+            if (!state.row.isField()
+                    || !state.row.path().leaf().equals(path.first())) continue;
+            if (path.size() == 1) return state.row.nested() != null;
+            if (state.childEditor == null) return false;
+            return state.childEditor.isObjectFieldPath(new FieldPath(
+                    path.segments().subList(1, path.size())));
+        }
+        return false;
     }
 
     private void collectSelected(FieldPath prefix,
@@ -1077,8 +1063,9 @@ public class ViewConfigEditor extends JPanel {
 
     /** Folds the checked rows of the inline tree ({@link #allRows}) into a nested
      *  {@link ViewConfig}: leaves add a leaf field to their parent; a reference is
-     *  included when it is checked OR any descendant is, carrying its checked children
-     *  (or all its fields when checked but not drilled into). References attach
+     *  included when it is checked OR any descendant is, carrying exactly its checked
+     *  children. A checked reference with no children remains an explicitly empty
+     *  child config: the object field is shown by its caption alone. References attach
      *  deepest-first so a parent sees its already-attached descendants. */
     private ViewConfig buildTreeConfig() {
         ViewConfig result = copyHeader(sourceConfig);
@@ -1152,26 +1139,12 @@ public class ViewConfigEditor extends JPanel {
                 continue;
             }
             ViewConfig attach;
-            if (hasChild && untouchedShorthand(ref)) {
-                // A reference stored as a bare leaf shows all its fields, so every row
-                // under it reads as checked — which is the point, and must not turn the
-                // shorthand into an explicit list nobody wrote. A leaf reference and a
-                // reference with all its fields listed are DIFFERENT configs: the first
-                // renders as a collapsed chip, the second as its fields. It becomes
-                // explicit the moment the reader changes something under it, which is
-                // when there IS something they wrote.
-                attach = ref.explicit;
-            } else if (hasChild) {
+            if (hasChild) {
                 attach = ref.cfg;   // header (from explicit) + inline-checked children
             } else if (ref.classBranch) {
                 attach = ref.explicit == null ? ref.cfg : ref.explicit;
             } else {
-                // Checked with no checked children: honor an explicit config — a nested
-                // editor, or a saved config at this path even when EXPLICITLY EMPTY —
-                // instead of blowing it up to all-fields. Only a brand-new, never-
-                // configured reference defaults to all-fields for convenience.
-                attach = ref.explicit != null
-                        ? ref.explicit : storedReferenceDefault(ref.type);
+                attach = ref.explicit != null ? ref.explicit : ref.cfg;
             }
             ref.parent.addField(ref.name, attach);
         }
@@ -1206,28 +1179,6 @@ public class ViewConfigEditor extends JPanel {
      *  a live nested editor wins (bug: was dropped), else the saved config at this path
      *  in {@code sourceConfig} — returned even when EMPTY so an explicit empty survives
      *  the round-trip. {@code null} means "no explicit config" (a brand-new field). */
-
-    /**
-     * A reference stored as a bare leaf, with nothing under it changed.
-     *
-     * <p>Its rows all read as checked because that is what a leaf reference means, so
-     * "every row checked" is the untouched state and anything less is an edit.
-     */
-    private boolean untouchedShorthand(RefEntry ref) {
-        if (ref.classBranch || ref.explicit == null) return false;
-        if (!ref.explicit.getFields().isEmpty() || ref.explicit.isAllFields()) {
-            return false;
-        }
-        int index = allRows.indexOf(ref.state);
-        if (index < 0) return false;
-        int depth = ref.state.row.depth();
-        for (int i = index + 1; i < allRows.size(); i++) {
-            RowState nested = allRows.get(i);
-            if (nested.row.depth() <= depth) break;
-            if (!nested.use && !nested.row.isClassBranch()) return false;
-        }
-        return true;
-    }
 
     private ViewConfig explicitConfigFor(RowState state, FieldPath fullPath) {
         if (state != null && state.childEditor != null) {
@@ -1526,15 +1477,11 @@ public class ViewConfigEditor extends JPanel {
             ViewConfig childConfig =
                     sourceConfigAt(row.path());
 
-            if (childConfig == null
-                    || childConfig.getCls() == null) {
-                childConfig = nestedDefaultNameOnly
-                        ? nameOnlyConfig(
-                                row.nested().type())
-                        : ViewConfig.all(
-                                row.nested().type());
-            } else {
-                childConfig = childConfig.copy();
+            childConfig = childConfig == null
+                    ? emptyConfig(row.nested().type())
+                    : childConfig.copy();
+            if (childConfig.getCls() == null) {
+                childConfig.setCls(row.nested().type());
             }
 
             state.childEditor =
@@ -1618,55 +1565,6 @@ public class ViewConfigEditor extends JPanel {
         return nested == null
                 ? FieldTableContributor.DEFAULT
                 : nested;
-    }
-
-    private ViewConfig nameOnlyConfig(
-            Class<? extends Viewable> cls) {
-        ViewConfig config = emptyConfig(cls);
-        config.setAddListener(false);
-        config.setThumb(false);
-        config.addField(
-                objectview.field.ViewableContractFieldSet.displayKey(cls),
-                ViewConfig.leaf());
-        return config;
-    }
-
-    /** What a checked reference with nothing chosen inside it is saved as: its display
-     *  value in a name-only editor, otherwise all of its fields. childContext shows the
-     *  rows under a reference that starts checked by the same rule. */
-    private ViewConfig storedReferenceDefault(Class<? extends Viewable> type) {
-        return nestedDefaultNameOnly ? nameOnlyConfig(type) : ViewConfig.of(type);
-    }
-
-    /**
-     * A reference checked after the tree was built had its rows made under an
-     * unchecked parent, so they all read unchecked while saving it wrote ALL of its
-     * fields — in a name-only quiz editor, a configuration the rows did not show, which
-     * the next rebuild turned into every nested field explicitly checked. Checking it
-     * now ticks the rows its default means: only its display row in a name-only editor,
-     * every row under it otherwise. Choices remembered under it are kept instead.
-     *
-     * @return whether any row under the reference changed
-     */
-    private boolean applyReferenceDefault(RowState reference) {
-        if (!treeMode || reference.row.nested() == null
-                || reference.row.isClassBranch()) return false;
-        FieldPath path = reference.row.path();
-        List<RowState> under = new ArrayList<>();
-        for (RowState state : allRows) {
-            if (state != reference && state.row.isField() && isUnder(state.row.path(), path)) {
-                under.add(state);
-            }
-        }
-        if (under.isEmpty() || under.stream().anyMatch(state -> state.use)) return false;
-        String display = objectview.field.ViewableContractFieldSet.displayKey(
-                reference.row.nested().type());
-        for (RowState state : under) {
-            state.use = !nestedDefaultNameOnly
-                    || state.row.path().size() == path.size() + 1
-                            && display.equals(state.row.configName());
-        }
-        return true;
     }
 
     private static boolean isUnder(FieldPath candidate, FieldPath ancestor) {
@@ -1877,13 +1775,7 @@ public class ViewConfigEditor extends JPanel {
 
             state.use = Boolean.TRUE.equals(value);
 
-            if (state.use && applyReferenceDefault(state)) {
-                fireTableDataChanged();
-            } else {
-                fireTableRowsUpdated(
-                        rowIndex,
-                        rowIndex);
-            }
+            fireTableRowsUpdated(rowIndex, rowIndex);
             fireConfigChanged();
         }
 

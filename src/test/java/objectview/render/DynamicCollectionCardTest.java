@@ -261,9 +261,18 @@ class DynamicCollectionCardTest {
         parent.values.put("child", child);
 
         Card[] card = new Card[1];
+        ViewConfig childConfig = ViewConfig.of(DynamicThing.class);
+        childConfig.setAllFields(false);
+        childConfig.addField(
+                objectview.field.ViewableContractFieldSet.DISPLAY_KEY,
+                ViewConfig.leaf());
+        childConfig.addField("detail", ViewConfig.leaf());
+        ViewConfig config = ViewConfig.of(DynamicThing.class);
+        config.setAllFields(false);
+        config.addField("child", childConfig);
         javax.swing.SwingUtilities.invokeAndWait(() ->
                 card[0] = new Card(
-                        parent, ViewConfig.all(DynamicThing.class), false));
+                        parent, config, false));
 
         assertNotNull(find(card[0], ReferenceRow.class));
         assertEquals(1, count(card[0], Card.class),
@@ -342,8 +351,16 @@ class DynamicCollectionCardTest {
         context.setCardDecorator(t -> t == decorated ? idChip : null);
 
         Card[] card = new Card[1];
+        ViewConfig target = ViewConfig.of(DynamicThing.class);
+        target.setAllFields(false);
+        target.addField(objectview.field.ViewableContractFieldSet.DISPLAY_KEY,
+                ViewConfig.leaf());
+        ViewConfig config = ViewConfig.of(DynamicThing.class);
+        config.setAllFields(false);
+        config.addField("a", target);
+        config.addField("b", target);
         javax.swing.SwingUtilities.invokeAndWait(() ->
-                card[0] = new Card(parent, ViewConfig.all(DynamicThing.class), context, false));
+                card[0] = new Card(parent, config, context, false));
 
         assertTrue(contains(card[0], idChip),
                 "a reference whose decoration is non-null carries the identity chip");

@@ -4,7 +4,6 @@ import objectview.Viewable;
 import objectview.field.FieldSchema;
 import objectview.field.ViewableFieldPaths;
 import objectview.render.CardListView;
-import objectview.render.ExpandablePanel;
 import objectview.render.RenderContext;
 import objectview.render.RenderingMode;
 import objectview.search.SearchPanel;
@@ -37,7 +36,7 @@ public final class SearchableView extends JPanel {
     private final Builder builder;
     private final RenderContext context;
     private final SearchPanel search;
-    private final ExpandablePanel controls;
+    private final SearchControlsDisclosure controls;
     private RenderingMode mode;
     private JComponent center;
     private CardListView cardList;        // active when mode == CARD
@@ -110,12 +109,8 @@ public final class SearchableView extends JPanel {
             // cards and their real scrollbar only.
             controls = null;
         } else if (b.inlineControls) {
-            controls = new ExpandablePanel(
-                    b.controlsExpanded,
-                    () -> controlsHeader(false),
-                    () -> controlsHeader(true),
-                    () -> search);
-            add(new HeightBoundControls(controls), BorderLayout.NORTH);
+            controls = new SearchControlsDisclosure(search, b.controlsExpanded);
+            add(controls, BorderLayout.NORTH);
         } else {
             controls = null;
         }
@@ -153,7 +148,7 @@ public final class SearchableView extends JPanel {
         return controls == null ? builder.controlsExpanded : controls.isExpanded();
     }
     public void setControlsExpanded(boolean expanded) {
-        if (controls != null && controls.isExpanded() != expanded) controls.toggle();
+        if (controls != null) controls.setExpanded(expanded);
     }
 
     /** Restore interaction state after an owning browser replaces the result set. */
@@ -265,38 +260,6 @@ public final class SearchableView extends JPanel {
         getInputMap(condition).put(javax.swing.KeyStroke.getKeyStroke(
                 java.awt.event.KeyEvent.VK_A, java.awt.event.InputEvent.META_DOWN_MASK
                         | java.awt.event.InputEvent.SHIFT_DOWN_MASK), actionKey);
-    }
-
-    private static JLabel controlsHeader(boolean expanded) {
-        JLabel label = new JLabel((expanded ? "▼ " : "▶ ") + "Search / sort / view");
-        label.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
-        label.setToolTipText(expanded ? "Collapse controls" : "Expand controls");
-        return label;
-    }
-
-    /** BorderLayout gives NORTH its full preferred height before assigning the
-     * remainder to CENTER. SearchPanel deliberately prefers room for its own hit
-     * list, but in a short split-pane tab that could reduce the result viewport to
-     * zero. Both regions scroll independently, so cap the controls at half of the
-     * height currently available to this searchable view. */
-    private static final class HeightBoundControls extends JPanel {
-        HeightBoundControls(JComponent controls) {
-            super(new BorderLayout());
-            setOpaque(false);
-            add(controls, BorderLayout.CENTER);
-            setMinimumSize(new java.awt.Dimension(0, 0));
-        }
-
-        @Override public java.awt.Dimension getPreferredSize() {
-            java.awt.Dimension preferred = super.getPreferredSize();
-            java.awt.Container parent = getParent();
-            int available = parent == null ? 0 : parent.getHeight();
-            if (available > 0) {
-                preferred.height = Math.min(preferred.height,
-                        Math.max(32, available / 2));
-            }
-            return preferred;
-        }
     }
 
     private void switchMode(RenderingMode next) {

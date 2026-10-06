@@ -48,10 +48,14 @@ class VirtualSearchHighlightTest {
                                     .with(new RecursiveStep("Wikidata API requests")
                                             .with(request))));
 
+            objectview.viewconfig.ViewConfig recursive = recursiveStepConfig(6);
+
             SearchableView view = SearchableView.builder(List.of(root))
                     .sample(root)
                     .mode(RenderingMode.CARD)
                     .collapsible(true)
+                    .configState(new SearchPanel.ConfigState(
+                            recursive, null, recursive))
                     .build();
             materialize(view, root);
             view.search().setFieldHighlight(true);
@@ -326,7 +330,7 @@ class VirtualSearchHighlightTest {
             objectview.viewconfig.ViewConfig viewConfig =
                     objectview.viewconfig.ViewConfig.of(ReferencingRecord.class);
             viewConfig.setAllFields(false);
-            viewConfig.addField("laureates", objectview.viewconfig.ViewConfig.leaf());
+            viewConfig.addField("laureates", person);
 
             objectview.render.RenderContext context = new objectview.render.RenderContext();
             context.addTopLevel(prize);
@@ -395,7 +399,7 @@ class VirtualSearchHighlightTest {
             assertTrue(containingRenderedValue(row) == deep,
                     "the row must belong to the member the field-path match identified");
             assertTrue(hasHighlightedPath(row,
-                            objectview.field.FieldPath.of("details"),
+                            objectview.field.FieldPath.of("details", display),
                             List.of("kingersheim")),
                     "the hit must be brought into view, not badged as hidden");
         });
@@ -959,6 +963,17 @@ class VirtualSearchHighlightTest {
         for (String field : fields) {
             config.addField(field, objectview.viewconfig.ViewConfig.leaf());
         }
+        return config;
+    }
+
+    private static objectview.viewconfig.ViewConfig recursiveStepConfig(int depth) {
+        objectview.viewconfig.ViewConfig config =
+                objectview.viewconfig.ViewConfig.of(RecursiveStep.class);
+        config.setAllFields(false);
+        config.addField(objectview.field.ViewableContractFieldSet.DISPLAY_KEY,
+                objectview.viewconfig.ViewConfig.leaf());
+        config.addField("request", objectview.viewconfig.ViewConfig.leaf());
+        if (depth > 0) config.addField("steps", recursiveStepConfig(depth - 1));
         return config;
     }
 

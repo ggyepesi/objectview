@@ -61,7 +61,7 @@ class ViewableFieldPathsTest {
     }
 
     @Test
-    void collectFromSampleKeepsTheConfiguredReferencePath() {
+    void configuredObjectFieldWithoutChildrenContributesNoValuePath() {
         TestChild child = new TestChild();
         child.name = "Meryl";
         child.code = "42";
@@ -69,8 +69,8 @@ class ViewableFieldPathsTest {
         card.name = "nom";
         card.children = List.of(child);
 
-        // `children` is selected with no child selection: its Viewable label is the
-        // searchable value, but the path remains exactly the configured reference.
+        // `children` is selected with no child selection. The card renders the field
+        // caption, but there is no child value to search, sort or use as a quiz key.
         ViewConfig config = ViewConfig.of(TestCard.class);
         config.setAllFields(false);
         config.addField("children", ViewConfig.leaf());
@@ -78,7 +78,7 @@ class ViewableFieldPathsTest {
         Set<String> paths = pathStrings(ViewableFieldPaths.collectFromSample(
                 card, config, ViewableFieldPaths.NOT_MEDIA_FIELDS));
 
-        assertEquals(Set.of("children"), paths);
+        assertEquals(Set.of(), paths);
     }
 
     @Test
@@ -106,7 +106,7 @@ class ViewableFieldPathsTest {
     }
 
     @Test
-    void collapsedReferenceDoesNotInventADisplayChildPath() {
+    void objectFieldDoesNotImplicitlySelectItsDisplayField() {
         DisplayChild child = new DisplayChild("Meryl");
         DisplayParent parent = new DisplayParent(child);
         ViewConfig config = ViewConfig.of(DisplayParent.class);
@@ -116,7 +116,17 @@ class ViewableFieldPathsTest {
         Set<String> paths = pathStrings(ViewableFieldPaths.collectFromSample(
                 parent, config, ViewableFieldPaths.NOT_MEDIA_FIELDS));
 
-        assertEquals(Set.of("child"), paths);
+        assertEquals(Set.of(), paths);
+    }
+
+    @Test
+    void allFieldsKeepsAnObjectFieldSearchableWithoutAuthoringChildren() {
+        ViewConfig config = ViewConfig.of(TestCard.class);
+
+        Set<String> paths = pathStrings(ViewableFieldPaths.collect(
+                config, ViewableFieldPaths.NOT_MEDIA_FIELDS));
+
+        assertTrue(paths.contains("children"), paths.toString());
     }
 
     @Test

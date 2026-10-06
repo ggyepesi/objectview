@@ -678,9 +678,9 @@ public class Card extends JPanel implements RenderedInstanceHost {
     }
 
     private JComponent collapsibleRootHeader(boolean expanded) {
-        String title = safeName(viewable);
+        String title = getTitle();
         if (title.isEmpty()) {
-            title = String.valueOf(viewable);
+            title = viewable == null ? "Object" : viewable.typeName();
         }
 
         JLabel toggle = new JLabel(expanded ? "▼ " : "▶ ");
@@ -740,11 +740,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
     }
 
     private JComponent createTitleHeader(Viewable q, boolean focusTopLevel) {
-        String title = safeName(q);
-
-        if (title.isEmpty()) {
-            title = String.valueOf(q);
-        }
+        String title = getTitle();
 
         JLabel titleLabel = new JLabel(title);
         titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD));
@@ -801,16 +797,12 @@ public class Card extends JPanel implements RenderedInstanceHost {
     private void addCompactReference(Viewable q, boolean focusTopLevel) {
         ViewConfig openCfg = configForNested(q);
 
-        addSingle(
-                new ReferenceRow(
-                        "",
-                        path,
-                        q,
-                        renderContext,
-                        openCfg,
-                        objectPathTitle(q),
-                        false),
-                0);
+        JComponent compact = selectsDisplay(q, openCfg)
+                ? new ReferenceRow(
+                        "", path, q, renderContext, openCfg,
+                        objectPathTitle(q), false)
+                : new TextRow("", path, List.of("↩ " + q.typeName()));
+        addSingle(compact, 0);
 
         setMinimumSize(new Dimension(100, 42));
     }
@@ -914,6 +906,23 @@ public class Card extends JPanel implements RenderedInstanceHost {
 
         if (!textRows.isEmpty()) {
             row = addTextBlock(textRows, row);
+        }
+
+        // A configured object field remains meaningful when it deliberately has no
+        // selected child fields (or its projected/null value is absent): it renders
+        // its own caption. This is the same literal config state the editor saves;
+        // DISPLAY is not silently substituted as the value.
+        for (Map.Entry<String, ViewConfig> entry : config.getFields().entrySet()) {
+            String name = entry.getKey();
+            ViewConfig child = entry.getValue();
+            FieldRef present = fields.field(name);
+            Object value = present == null ? null : fields.read(name);
+            if (!captionOnlyObjectField(child, present, value)) continue;
+            if (hasContent(value)) continue;
+            TextRow caption = new TextRow(
+                    present == null ? FieldLabels.humanize(name) : present.label(),
+                    path.append(name), List.of());
+            addSingle(caption, row++);
         }
 
         // Root cards only: pin fields to the top by absorbing any extra
@@ -1023,6 +1032,9 @@ public class Card extends JPanel implements RenderedInstanceHost {
             String fieldName,
             FieldPath fieldPath,
             ViewConfig fieldCfg) {
+        if (captionOnlyObjectField(fieldCfg, field, value)) {
+            return new TextRow(fieldName, fieldPath, List.of());
+        }
         if (value == null || isEmptyCollectionOrMap(value)) return null;
 
         boolean isCollectionOrMap =
@@ -1047,11 +1059,10 @@ public class Card extends JPanel implements RenderedInstanceHost {
                     fieldName, fieldPath, value, fieldCfg);
         }
 
-        // A media collection is one visual value (one or several portraits), not a
-        // potentially huge data list. Render its thumbnails immediately; otherwise
-        // the generic collection policy hides every image behind an "image (N)"
-        // disclosure and a populated image field looks empty.
-        if (containsMedia(value)) {
+        // A scalar or one-item media value is the entity's immediately visible image.
+        // Several images are a real collection: let the shared collection disclosure
+        // keep the card bounded and build those image components only when opened.
+        if (containsMedia(value) && !hasSeveralItems(value)) {
             return ValueRenderer.createFieldComponent(
                     copyVisited(), copyAncestors(), renderContext,
                     fieldName, fieldPath, value, fieldCfg, fill);
@@ -1125,6 +1136,12 @@ public class Card extends JPanel implements RenderedInstanceHost {
             return values.values().stream().anyMatch(item ->
                     item instanceof ImagePane || item instanceof MediaValue);
         }
+        return false;
+    }
+
+    private static boolean hasSeveralItems(Object value) {
+        if (value instanceof Collection<?> values) return values.size() > 1;
+        if (value instanceof Map<?, ?> values) return values.size() > 1;
         return false;
     }
 
@@ -1207,23 +1224,6 @@ public class Card extends JPanel implements RenderedInstanceHost {
 
         if (value instanceof Viewable q) {
             ViewConfig effective = nestedConfig;
-            // Selecting an inline value as a whole means "show that value". The view
-            // editor represents an undrilled selection with a leaf config; passing it
-            // through literally produced an empty owned-value body (a label with
-            // nothing to open). References can sensibly render their identity alone,
-            // but an inline value is its fields, so fall back to its class config.
-            if (effective == null || !effective.isAllFields()
-                    && !effective.isAllMinorFields()
-                    && effective.getFields().isEmpty()) {
-                // An inline/owned value belongs to this field site. Do not borrow
-                // the shared context's class config here: in a MultiView that config
-                // describes the separate top-level section for the same class and may
-                // intentionally be a leaf. Reusing it made Person.structuredName open
-                // empty while the standalone Name card still contained its fields.
-                effective = ViewConfig.all(q.getClass())
-                        .setAddListener(config.isAddListener())
-                        .setThumb(config.isThumb());
-            }
             // A structural/owned value is not an entity-reference edge, but it is
             // still a nested object. Give it the same disclosure interaction without
             // turning a top-level copy into navigation and without attaching the
@@ -1633,18 +1633,14 @@ public class Card extends JPanel implements RenderedInstanceHost {
         ViewConfig targetConfig = nestedConfig == null
                 ? configForNested(target) : nestedConfig;
 
-        // A projected/structural wrapper can deliberately have no display label:
-        // its ViewConfig selected only fields below it. A collapsed reference chip
-        // would then paint an empty row and hide the very values the config asks to
-        // show. Render that wrapper's configured body directly. This is driven by
-        // the same ViewConfig as every other reference; it is not a second field
-        // mapping or a quiz-specific presentation path.
-        if (target != null
-                && ReferenceRow.referenceLabel(target).isBlank()
-                && targetHasContent(target)) {
+        // DISPLAY is an ordinary selected field. Its only presentation role is to
+        // become this object's caption. With DISPLAY off, never leak getDisplayName()
+        // through a reference chip: paint exactly the configured child fields inline.
+        if (target != null && !selectsDisplay(target, targetConfig)) {
             JComponent body = inlineViewable(
                     target, fieldPath, targetConfig, true, !navigateToTopLevel);
             if (body != null) return body;
+            return new TextRow(fieldName, fieldPath, List.of());
         }
 
         // A reference to something that is itself a top-level card in this view
@@ -1667,9 +1663,12 @@ public class Card extends JPanel implements RenderedInstanceHost {
         // field is its display name — which the row already shows — so the triangle
         // opens an empty box. Rendered as a plain row it keeps selection, search
         // highlight and copy, and stops promising content it does not have.
-        if (!targetHasContent(target)) {
+        if (!targetHasConfiguredContent(target, targetConfig)) {
+            String display = objectview.field.ViewableContractFieldSet.displayKey(
+                    FieldSet.of(target));
             return maybeDecoratedReference(
-                    new TextRow(fieldName, fieldPath, ReferenceRow.referenceLabel(target)),
+                    new TextRow(fieldName, fieldPath.append(display),
+                            ReferenceRow.referenceLabel(target)),
                     target, decorateIdentity);
         }
 
@@ -1749,18 +1748,47 @@ public class Card extends JPanel implements RenderedInstanceHost {
      * <p>Identity and display fields do not count: the reference row already shows them.
      * Neither does a null, blank or empty value — those render nothing.
      */
-    private boolean targetHasContent(Viewable target) {
-        if (target == null || renderContext == null) {
-            return true;   // unknown: keep the expander rather than hide content
-        }
-        FieldSet fields = FieldSet.of(target, renderContext.fieldSchema(target));
+    private boolean targetHasConfiguredContent(
+            Viewable target, ViewConfig targetConfig) {
+        if (target == null) return false;
+        FieldSet fields = FieldSet.of(target, renderContext == null
+                ? null : renderContext.fieldSchema(target));
         for (FieldRef field : fields.fields()) {
             if (!field.role().renderedInHeader()
+                    && shows(targetConfig, field)
                     && hasContent(fields.read(field.name()))) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean captionOnlyObjectField(
+            ViewConfig child, FieldRef field, Object value) {
+        return child != null
+                && !child.isAllFields()
+                && !child.isAllMinorFields()
+                && child.getFields().isEmpty()
+                && (child.getCls() != null
+                        || field != null && field.reference()
+                        || containsViewable(value));
+    }
+
+    private static boolean selectsDisplay(Viewable target, ViewConfig targetConfig) {
+        if (targetConfig == null || targetConfig.isAllFields()) return true;
+        String displayKey = target == null
+                ? objectview.field.ViewableContractFieldSet.DISPLAY_KEY
+                : objectview.field.ViewableContractFieldSet.displayKey(
+                        FieldSet.of(target));
+        return targetConfig.getFields().containsKey(displayKey)
+                || targetConfig.getFields().containsKey(
+                        objectview.field.ViewableContractFieldSet.DISPLAY_KEY);
+    }
+
+    private static boolean shows(ViewConfig config, FieldRef field) {
+        if (config == null || field == null) return false;
+        if (config.getFields().containsKey(field.name())) return true;
+        return field.minor() ? config.isAllMinorFields() : config.isAllFields();
     }
 
     private static boolean hasContent(Object value) {
@@ -1892,13 +1920,13 @@ public class Card extends JPanel implements RenderedInstanceHost {
 
     private ViewConfig defaultConfigForValue(Object value) {
         if (value instanceof Viewable q) {
-            return configForNested(q);
+            return emptyObjectConfig(q);
         }
 
         if (value instanceof Collection<?> col) {
             for (Object item : col) {
                 if (item instanceof Viewable q) {
-                    return configForNested(q);
+                    return emptyObjectConfig(q);
                 }
             }
         }
@@ -1906,7 +1934,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
         if (value instanceof Map<?, ?> map) {
             for (Object v : map.values()) {
                 if (v instanceof Viewable q) {
-                    return configForNested(q);
+                    return emptyObjectConfig(q);
                 }
             }
         }
@@ -1914,6 +1942,13 @@ public class Card extends JPanel implements RenderedInstanceHost {
         return ViewConfig.leaf()
                          .setAddListener(config.isAddListener())
                          .setThumb(config.isThumb());
+    }
+
+    private ViewConfig emptyObjectConfig(Viewable value) {
+        ViewConfig empty = ViewConfig.leaf();
+        if (value != null) empty.setCls(value.getClass());
+        return empty.setAddListener(config.isAddListener())
+                .setThumb(config.isThumb());
     }
 
     private ViewConfig configForNested(Viewable q) {

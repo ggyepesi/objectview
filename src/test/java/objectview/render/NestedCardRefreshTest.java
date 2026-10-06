@@ -35,7 +35,7 @@ class NestedCardRefreshTest {
 
         Card[] rendered = new Card[1];
         SwingUtilities.invokeAndWait(() -> rendered[0] = new Card(
-                root, ViewConfig.all(LogLike.class), context, false));
+                root, logConfig(3), context, false));
 
         assertEquals(2, count(rendered[0], Card.class),
                 "the root and the expanded outer log entry should be cards");
@@ -105,6 +105,16 @@ class NestedCardRefreshTest {
             }
         }
         return result;
+    }
+
+    private static ViewConfig logConfig(int depth) {
+        ViewConfig config = ViewConfig.of(LogLike.class);
+        config.setAllFields(false);
+        config.addField(objectview.field.ViewableContractFieldSet.DISPLAY_KEY,
+                ViewConfig.leaf());
+        config.addField("detail", ViewConfig.leaf());
+        if (depth > 0) config.addField("steps", logConfig(depth - 1));
+        return config;
     }
 
     private static final class LogLike extends ViewableAdapter {

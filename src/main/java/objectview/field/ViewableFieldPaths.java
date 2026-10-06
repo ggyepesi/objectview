@@ -147,12 +147,7 @@ public final class ViewableFieldPaths {
                 if (info.nested() != null && childSelected) {
                     collectSchema(child, info.nested(), path, title, excludeMedia,
                             branch, out);
-                } else if (info.nested() != null) {
-                    // The configured reference is this path. Its display label is
-                    // the searchable value of the reference, not an invented child.
-                    out.add(new PathInfo(title, path, null,
-                            info.valueKind(), info.role()));
-                } else {
+                } else if (info.nested() == null) {
                     // Carry the schema's value kind (e.g. a persisted @Numeric -> ORDERED)
                     // so sort reads this dynamic leaf as a number without a reflection field.
                     out.add(new PathInfo(title, path, null,
@@ -306,7 +301,7 @@ public final class ViewableFieldPaths {
                 || childConfig.isAllMinorFields()
                 || !childConfig.getFields().isEmpty());
 
-        if (childHasSelection && prefix.size() < SAMPLE_MAX_DEPTH) {
+        if (childHasSelection) {
             collectConfiguredSample(
                     child,
                     childConfig,
@@ -315,8 +310,6 @@ public final class ViewableFieldPaths {
                     filter,
                     branch,
                     out);
-        } else {
-            out.add(new PathInfo(title, path, leaf));
         }
     }
 
@@ -455,6 +448,7 @@ public final class ViewableFieldPaths {
                         prefix,
                         titlePrefix,
                         filter,
+                        true,
                         out);
 
                 alreadyAdded.add(fieldName);
@@ -485,6 +479,7 @@ public final class ViewableFieldPaths {
                     prefix,
                     titlePrefix,
                     filter,
+                    false,
                     out);
         }
     }
@@ -503,6 +498,11 @@ public final class ViewableFieldPaths {
                 : titlePrefix + "." + ViewableContractFieldSet.label(fieldName);
 
         if (childConfig == null || childConfig.getFields().isEmpty()) {
+            if (childConfig != null && childConfig.getCls() != null
+                    && Viewable.class.isAssignableFrom(childConfig.getCls())) {
+                // Explicit object field with no selected children: caption-only.
+                return;
+            }
             out.add(new PathInfo(title, path, null, FieldKind.UNKNOWN,
                     ViewableContractFieldSet.DISPLAY_KEY.equals(fieldName)
                             ? FieldRole.DISPLAY : FieldRole.NONE));
@@ -544,6 +544,7 @@ public final class ViewableFieldPaths {
                                      FieldPath prefix,
                                      String titlePrefix,
                                      FieldFilter filter,
+                                     boolean explicit,
                                      List<PathInfo> out) {
         if (field == null || !filter.accept(field)) {
             return;
@@ -559,8 +560,7 @@ public final class ViewableFieldPaths {
         Class<?> nested = nestedViewableClass(field);
 
         if (nested != null) {
-            if (childConfig != null
-                    && (childConfig.isAllFields()
+            if (childConfig != null && (childConfig.isAllFields()
                     || childConfig.isAllMinorFields()
                     || !childConfig.getFields().isEmpty())) {
 
@@ -574,11 +574,13 @@ public final class ViewableFieldPaths {
                         title,
                         filter,
                         out);
-            } else {
-                // The FIELD itself, not a synthesized path to the nested object's name.
-                // Reading the object is what makes its text reachable — ValueText takes
-                // the name for a sort key and everything the card paints for search,
-                // where appending ".name" here could only ever yield the name.
+            } else if (!explicit) {
+                // `allFields` includes this object field as a searchable value even
+                // without an authored child tree. ValueText can search the rendered
+                // object graph from this boundary, and RenderContext can reveal the
+                // retained member path. An explicitly selected object with an empty
+                // child config is different: it is caption-only and contributes no
+                // value path.
                 out.add(new PathInfo(title, path, field));
             }
 

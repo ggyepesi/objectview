@@ -246,7 +246,12 @@ class SearchableTableViewTest {
         ViewConfig config = ViewConfig.of(Parent.class);
         config.setAllFields(false);
         config.addField("name", ViewConfig.leaf());
-        config.addField("nested", ViewConfig.leaf());
+        ViewConfig nestedConfig = ViewConfig.of(Nested.class);
+        nestedConfig.setAllFields(false);
+        nestedConfig.addField(
+                objectview.field.ViewableContractFieldSet.DISPLAY_KEY,
+                ViewConfig.leaf());
+        config.addField("nested", nestedConfig);
 
         ViewableColumnsView table = SearchableView.builder(List.of(country))
                 .mode(RenderingMode.TABLE)
@@ -256,8 +261,8 @@ class SearchableTableViewTest {
                 .build().table();
         JComponent row = table.row(country);
 
-        assertNotNull(find(row, ReferenceRow.class),
-                "a reference column uses Card's collapsed-reference semantics");
+        assertNotNull(find(row, TextRow.class),
+                "a display-only object field paints its selected display as the caption");
         assertTrue(componentText(row).contains("Q1781"),
                 "the same identity decorator is attached to the reference chip");
     }
@@ -292,10 +297,18 @@ class SearchableTableViewTest {
         InlineCollectionItem item = new InlineCollectionItem("one", many);
         ViewConfig config = ViewConfig.of(InlineCollectionItem.class);
         config.setAllFields(false);
-        config.addField("children", ViewConfig.leaf());
+        ViewConfig childConfig = ViewConfig.of(Nested.class);
+        childConfig.setAllFields(false);
+        childConfig.addField(
+                objectview.field.ViewableContractFieldSet.DISPLAY_KEY,
+                ViewConfig.leaf());
+        config.addField("children", childConfig);
+        objectview.render.RenderContext context = new objectview.render.RenderContext();
+        context.setCollectionExpanded(many, true);
         ViewableColumnsView table = SearchableView.builder(List.of(item))
                 .mode(RenderingMode.TABLE)
                 .sample(item)
+                .renderContext(context)
                 .configState(new SearchPanel.ConfigState(null, null, config))
                 .build().table();
 
