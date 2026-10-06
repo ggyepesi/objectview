@@ -417,7 +417,7 @@ public class SearchPanel extends JPanel
         }
 
         List<ViewableFieldPaths.PathInfo> sortPaths =
-                configuredPaths(sortEditor, subtypeSortEditors, true);
+                configuredPaths(sortEditor, subtypeSortEditors, true, false);
 
         if (sortPaths.isEmpty()) {
             return;
@@ -842,22 +842,26 @@ public class SearchPanel extends JPanel
         // Search configuration owns which field contents are searched. View
         // configuration owns their current presentation only: text, a link, or a
         // future renderer must not change whether the configured content is found.
-        return configuredPaths(searchEditor, subtypeSearchEditors, true);
+        return configuredPaths(searchEditor, subtypeSearchEditors, true, false);
     }
 
     /** Complete subtype-aware path projection used by the active presentation. */
     public List<ViewableFieldPaths.PathInfo> viewPaths() {
-        return configuredPaths(viewEditor, subtypeViewEditors, false);
+        return configuredPaths(viewEditor, subtypeViewEditors, false, true);
     }
 
     private List<ViewableFieldPaths.PathInfo> configuredPaths(
             ViewConfigEditor baseEditor,
             java.util.Map<String, ViewConfigEditor> subtypeEditors,
-            boolean excludeMedia) {
+            boolean excludeMedia,
+            boolean rendering) {
         List<ViewableFieldPaths.PathInfo> paths = new ArrayList<>();
+        ViewableFieldPaths.Projection projection = rendering
+                ? ViewableFieldPaths.Projection.RENDERING
+                : ViewableFieldPaths.Projection.VALUES;
         if (rootFieldTypes != null) {
             paths.addAll(ViewableFieldPaths.collectFromSchema(
-                    baseEditor.getConfig(), rootFieldTypes, excludeMedia));
+                    baseEditor.getConfig(), rootFieldTypes, excludeMedia, projection));
             java.util.Map<String, ViewConfig> branches = baseEditor.classBranchConfigs();
             for (SubtypeConfig subtype : subtypeConfigs) {
                 ViewConfig config = branches.get(subtype.typeName());
@@ -867,18 +871,18 @@ public class SearchPanel extends JPanel
                 }
                 if (config != null && subtype.fieldTypes() != null) {
                     paths.addAll(ViewableFieldPaths.collectFromSchema(
-                            config, subtype.fieldTypes(), excludeMedia));
+                            config, subtype.fieldTypes(), excludeMedia, projection));
                 }
             }
         } else {
             ViewConfig config = effectiveConfig(baseEditor, subtypeEditors, null);
+            ViewableFieldPaths.FieldFilter filter = excludeMedia
+                    ? ViewableFieldPaths.NOT_MEDIA_FIELDS
+                    : ViewableFieldPaths.ALL_FIELDS;
             paths.addAll(fieldPathSample == null
-                    ? ViewableFieldPaths.collect(config,
-                            excludeMedia ? ViewableFieldPaths.NOT_MEDIA_FIELDS
-                                    : ViewableFieldPaths.ALL_FIELDS)
-                    : ViewableFieldPaths.collectFromSample(fieldPathSample, config,
-                            excludeMedia ? ViewableFieldPaths.NOT_MEDIA_FIELDS
-                                    : ViewableFieldPaths.ALL_FIELDS));
+                    ? ViewableFieldPaths.collect(config, filter, projection)
+                    : ViewableFieldPaths.collectFromSample(
+                            fieldPathSample, config, filter, projection));
         }
         java.util.LinkedHashMap<String, ViewableFieldPaths.PathInfo> unique =
                 new java.util.LinkedHashMap<>();
@@ -1119,7 +1123,8 @@ public class SearchPanel extends JPanel
     }
 
     private java.util.List<String> sortConfigurationSignature() {
-        return configuredPaths(sortEditor, subtypeSortEditors, true).stream()
+        return configuredPaths(
+                sortEditor, subtypeSortEditors, true, false).stream()
                 .map(path -> path.dotted() + "\u0000" + path.valueKind()
                         + "\u0000" + path.role())
                 .toList();
@@ -1648,10 +1653,11 @@ public class SearchPanel extends JPanel
 
     private JComponent expandedCollectionHeader(
             Component root, FieldPath selectedPath) {
+        // The header addresses its collection and every field below its members.
         if (root instanceof CollectionHeader header
                 && header.isExpanded()
-                && selectedPath.equals(header.getClientProperty(
-                FIELD_PATH_PROPERTY))) return header;
+                && header.getClientProperty(FIELD_PATH_PROPERTY) instanceof FieldPath path
+                && selectedPath.startsWith(path)) return header;
         if (root instanceof Container container) {
             for (Component child : container.getComponents()) {
                 JComponent found = expandedCollectionHeader(child, selectedPath);

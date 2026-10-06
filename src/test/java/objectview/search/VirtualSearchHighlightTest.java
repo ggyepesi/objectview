@@ -309,7 +309,7 @@ class VirtualSearchHighlightTest {
 
             assertTrue(host(view, item).isHighlighted());
             assertTrue(hasHighlightedPath(materialize(view, item),
-                            objectview.field.FieldPath.of("details"),
+                            objectview.field.FieldPath.of("details", display),
                             List.of("resonant")),
                     mode + ": the rendered nested label row receives the leaf highlight");
         });
@@ -343,12 +343,14 @@ class VirtualSearchHighlightTest {
             JComponent rendered = materialize(view, prize);
             view.search().setFieldHighlight(true);
             view.search().runCoordinatedSearch("duve");
+            rendered = materialize(view, prize);
 
             assertTrue(host(view, prize).isHighlighted(),
                     "search finds the containing instance before rendering highlights it");
             assertTrue(hasHighlightedPath(rendered,
-                            objectview.field.FieldPath.of("laureates"), List.of("duve")),
-                    "the link that paints the referenced display field owns its highlight");
+                            objectview.field.FieldPath.of("laureates", "title"),
+                            List.of("duve")),
+                    "the ordinary rendered DISPLAY field owns its highlight");
             writeArtifact(rendered, "multi-instance-reference-search.png");
         });
     }
@@ -796,7 +798,7 @@ class VirtualSearchHighlightTest {
             view.search().runCoordinatedSearch("resonant");
 
             assertTrue(hasHighlightedPath(materialize(view, item),
-                            objectview.field.FieldPath.of("details"),
+                            objectview.field.FieldPath.of("details", display),
                             List.of("resonant")),
                     "the first top-level hit reveals and highlights its nested twin");
             assertTrue(view.renderContext().isCollectionExpanded(
@@ -894,8 +896,7 @@ class VirtualSearchHighlightTest {
             return true;
         }
         if (root instanceof objectview.render.TextRow component
-                && path.equals(component.getClientProperty(
-                objectview.field.FieldProperties.FIELD_PATH_PROPERTY))
+                && component.represents(path)
                 && component.isHighlighting(tokens)) {
             return true;
         }

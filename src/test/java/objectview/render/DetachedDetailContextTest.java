@@ -27,14 +27,15 @@ class DetachedDetailContextTest {
         FieldSchema schema = java.util.List::of;
         list.setFieldSchemaResolver(viewable -> schema);
         list.setValueLinker(value -> "Q42".equals(value) ? "https://example.org/Q42" : null);
-        list.putClassConfig(Film.class, ViewConfig.all(Film.class));
+        Film film = new Film("Hitchhiker");
+        list.putConfig(film, ViewConfig.all(Film.class));
 
         RenderContext detail = list.detachedDetailContext();
 
-        assertEquals(schema, detail.fieldSchema(new Film("Hitchhiker")),
+        assertEquals(schema, detail.fieldSchema(film),
                 "without the resolver a dynamic object renders with no domain fields");
         assertEquals("https://example.org/Q42", detail.valueLink("Q42"));
-        assertNotNull(detail.configFor(Film.class),
+        assertNotNull(detail.configFor(film),
                 "the detail window shows the object the way the list was configured to");
     }
 

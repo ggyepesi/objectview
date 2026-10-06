@@ -152,6 +152,7 @@ class CollapseGutterTest {
         Entry nested = root.steps.iterator().next();
         nested.steps.add(new Entry("request 1"));
         context.toggleCardExpanded(root);
+        context.setCollectionExpanded(root.steps, true);
         context.setExpanded(nested, true);
 
         Card card = cardFor(context, root);
@@ -171,6 +172,7 @@ class CollapseGutterTest {
         Entry nested = root.steps.iterator().next();
         nested.steps.add(new Entry("request 1"));
         context.toggleCardExpanded(root);
+        context.setCollectionExpanded(root.steps, true);
         context.setExpanded(nested, true);
         Card card = cardFor(context, root);
         Card body = findCardFor(card, nested);

@@ -22,11 +22,12 @@ public class CollectionHeader extends JComponent {
     private static final int TRI_W = 12;
 
     private final String fieldName;
-    private final int count;
+    private int count;
     private final boolean expanded;
     private final Object key;
     private final boolean defaultExpanded;
     private final RenderContext renderContext;
+    private final Object representedValue;
 
     private boolean hover = false;
 
@@ -44,12 +45,16 @@ public class CollectionHeader extends JComponent {
         this.key = key;
         this.defaultExpanded = defaultExpanded;
         this.renderContext = renderContext;
+        this.representedValue = representedValue;
 
         setOpaque(false);
-        setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        setToolTipText(expanded
-                ? "Click to collapse (" + count + " items)"
-                : "Click to expand (" + count + " items)");
+        setCursor(count == 0
+                ? Cursor.getDefaultCursor()
+                : Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        setToolTipText(count == 0 ? "0 items"
+                : expanded
+                    ? "Click to collapse (" + count + " items)"
+                    : "Click to expand (" + count + " items)");
 
         // Keep the field searchable even when collapsed.
         FieldPath path = fieldPath == null ? FieldPath.ROOT : fieldPath;
@@ -60,7 +65,7 @@ public class CollectionHeader extends JComponent {
         addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (!SwingUtilities.isLeftMouseButton(e)) {
+                if (count == 0 || !SwingUtilities.isLeftMouseButton(e)) {
                     return;
                 }
                 if (renderContext != null) {
@@ -105,6 +110,25 @@ public class CollectionHeader extends JComponent {
         return expanded;
     }
 
+    /** Refreshes a live collection's displayed size without rebuilding its members. */
+    public void refreshCount() {
+        int current = representedValue instanceof java.util.Collection<?> collection
+                ? collection.size()
+                : representedValue instanceof java.util.Map<?, ?> map ? map.size() : count;
+        if (current != count) {
+            count = current;
+            setCursor(count == 0
+                    ? Cursor.getDefaultCursor()
+                    : Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            setToolTipText(count == 0 ? "0 items"
+                    : expanded
+                        ? "Click to collapse (" + count + " items)"
+                        : "Click to expand (" + count + " items)");
+            revalidate();
+            repaint();
+        }
+    }
+
     @Override
     public Dimension getPreferredSize() {
         FontMetrics fm = getFontMetrics(labelFont());
@@ -130,17 +154,19 @@ public class CollectionHeader extends JComponent {
             int baseline = PAD_Y + fm.getAscent();
             int triMid = baseline - fm.getAscent() / 2;
 
-            g2.setColor(new Color(120, 120, 120));
-            if (expanded) {
-                g2.fillPolygon(
-                        new int[]{PAD_X, PAD_X + 8, PAD_X + 4},
-                        new int[]{triMid - 2, triMid - 2, triMid + 3},
-                        3);
-            } else {
-                g2.fillPolygon(
-                        new int[]{PAD_X + 1, PAD_X + 1, PAD_X + 6},
-                        new int[]{triMid - 4, triMid + 4, triMid},
-                        3);
+            if (count > 0) {
+                g2.setColor(new Color(120, 120, 120));
+                if (expanded) {
+                    g2.fillPolygon(
+                            new int[]{PAD_X, PAD_X + 8, PAD_X + 4},
+                            new int[]{triMid - 2, triMid - 2, triMid + 3},
+                            3);
+                } else {
+                    g2.fillPolygon(
+                            new int[]{PAD_X + 1, PAD_X + 1, PAD_X + 6},
+                            new int[]{triMid - 4, triMid + 4, triMid},
+                            3);
+                }
             }
 
             g2.setFont(font);

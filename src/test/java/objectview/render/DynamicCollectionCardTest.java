@@ -47,6 +47,7 @@ class DynamicCollectionCardTest {
 
         Card[] card = new Card[1];
         RenderContext context = new RenderContext();
+        context.setCollectionExpanded(parent.steps, true);
         javax.swing.SwingUtilities.invokeAndWait(() -> {
             card[0] = new Card(
                     parent, ViewConfig.all(LiveParent.class), context, false);
@@ -59,7 +60,8 @@ class DynamicCollectionCardTest {
         assertEquals(14_000, virtual.items().size());
         assertTrue(count(card[0], ReferenceRow.class) < 100,
                 "the UI must not contain one Swing row per completed request");
-        assertEquals("steps (14000)", titledBorder(card[0], "steps").getTitle());
+        assertTrue(collectionHeader(card[0], "steps").getToolTipText()
+                .contains("14000 items"));
 
         JComponent rowBefore = virtual.builtCard(first);
         assertNotNull(rowBefore);
@@ -76,13 +78,11 @@ class DynamicCollectionCardTest {
 
     @Test
     void aLargeReferenceCollectionFieldVirtualizesLikeAnInlineOne() throws Exception {
-        // Two paths render a collection of Viewables: @Inline goes through
-        // inlineViewable, a plain @Reference collection through
-        // createReferenceFieldComponent. Virtualizing only the first left the second
-        // building one ReferenceRow per member — measured on a real position
-        // hierarchy as 124,087 live rows behind 114 cards, after which every layout,
-        // measure and rebuild walked all of them and the event thread stopped
-        // returning. The ceiling belongs to both, because it is the same problem.
+        // @Inline and @Reference are relation policies over the same object-occurrence
+        // renderer. A former split virtualized only one path, leaving the other to
+        // build one ReferenceRow per member — measured on a real position hierarchy
+        // as 124,087 live rows behind 114 cards. The ceiling belongs to the shared
+        // collection path because it is the same problem.
         Superclassed subject = new Superclassed("Mayor of Aast");
         for (int i = 0; i < 14_000; i++) {
             subject.superClasses.add(new Superclassed("kind of position " + i));
@@ -156,9 +156,11 @@ class DynamicCollectionCardTest {
         }
 
         Card[] card = new Card[1];
+        RenderContext context = new RenderContext();
+        context.setCollectionExpanded(parent.steps, true);
         javax.swing.SwingUtilities.invokeAndWait(() ->
                 card[0] = new Card(
-                        parent, ViewConfig.all(LiveParent.class), new RenderContext(), false));
+                        parent, ViewConfig.all(LiveParent.class), context, false));
         assertEquals(200, count(card[0], ReferenceRow.class));
 
         LiveChild next = new LiveChild("request 200", "done");
@@ -169,7 +171,8 @@ class DynamicCollectionCardTest {
         VirtualizedCardList virtual = find(card[0], VirtualizedCardList.class);
         assertNotNull(virtual);
         assertEquals(201, virtual.items().size());
-        assertEquals("steps (201)", titledBorder(card[0], "steps").getTitle());
+        assertTrue(collectionHeader(card[0], "steps").getToolTipText()
+                .contains("201 items"));
     }
 
     @Test
@@ -187,13 +190,15 @@ class DynamicCollectionCardTest {
                 card[0] = new Card(
                         parent, ViewConfig.all(LiveParent.class),
                         new RenderContext(), false));
-        assertEquals("steps (1)", titledBorder(card[0], "steps").getTitle());
+        assertTrue(collectionHeader(card[0], "steps").getToolTipText()
+                .contains("1 items"));
 
         parent.steps.add(new LiveChild("request 1", "done"));
         javax.swing.SwingUtilities.invokeAndWait(() ->
                 card[0].refreshInlineCollectionCounts());
 
-        assertEquals("steps (2)", titledBorder(card[0], "steps").getTitle(),
+        assertTrue(collectionHeader(card[0], "steps").getToolTipText()
+                        .contains("2 items"),
                 "the header says how many members the collection has");
     }
 
@@ -203,6 +208,7 @@ class DynamicCollectionCardTest {
         LiveChild first = new LiveChild("first", "a very long request already opened");
         parent.steps.add(first);
         RenderContext context = new RenderContext();
+        context.setCollectionExpanded(parent.steps, true);
         context.setExpanded(first, true);
 
         Card[] card = new Card[1];
@@ -253,11 +259,11 @@ class DynamicCollectionCardTest {
     }
 
     @Test
-    void dynamicReferencesStartCollapsedLikeDeclaredReferences()
+    void aDynamicReferenceShowsItsTickedFieldsLikeADeclaredReference()
             throws Exception {
         DynamicThing parent = new DynamicThing("parent");
         DynamicThing child = new DynamicThing("child");
-        child.values.put("detail", "hidden until expanded");
+        child.values.put("detail", "shown because it is ticked");
         parent.values.put("child", child);
 
         Card[] card = new Card[1];
@@ -274,9 +280,10 @@ class DynamicCollectionCardTest {
                 card[0] = new Card(
                         parent, config, false));
 
-        assertNotNull(find(card[0], ReferenceRow.class));
-        assertEquals(1, count(card[0], Card.class),
-                "a dynamic reference must not render its nested card eagerly");
+        assertNotNull(find(card[0], ReferenceRow.class),
+                "the ticked DISPLAY names the reference");
+        assertEquals(2, count(card[0], Card.class),
+                "the ticked detail shows without a click, as it does with DISPLAY unticked");
     }
 
     @Test
@@ -305,7 +312,7 @@ class DynamicCollectionCardTest {
         RenderContext context = new RenderContext();
         // This is the important snapshot condition: State and Language have
         // different logical schemas but the same runtime adapter class.
-        context.putClassConfig(DynamicThing.class, stateConfig);
+        context.putConfig(state, stateConfig);
         context.setCollectionExpanded(languages, true);
         context.setExpanded(language, true);
 
@@ -430,6 +437,21 @@ class DynamicCollectionCardTest {
         if (root instanceof Container container) {
             for (Component child : container.getComponents()) {
                 TitledBorder found = titledBorderOrNull(child, titlePrefix);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static CollectionHeader collectionHeader(Component root, String fieldName) {
+        if (root instanceof CollectionHeader header
+                && fieldName.equals(header.getClientProperty(
+                        FieldProperties.FIELD_NAME_PROPERTY))) {
+            return header;
+        }
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                CollectionHeader found = collectionHeader(child, fieldName);
                 if (found != null) return found;
             }
         }

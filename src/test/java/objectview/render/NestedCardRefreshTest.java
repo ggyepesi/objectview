@@ -16,8 +16,24 @@ import java.util.Collection;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NestedCardRefreshTest {
+
+    @Test void inlineWorkflowStepsRemainVisibleWithoutAnOpeningClick() throws Exception {
+        LogLike root = new LogLike("generate domains", "root detail");
+        root.steps.add(new LogLike("generate one domain", "outer detail"));
+        Card[] rendered = new Card[1];
+
+        SwingUtilities.invokeAndWait(() -> rendered[0] = new Card(
+                root, logConfig(2), new RenderContext(), false));
+
+        CollectionHeader steps = find(rendered[0], CollectionHeader.class);
+        assertNotNull(steps);
+        assertTrue(steps.isExpanded());
+        assertNotNull(findReference(rendered[0], "generate one domain"));
+    }
 
     @Test
     void innerInlineChipRefreshesItsNestedCardWithoutTurningItIntoARootCard()
@@ -31,7 +47,12 @@ class NestedCardRefreshTest {
         RenderContext context = new RenderContext();
         context.setCollapsibleCards(true);
         context.toggleCardExpanded(root);
+        context.setCollectionExpanded(root.steps, true);
+        context.setCollectionExpanded(outer.steps, true);
         context.setExpanded(outer, true);
+        // Ticked fields under a reference show without a click; fold the inner entry
+        // so the test can open it and watch the nested card refresh.
+        context.setExpanded(inner, false);
 
         Card[] rendered = new Card[1];
         SwingUtilities.invokeAndWait(() -> rendered[0] = new Card(
@@ -63,6 +84,34 @@ class NestedCardRefreshTest {
         assertNotNull(findReference(rendered[0], "run query"));
     }
 
+    @Test void nestedExpansionRemeasuresWithoutRematerializingTheRootCard()
+            throws Exception {
+        LogLike root = new LogLike("generate domains", "root detail");
+        LogLike outer = new LogLike("generate one domain", "outer detail");
+        LogLike inner = new LogLike("run query", "inner detail");
+        root.steps.add(outer);
+        outer.steps.add(inner);
+        RenderContext context = new RenderContext();
+        context.setExpanded(inner, false);
+        CardListView list = new CardListView();
+        list.setRenderContext(context);
+        list.addViewable(root);
+        list.createCardsPanel(1);
+        list.getVirtualList().setViewConfigResolver(ignored -> logConfig(3));
+
+        javax.swing.JComponent[] before = new javax.swing.JComponent[1];
+        SwingUtilities.invokeAndWait(() -> {
+            before[0] = list.getVirtualList().buildIfNeeded(root);
+            ReferenceRow innerChip = findReference(before[0], "run query");
+            assertNotNull(innerChip);
+            innerChip.valueClicked(click(innerChip));
+        });
+
+        assertSame(before[0], list.getVirtualList().builtCard(root),
+                "a nested disclosure must retain the materialized root component");
+        list.dispose();
+    }
+
     private static MouseEvent click(JComponent component) {
         return new MouseEvent(component, MouseEvent.MOUSE_CLICKED,
                 System.currentTimeMillis(), 0, 1, 1, 1, false,
@@ -91,6 +140,18 @@ class NestedCardRefreshTest {
         if (root instanceof Container container) {
             for (Component child : container.getComponents()) {
                 Card found = findCard(child, value);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T find(Component root, Class<T> type) {
+        if (type.isInstance(root)) return (T) root;
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                T found = find(child, type);
                 if (found != null) return found;
             }
         }

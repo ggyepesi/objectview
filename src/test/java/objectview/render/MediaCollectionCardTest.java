@@ -36,12 +36,14 @@ class MediaCollectionCardTest {
     }
 
     @Test
-    void oneImageRemainsImmediatelyVisible() {
+    void oneImageRemainsImmediatelyVisibleInsideItsCountedCollection() {
         Gallery gallery = new Gallery(List.of(image("only")));
 
         Card card = new Card(gallery, ViewConfig.all(Gallery.class), false);
 
-        assertTrue(descendants(card, CollectionHeader.class).isEmpty());
+        List<CollectionHeader> headers = descendants(card, CollectionHeader.class);
+        assertEquals(1, headers.size());
+        assertTrue(headers.get(0).isExpanded());
         assertEquals(1, descendants(card, ImagePane.class).size());
     }
 

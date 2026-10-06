@@ -11,14 +11,25 @@ import java.awt.Container;
 public interface RenderRefreshHost {
     void refreshRenderedContent();
 
-    /** Refreshes the nearest containing render host, if any. */
+    /** Refreshes the nearest rendering boundary, then asks the containing top-level
+     * card to be remeasured. The root component is retained: expanding one nested
+     * value must not rematerialize every sibling field in the card. */
     static void refreshAncestor(Component component) {
+        RenderRefreshHost nearest = null;
+        Card outermostCard = null;
         for (Container parent = component == null ? null : component.getParent();
              parent != null; parent = parent.getParent()) {
             if (parent instanceof RenderRefreshHost host) {
-                host.refreshRenderedContent();
-                return;
+                if (nearest == null) nearest = host;
+                if (parent instanceof Card) {
+                    outermostCard = (Card) parent;
+                } else {
+                    host.refreshRenderedContent();
+                    return;
+                }
             }
         }
+        if (nearest != null) nearest.refreshRenderedContent();
+        if (outermostCard != null) outermostCard.notifyOwnerLayoutChanged();
     }
 }

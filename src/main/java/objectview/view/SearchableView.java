@@ -299,8 +299,6 @@ public final class SearchableView extends JPanel {
     }
 
     private JComponent buildTable() {
-        Viewable columnSample = builder.sample != null ? builder.sample
-                : builder.members.isEmpty() ? null : builder.members.get(0);
         // The table is a LAYOUT of the card path: rows reuse ValueRenderer's components
         // (media/chip/copyable-text) through the shared RenderContext, so selection, copy and
         // images come for free — only the column arrangement differs from CARD mode.
@@ -308,7 +306,7 @@ public final class SearchableView extends JPanel {
         // subtype — never from sampling the members. That is what keeps the header
         // O(declared subtypes) instead of O(items).
         table = new ViewableColumnsView(builder.members, context,
-                () -> displayFirst(search.viewPaths(), builder.type, columnSample));
+                () -> displayFirst(search.viewPaths()));
         cardList = null;
         search.setTargetAndApplyViewConfig(
                 table, table.scrollPane(), table.scrollPane());
@@ -321,18 +319,14 @@ public final class SearchableView extends JPanel {
     /** The active table (a card-path columns layout), or null when the current mode is CARD. */
     public ViewableColumnsView table() { return table; }
 
-    /** The display field reads as the row's title, so it leads the columns. Resolved
-     *  from the declared class — the same source the columns themselves come from. */
+    /** The selected DISPLAY field reads as the row's title, so it leads the columns.
+     * Its schema role is the same fact the renderer consumes; do not rediscover it
+     * from a Java carrier class that may represent several semantic types. */
     private static List<ViewableFieldPaths.PathInfo> displayFirst(
-            List<ViewableFieldPaths.PathInfo> ordered,
-            Class<? extends Viewable> declaredType, Viewable stableSample) {
-        Class<? extends Viewable> type = declaredType != null ? declaredType
-                : stableSample == null ? null : viewableClass(stableSample);
-        if (type == null) return ordered;
-        String displayKey = objectview.field.ViewableContractFieldSet.displayKey(type);
+            List<ViewableFieldPaths.PathInfo> ordered) {
         List<ViewableFieldPaths.PathInfo> out = new ArrayList<>(ordered);
         for (int i = 1; i < out.size(); i++) {
-            if (out.get(i).dotted().equals(displayKey)) {
+            if (out.get(i).role() == objectview.field.FieldRole.DISPLAY) {
                 out.add(0, out.remove(i));
                 break;
             }

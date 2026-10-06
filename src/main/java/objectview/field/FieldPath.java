@@ -67,6 +67,12 @@ public record FieldPath(List<String> segments) implements Comparable<FieldPath> 
 
     public int size() { return segments.size(); }
 
+    /** Whether {@code prefix} is this path or one of its ancestors. */
+    public boolean startsWith(FieldPath prefix) {
+        return prefix != null && prefix.size() <= size()
+                && segments.subList(0, prefix.size()).equals(prefix.segments);
+    }
+
     public boolean isRoot() { return segments.isEmpty(); }
 
     public String dotted() { return String.join(".", segments); }

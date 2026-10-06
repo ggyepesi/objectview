@@ -20,6 +20,17 @@ import java.util.Set;
 public final class ViewableFieldPaths {
     private ViewableFieldPaths() {}
 
+    /** One traversal, with an explicit consumer projection. Value consumers omit
+     * selected object fields that have no selected child value; renderers retain
+     * them because their field-name caption is visible. */
+    public enum Projection {
+        VALUES(false), RENDERING(true);
+
+        private final boolean objectCaptions;
+        Projection(boolean objectCaptions) { this.objectCaptions = objectCaptions; }
+        boolean keepsObjectCaptions() { return objectCaptions; }
+    }
+
     /** Presentation/metadata attached to one canonical access path. {@code valueKind} is
      *  the leaf's value kind (ORDERED / TEXT / …) — carried so consumers like sort know a
      *  field is numeric from the schema (a persisted {@code @Numeric}), not only from a
@@ -66,6 +77,12 @@ public final class ViewableFieldPaths {
 
     public static List<PathInfo> collect(ViewConfig config,
                                           FieldFilter filter) {
+        return collect(config, filter, Projection.VALUES);
+    }
+
+    public static List<PathInfo> collect(
+            ViewConfig config, FieldFilter filter, Projection projection) {
+        Projection effective = projection == null ? Projection.VALUES : projection;
         List<PathInfo> out = new ArrayList<>();
 
         if (config == null) {
@@ -78,7 +95,7 @@ public final class ViewableFieldPaths {
         if (config.getCls() == null) {
             for (Map.Entry<String, ViewConfig> entry : config.getFields().entrySet()) {
                 addDynamicPath(entry.getKey(), entry.getValue(),
-                        FieldPath.ROOT, "", out);
+                        FieldPath.ROOT, "", effective, out);
             }
             return dedupByPath(out);
         }
@@ -93,6 +110,7 @@ public final class ViewableFieldPaths {
                 FieldPath.ROOT,
                 "",
                 filter == null ? ALL_FIELDS : filter,
+                effective,
                 out);
 
         // Contract views are implied by "all fields" only. An explicit config means
@@ -112,16 +130,25 @@ public final class ViewableFieldPaths {
      */
     public static List<PathInfo> collectFromSchema(
             ViewConfig config, FieldTypeSource schema, boolean excludeMedia) {
+        return collectFromSchema(
+                config, schema, excludeMedia, Projection.VALUES);
+    }
+
+    public static List<PathInfo> collectFromSchema(
+            ViewConfig config, FieldTypeSource schema, boolean excludeMedia,
+            Projection projection) {
+        Projection effective = projection == null ? Projection.VALUES : projection;
         List<PathInfo> out = new ArrayList<>();
         if (config == null || schema == null) return out;
         collectSchema(config, schema, FieldPath.ROOT, "", excludeMedia,
-                new LinkedHashSet<>(), out);
+                effective, new LinkedHashSet<>(), out);
         return dedupByPath(out);
     }
 
     private static void collectSchema(
             ViewConfig config, FieldTypeSource schema, FieldPath prefix,
             String titlePrefix, boolean excludeMedia,
+            Projection projection,
             Set<FieldTypeSource> branch, List<PathInfo> out) {
         if (config == null || schema == null || !branch.add(schema)) return;
         try {
@@ -146,8 +173,8 @@ public final class ViewableFieldPaths {
                         || child.isAllMinorFields() || !child.getFields().isEmpty());
                 if (info.nested() != null && childSelected) {
                     collectSchema(child, info.nested(), path, title, excludeMedia,
-                            branch, out);
-                } else if (info.nested() == null) {
+                            projection, branch, out);
+                } else if (info.nested() == null || projection.keepsObjectCaptions()) {
                     // Carry the schema's value kind (e.g. a persisted @Numeric -> ORDERED)
                     // so sort reads this dynamic leaf as a number without a reflection field.
                     out.add(new PathInfo(title, path, null,
@@ -170,6 +197,13 @@ public final class ViewableFieldPaths {
     public static List<PathInfo> collectFromSample(Viewable sample,
                                                     ViewConfig config,
                                                     FieldFilter filter) {
+        return collectFromSample(sample, config, filter, Projection.VALUES);
+    }
+
+    public static List<PathInfo> collectFromSample(
+            Viewable sample, ViewConfig config, FieldFilter filter,
+            Projection projection) {
+        Projection effective = projection == null ? Projection.VALUES : projection;
         List<PathInfo> out = new ArrayList<>();
 
         if (sample == null || config == null) {
@@ -182,6 +216,7 @@ public final class ViewableFieldPaths {
                 FieldPath.ROOT,
                 "",
                 filter == null ? ALL_FIELDS : filter,
+                effective,
                 java.util.Collections.newSetFromMap(
                         new java.util.IdentityHashMap<>()),
                 out);
@@ -194,6 +229,7 @@ public final class ViewableFieldPaths {
                                                 FieldPath prefix,
                                                 String titlePrefix,
                                                 FieldFilter filter,
+                                                Projection projection,
                                                 Set<Object> branch,
                                                 List<PathInfo> out) {
         if (obj == null || config == null || !branch.add(obj)) {
@@ -218,6 +254,7 @@ public final class ViewableFieldPaths {
                         prefix,
                         titlePrefix,
                         filter,
+                        projection,
                         branch,
                         out);
 
@@ -252,6 +289,7 @@ public final class ViewableFieldPaths {
                         prefix,
                         titlePrefix,
                         filter,
+                        projection,
                         branch,
                         out);
             }
@@ -267,6 +305,7 @@ public final class ViewableFieldPaths {
                                                  FieldPath prefix,
                                                  String titlePrefix,
                                                  FieldFilter filter,
+                                                 Projection projection,
                                                  Set<Object> branch,
                                                  List<PathInfo> out) {
         Field leaf =
@@ -308,9 +347,20 @@ public final class ViewableFieldPaths {
                     path,
                     title,
                     filter,
+                    projection,
                     branch,
                     out);
+        } else if (projection.keepsObjectCaptions()) {
+            out.add(pathInfo(title, path, leaf, ref));
         }
+    }
+
+    private static PathInfo pathInfo(
+            String title, FieldPath path, Field reflected, FieldRef described) {
+        return described == null
+                ? new PathInfo(title, path, reflected)
+                : new PathInfo(title, path, reflected,
+                        described.valueKind(), described.role());
     }
 
     /**
@@ -428,6 +478,7 @@ public final class ViewableFieldPaths {
                                 FieldPath prefix,
                                 String titlePrefix,
                                 FieldFilter filter,
+                                Projection projection,
                                 List<PathInfo> out) {
         if (config == null || cls == null || !Viewable.class.isAssignableFrom(cls)) {
             return;
@@ -449,6 +500,7 @@ public final class ViewableFieldPaths {
                         titlePrefix,
                         filter,
                         true,
+                        projection,
                         out);
 
                 alreadyAdded.add(fieldName);
@@ -456,7 +508,8 @@ public final class ViewableFieldPaths {
                 // A DYNAMIC (map-held) field: the config names it but there is no
                 // declared Java field to reflect on (e.g. a snapshot WDO's `won`).
                 // Emit the path anyway — extraction reads the property map.
-                addDynamicPath(fieldName, e.getValue(), prefix, titlePrefix, out);
+                addDynamicPath(fieldName, e.getValue(), prefix, titlePrefix,
+                        projection, out);
                 alreadyAdded.add(fieldName);
             }
         }
@@ -480,6 +533,7 @@ public final class ViewableFieldPaths {
                     titlePrefix,
                     filter,
                     false,
+                    projection,
                     out);
         }
     }
@@ -491,6 +545,7 @@ public final class ViewableFieldPaths {
                                        ViewConfig childConfig,
                                        FieldPath prefix,
                                        String titlePrefix,
+                                       Projection projection,
                                        List<PathInfo> out) {
         FieldPath path = prefix.append(fieldName);
         String title = titlePrefix.isEmpty()
@@ -501,6 +556,11 @@ public final class ViewableFieldPaths {
             if (childConfig != null && childConfig.getCls() != null
                     && Viewable.class.isAssignableFrom(childConfig.getCls())) {
                 // Explicit object field with no selected children: caption-only.
+                if (projection.keepsObjectCaptions()) {
+                    out.add(new PathInfo(title, path, null, FieldKind.UNKNOWN,
+                            ViewableContractFieldSet.DISPLAY_KEY.equals(fieldName)
+                                    ? FieldRole.DISPLAY : FieldRole.NONE));
+                }
                 return;
             }
             out.add(new PathInfo(title, path, null, FieldKind.UNKNOWN,
@@ -510,7 +570,8 @@ public final class ViewableFieldPaths {
         }
         for (Map.Entry<String, ViewConfig> e
                 : childConfig.getFields().entrySet()) {
-            addDynamicPath(e.getKey(), e.getValue(), path, title, out);
+            addDynamicPath(e.getKey(), e.getValue(), path, title,
+                    projection, out);
         }
     }
 
@@ -545,6 +606,7 @@ public final class ViewableFieldPaths {
                                      String titlePrefix,
                                      FieldFilter filter,
                                      boolean explicit,
+                                     Projection projection,
                                      List<PathInfo> out) {
         if (field == null || !filter.accept(field)) {
             return;
@@ -573,8 +635,9 @@ public final class ViewableFieldPaths {
                         path,
                         title,
                         filter,
+                        projection,
                         out);
-            } else if (!explicit) {
+            } else if (!explicit || projection.keepsObjectCaptions()) {
                 // `allFields` includes this object field as a searchable value even
                 // without an authored child tree. ValueText can search the rendered
                 // object graph from this boundary, and RenderContext can reveal the

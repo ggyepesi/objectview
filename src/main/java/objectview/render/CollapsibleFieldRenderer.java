@@ -22,21 +22,43 @@ public final class CollapsibleFieldRenderer {
             String fieldName, FieldPath fieldPath,
             Object representedValue, Object expansionKey,
             RenderContext context, Supplier<JComponent> body) {
+        return create(fieldName, fieldPath, representedValue, expansionKey,
+                context, false, body);
+    }
+
+    /**
+     * Renders one collection through the shared disclosure component. Initial
+     * disclosure is presentation policy supplied by the field renderer; it is not
+     * inferred from field selection or collection size here.
+     */
+    public static JComponent create(
+            String fieldName, FieldPath fieldPath,
+            Object representedValue, Object expansionKey,
+            RenderContext context, boolean defaultExpanded,
+            Supplier<JComponent> body) {
         int count = representedValue instanceof Collection<?> collection
                 ? collection.size()
                 : representedValue instanceof Map<?, ?> map ? map.size() : 0;
         return create(fieldName, fieldPath, representedValue, expansionKey,
-                count, context, body);
+                count, context, defaultExpanded, body);
     }
 
     public static JComponent create(
             String fieldName, FieldPath fieldPath,
             Object representedValue, Object expansionKey, int count,
             RenderContext context, Supplier<JComponent> body) {
-        if (count <= 0) return null;
+        return create(fieldName, fieldPath, representedValue, expansionKey,
+                count, context, false, body);
+    }
+
+    public static JComponent create(
+            String fieldName, FieldPath fieldPath,
+            Object representedValue, Object expansionKey, int count,
+            RenderContext context, boolean defaultExpanded,
+            Supplier<JComponent> body) {
+        if (count < 0) return null;
         Object key = expansionKey == null ? representedValue : expansionKey;
-        boolean defaultExpanded = count <= RenderContext.COLLECTION_AUTO_EXPAND_MAX;
-        boolean expanded = context != null
+        boolean expanded = count > 0 && context != null
                 && context.isCollectionExpanded(key, defaultExpanded);
         CollectionHeader header = new CollectionHeader(
                 fieldName, fieldPath, count, expanded, key, representedValue,

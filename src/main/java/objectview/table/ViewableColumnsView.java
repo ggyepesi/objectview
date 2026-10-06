@@ -197,6 +197,7 @@ public final class ViewableColumnsView
     public void setViewConfigResolver(Function<Viewable, ViewConfig> resolver) {
         if (resolver == null) return;
         configResolver = resolver;
+        registerTypeConfigs(resolver);
         columnsStale = true;
         list.setViewConfigResolver(resolver);   // discards + rebuilds rows via the factory
     }
@@ -262,6 +263,7 @@ public final class ViewableColumnsView
         ColumnRow row = new ColumnRow(q, rowColumns);
         ViewConfig config = configResolver == null
                 ? ViewConfig.all(asViewableClass(q.getClass())) : configResolver.apply(q);
+        context.putConfigIfAbsent(q, config);
         for (int columnIndex = 0; columnIndex < rowColumns.size(); columnIndex++) {
             PathInfo column = rowColumns.get(columnIndex);
             ResolvedFieldPath resolved = ResolvedFieldPath.resolve(
@@ -275,6 +277,15 @@ public final class ViewableColumnsView
         installSelectionListener(row);
         context.registerTopLevel(q, row);
         return row;
+    }
+
+    private void registerTypeConfigs(Function<Viewable, ViewConfig> resolver) {
+        java.util.Set<String> registered = new java.util.LinkedHashSet<>();
+        for (Viewable value : items) {
+            if (value == null || !registered.add(value.typeName())) continue;
+            ViewConfig resolved = resolver.apply(value);
+            if (resolved != null) context.putConfig(value, resolved);
+        }
     }
 
     /** Every image in a cell — a media field, or one inside a collapsed collection —

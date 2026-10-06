@@ -51,8 +51,8 @@ import java.util.List;
  * <h3>Reference UI behaviour</h3>
  * A reference chip shows a ▶/▼ triangle. Left-click toggles
  * <i>expand/collapse in place</i>: expanding flips per-target state in
- * {@link RenderContext} and rebuilds the card via {@link
- * #refresh()}, rendering the chip plus an inline panel below it. The
+ * {@link RenderContext} and refreshes the nearest nested render boundary via
+ * {@link #refresh()}, then remeasures the retained top-level card. The
  * inline panel's own references are themselves collapsed chips, so each
  * click opens exactly one level — bounded and safe even for large graphs.
  * Shift- or double-click opens the target in its own detail window.
@@ -77,15 +77,16 @@ public class Card extends JPanel implements RenderedInstanceHost {
     private static final String INLINE_RENDERED = "objectview.inlineRendered";
     private static final String INLINE_FIELD_PATH = "objectview.inlineFieldPath";
     private static final String INLINE_NESTED_CONFIG = "objectview.inlineNestedConfig";
+    private static final String INLINE_RELATION = "objectview.inlineRelation";
     private static final String INLINE_ITEM_COUNT = "objectview.inlineItemCount";
     private static final String INLINE_VIRTUAL_LIST = "objectview.inlineVirtualList";
     /** Large inline collections get their own viewport instead of one Swing component per item. */
     private static final int INLINE_VIRTUALIZATION_THRESHOLD = 200;
     private static final int INLINE_VIRTUAL_HEIGHT = 520;
 
-    // A complex collection/map field renders under a collapsible header,
-    // collapsed by default (threshold 0 => no list auto-expands); click the
-    // header to expand. Toggleable per collection.
+    // A complex collection/map field renders under one collapsible header.
+    // Ordinary collections start folded; singleton media and explicitly inline
+    // content supply their established visible-by-default presentation policy.
     private final Viewable viewable;
     private final ViewConfig config;
     private final boolean fill;
@@ -582,11 +583,11 @@ public class Card extends JPanel implements RenderedInstanceHost {
     /** The one construction/refresh path for reflected card content. */
     private void buildConfiguredContent() {
         if (!rootRender && ancestors.contains(viewable)) {
-            addCompactReference(viewable, false);
+            addCompactReference(viewable, renderContext.isTopLevel(viewable));
             return;
         }
         if (!rootRender && visited.contains(viewable)) {
-            addCompactReference(viewable, false);
+            addCompactReference(viewable, renderContext.isTopLevel(viewable));
             return;
         }
         if (!rootRender && !embedTopLevel && renderContext.isTopLevel(viewable)) {
@@ -596,7 +597,11 @@ public class Card extends JPanel implements RenderedInstanceHost {
 
         visited.add(viewable);
         ancestors.add(viewable);
-        if (rootRender && renderContext.collapsibleCards()) {
+        // A collapsed card needs a configured caption.  When DISPLAY is off there is
+        // no caption to substitute: show the selected fields directly instead of
+        // inventing a type/name header that ViewConfig did not select.
+        if (rootRender && renderContext.collapsibleCards()
+                && !getTitle().isEmpty()) {
             buildCollapsibleRoot();
         } else {
             addTitleHeaderIfNeeded();
@@ -624,10 +629,16 @@ public class Card extends JPanel implements RenderedInstanceHost {
         refresh();
     }
 
+    /** The component tree changed in place; keep it and update only its virtual
+     * owner's cached measurement. */
+    void notifyOwnerLayoutChanged() {
+        if (path.isRoot()) renderContext.notifyCardResized(viewable);
+    }
+
     private void addTitleHeaderIfNeeded() {
         String title = getTitle();
 
-        if (title == null || title.isEmpty() || suppressTitle || wrapsSameNameChild()) {
+        if (title == null || title.isEmpty() || suppressTitle) {
             firstFieldRow = 0;
             return;
         }
@@ -679,10 +690,6 @@ public class Card extends JPanel implements RenderedInstanceHost {
 
     private JComponent collapsibleRootHeader(boolean expanded) {
         String title = getTitle();
-        if (title.isEmpty()) {
-            title = viewable == null ? "Object" : viewable.typeName();
-        }
-
         JLabel toggle = new JLabel(expanded ? "▼ " : "▶ ");
         toggle.setForeground(new Color(0, 80, 180));
         toggle.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -795,13 +802,24 @@ public class Card extends JPanel implements RenderedInstanceHost {
     }
 
     private void addCompactReference(Viewable q, boolean focusTopLevel) {
-        ViewConfig openCfg = configForNested(q);
+        // This Card was constructed with the config for THIS occurrence. Re-discovering
+        // a config by Java class here is wrong for dynamic objects (Person, Position and
+        // OfficeHolding share one holder class), and can re-enable a DISPLAY field the
+        // user explicitly unticked on this path.
+        ViewConfig openCfg = config == null ? configForNested(q) : config;
+        ObjectOccurrencePlan.Display display = occurrencePlan(q, openCfg).display();
 
-        JComponent compact = selectsDisplay(q, openCfg)
+        JComponent compact = display != null
                 ? new ReferenceRow(
                         "", path, q, renderContext, openCfg,
-                        objectPathTitle(q), false)
-                : new TextRow("", path, List.of("↩ " + q.typeName()));
+                        objectPathTitle(q), false, focusTopLevel,
+                        display.value(), display.fieldName())
+                : focusTopLevel
+                    ? new ReferenceRow(
+                            "", path, q, renderContext, openCfg,
+                            objectPathTitle(q), false, true,
+                            ReferenceRow.NAVIGATION_LABEL, null)
+                    : new TextRow("", path, List.of("↩"));
         addSingle(compact, 0);
 
         setMinimumSize(new Dimension(100, 42));
@@ -863,7 +881,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
         for (FieldRef field : inConfigOrder(fields.fields())) {
             String name = field.name();
 
-            if (field.role().renderedInHeader() || hoistedMedia.contains(name)
+            if (field.role().renderedInHeader()
+                    || hoistedMedia.contains(name)
                     || !shows(field)) {
                 continue;
             }
@@ -874,7 +893,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
             // batch: a null/empty leaf (e.g. a blank error) sitting between
             // two value leaves would otherwise split them into separate
             // blocks and open a stray, variable vertical gap.
-            if (value == null || isEmptyCollectionOrMap(value)) {
+            if (value == null) {
                 continue;
             }
 
@@ -906,23 +925,6 @@ public class Card extends JPanel implements RenderedInstanceHost {
 
         if (!textRows.isEmpty()) {
             row = addTextBlock(textRows, row);
-        }
-
-        // A configured object field remains meaningful when it deliberately has no
-        // selected child fields (or its projected/null value is absent): it renders
-        // its own caption. This is the same literal config state the editor saves;
-        // DISPLAY is not silently substituted as the value.
-        for (Map.Entry<String, ViewConfig> entry : config.getFields().entrySet()) {
-            String name = entry.getKey();
-            ViewConfig child = entry.getValue();
-            FieldRef present = fields.field(name);
-            Object value = present == null ? null : fields.read(name);
-            if (!captionOnlyObjectField(child, present, value)) continue;
-            if (hasContent(value)) continue;
-            TextRow caption = new TextRow(
-                    present == null ? FieldLabels.humanize(name) : present.label(),
-                    path.append(name), List.of());
-            addSingle(caption, row++);
         }
 
         // Root cards only: pin fields to the top by absorbing any extra
@@ -994,7 +996,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
     }
 
     private int addRenderedField(FieldRef field, Object value, int row) {
-        if (value == null || isEmptyCollectionOrMap(value)) {
+        if (value == null) {
             return row;
         }
 
@@ -1032,31 +1034,53 @@ public class Card extends JPanel implements RenderedInstanceHost {
             String fieldName,
             FieldPath fieldPath,
             ViewConfig fieldCfg) {
-        if (captionOnlyObjectField(fieldCfg, field, value)) {
-            return new TextRow(fieldName, fieldPath, List.of());
-        }
-        if (value == null || isEmptyCollectionOrMap(value)) return null;
+        if (value == null) return null;
 
         boolean isCollectionOrMap =
                 value instanceof Collection<?> || value instanceof Map<?, ?>;
 
+        // Collection is one semantic shape, independent of annotations and element
+        // kind: its configured field name + size are immediate, and every member is
+        // built only after expansion.  The body then applies the SAME object/raw
+        // renderer recursively.
+        if (isCollectionOrMap) {
+            Object collectionSource = value;
+            Object expansionKey = collectionSource;
+            ViewConfig cfg = fieldCfg;
+            // Disclosure policy is independent of whether the field is selected.
+            // A lone image remains useful immediately and @Inline workflow content
+            // keeps its established live-log presentation; ordinary collections
+            // stay folded until the reader opens them.
+            boolean defaultExpanded = field.embedded()
+                    || containsMedia(collectionSource)
+                    && !hasSeveralItems(collectionSource);
+            return collapsibleCollectionComponent(
+                    fieldName, fieldPath, collectionSource, expansionKey,
+                    defaultExpanded,
+                    () -> {
+                        if (containsViewable(collectionSource)) {
+                            return createObjectFieldComponent(
+                                    "", fieldPath, collectionSource, cfg,
+                                    field.embedded()
+                                            ? ObjectRelation.EMBEDDED
+                                            : ObjectRelation.REFERENCE_MEMBER);
+                        }
+                        return ValueRenderer.createFieldComponent(
+                                copyVisited(), copyAncestors(), renderContext,
+                                "", fieldPath, collectionSource, cfg, fill);
+                    });
+        }
+
         if (field.annotatedReference()) {
-            if (isCollectionOrMap) {
-                Object expansionKey = value;
-                Object v = RenderSnapshot.value(value);
-                ViewConfig cfg = fieldCfg;
-                return collapsibleCollectionComponent(fieldName, fieldPath, v,
-                        expansionKey,
-                        () -> createReferenceFieldComponent(
-                                "", fieldPath, v, cfg));
-            }
-            return createReferenceFieldComponent(
-                    fieldName, fieldPath, value, fieldCfg);
+            return createObjectFieldComponent(
+                    fieldName, fieldPath, value, fieldCfg,
+                    ObjectRelation.REFERENCE);
         }
 
         if (field.embedded() && containsViewable(value)) {
-            return createInlineFieldComponent(
-                    fieldName, fieldPath, value, fieldCfg);
+            return createObjectFieldComponent(
+                    fieldName, fieldPath, value, fieldCfg,
+                    ObjectRelation.EMBEDDED);
         }
 
         // A scalar or one-item media value is the entity's immediately visible image.
@@ -1085,23 +1109,13 @@ public class Card extends JPanel implements RenderedInstanceHost {
         }
 
         if (value instanceof Viewable q) {
-            return collapsibleReference(
-                    fieldName, fieldPath, q, false, fieldCfg);
+            return renderObjectOccurrence(
+                    fieldName, fieldPath, q, fieldCfg,
+                    ObjectRelation.REFERENCE);
         }
 
         if (value instanceof ImagePane ip && config.isBlurImages() && viewable != null) {
             value = blurForQuiz(ip);
-        }
-
-        if (isCollectionOrMap) {
-            ViewConfig cfg = fieldCfg;
-            Object expansionKey = value;
-            Object collValue = RenderSnapshot.value(value);
-            return collapsibleCollectionComponent(fieldName, fieldPath, collValue,
-                    expansionKey,
-                    () -> ValueRenderer.createFieldComponent(
-                            copyVisited(), copyAncestors(), renderContext,
-                            "", fieldPath, collValue, cfg, fill));
         }
 
         return ValueRenderer.createFieldComponent(
@@ -1156,80 +1170,47 @@ public class Card extends JPanel implements RenderedInstanceHost {
             FieldPath fieldPath,
             Object value,
             Object expansionKey,
+            boolean defaultExpanded,
             java.util.function.Supplier<JComponent> body) {
 
         return CollapsibleFieldRenderer.create(
-                fieldName, fieldPath, value, expansionKey, renderContext, body);
+                fieldName, fieldPath, value, expansionKey, renderContext,
+                defaultExpanded, body);
     }
 
-    private JComponent createReferenceFieldComponent(
+    private enum ObjectRelation {
+        REFERENCE(true, true),
+        // Expanding an object collection explicitly asks for its configured member
+        // projection. A member may also have a top-level card, but that must not
+        // replace selected child fields with a navigation-only link. Scalar
+        // references retain that behaviour through REFERENCE.
+        REFERENCE_MEMBER(false, true),
+        EMBEDDED(false, false);
+
+        private final boolean navigateToTopLevel;
+        private final boolean decorateIdentity;
+
+        ObjectRelation(boolean navigateToTopLevel, boolean decorateIdentity) {
+            this.navigateToTopLevel = navigateToTopLevel;
+            this.decorateIdentity = decorateIdentity;
+        }
+    }
+
+    /**
+     * The one object-valued field path. A scalar and every member of a collection
+     * reach {@link #renderObjectOccurrence}; relation metadata changes only
+     * navigation/decoration, never which configured fields are rendered.
+     */
+    private JComponent createObjectFieldComponent(
             String fieldName,
             FieldPath fieldPath,
             Object value,
-            ViewConfig nestedConfig
-                                                    ) {
-        if (value instanceof Viewable q) {
-            return collapsibleReference(
-                    fieldName, fieldPath, q, false, nestedConfig);
-        }
-
-        JPanel panel = new JPanel(new GridBagLayout());
-        panel.setOpaque(false);
-        panel.putClientProperty(INLINE_FIELD_PATH, fieldPath);
-        if (fieldName != null && !fieldName.isBlank()) {
-            panel.setBorder(BorderFactory.createTitledBorder(fieldName));
-        }
-
-        Collection<?> items = value instanceof Collection<?> collection ? collection
-                : value instanceof Map<?, ?> map ? map.values() : List.of();
-        List<Viewable> viewableItems = new ArrayList<>();
-        for (Object item : items) {
-            if (item instanceof Viewable q) viewableItems.add(q);
-        }
-        java.util.IdentityHashMap<Viewable, JComponent> rendered =
-                new java.util.IdentityHashMap<>();
-        panel.putClientProperty(INLINE_RENDERED, rendered);
-
-        // The SAME ceiling the @Inline path uses, because this is the same problem:
-        // one Swing component per member is what a card cannot afford. A reference
-        // collection reaches here instead of inlineViewable, so virtualizing only
-        // there left the larger of the two paths eagerly building every row — a
-        // position hierarchy produced 124,087 live ReferenceRows behind 114 cards,
-        // and every later layout, measure and rebuild walked all of them.
-        if (viewableItems.size() > INLINE_VIRTUALIZATION_THRESHOLD) {
-            installVirtualInlineCollection(
-                    panel, viewableItems, fieldPath, nestedConfig);
-            return panel;
-        }
-
-        int row = 0;
-        for (Viewable q : viewableItems) {
-            JComponent component = addReferenceToPanel(
-                    panel, "", q, fieldPath, nestedConfig, row++);
-            if (component != null) rendered.put(q, component);
-        }
-
-        return row == 0 ? null : panel;
-    }
-
-    // Opposite of createReferenceFieldComponent: each nested Viewable is
-    // expanded fully in place rather than shown as a click-to-open chip.
-    // Only reached for @Inline fields, so the broad/cyclic graphs
-    // that rely on the reference default are never expanded here.
-    private JComponent createInlineFieldComponent(
-            String fieldName,
-            FieldPath fieldPath,
-            Object value,
-            ViewConfig nestedConfig) {
+            ViewConfig nestedConfig,
+            ObjectRelation relation) {
 
         if (value instanceof Viewable q) {
-            ViewConfig effective = nestedConfig;
-            // A structural/owned value is not an entity-reference edge, but it is
-            // still a nested object. Give it the same disclosure interaction without
-            // turning a top-level copy into navigation and without attaching the
-            // entity identity decoration a real reference receives.
-            return collapsibleReference(
-                    fieldName, fieldPath, q, false, effective, false, false);
+            return renderObjectOccurrence(
+                    fieldName, fieldPath, q, nestedConfig, relation);
         }
 
         Collection<?> items =
@@ -1252,10 +1233,13 @@ public class Card extends JPanel implements RenderedInstanceHost {
             panel.setBorder(BorderFactory.createTitledBorder(
                     fieldName + " (" + viewableItems.size() + ")"));
             panel.putClientProperty(INLINE_TITLE, fieldName);
-            panel.putClientProperty(INLINE_ITEMS, items);
-            panel.putClientProperty(INLINE_FIELD_PATH, fieldPath);
-            panel.putClientProperty(INLINE_NESTED_CONFIG, nestedConfig);
         }
+        // Live-update ownership is independent of whether another component (the
+        // shared CollectionHeader) paints this collection's label and count.
+        panel.putClientProperty(INLINE_ITEMS, items);
+        panel.putClientProperty(INLINE_FIELD_PATH, fieldPath);
+        panel.putClientProperty(INLINE_NESTED_CONFIG, nestedConfig);
+        panel.putClientProperty(INLINE_RELATION, relation);
 
         java.util.IdentityHashMap<Viewable, JComponent> rendered =
                 new java.util.IdentityHashMap<>();
@@ -1264,20 +1248,14 @@ public class Card extends JPanel implements RenderedInstanceHost {
 
         if (viewableItems.size() > INLINE_VIRTUALIZATION_THRESHOLD) {
             installVirtualInlineCollection(
-                    panel, viewableItems, fieldPath, nestedConfig);
+                    panel, viewableItems, fieldPath, nestedConfig, relation);
             return panel;
         }
 
         for (Viewable q : viewableItems) {
 
-            // Each element of an inline COLLECTION renders as its own collapsible
-            // chip (▶/▼), so the titled-border list (e.g. a query log's `steps`) is a
-            // scannable set of expandable items rather than one flat wall of every
-            // step's content. Expand state is keyed by the target identity, so each
-            // chip toggles independently. (A single inline Viewable — handled above —
-            // still expands in place.)
-            JComponent nested = collapsibleReference(
-                    "", fieldPath, q, false, nestedConfig);
+            JComponent nested = renderObjectOccurrence(
+                    "", fieldPath, q, nestedConfig, relation);
 
             if (nested != null) {
                 addInlineItem(panel, nested, rendered.size());
@@ -1285,14 +1263,16 @@ public class Card extends JPanel implements RenderedInstanceHost {
             }
         }
 
-        return rendered.isEmpty() ? null : panel;
+        return rendered.isEmpty() && (fieldName == null || fieldName.isBlank())
+                ? null : panel;
     }
 
     private VirtualizedCardList installVirtualInlineCollection(
             JPanel panel,
             List<Viewable> values,
             FieldPath fieldPath,
-            ViewConfig nestedConfig) {
+            ViewConfig nestedConfig,
+            ObjectRelation relation) {
         // An expanded workflow can contain tens of thousands of steps. The
         // enclosing CardListView virtualizes top-level cards, but that cannot
         // help a single card whose inline collection eagerly creates one Swing
@@ -1304,7 +1284,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
                         q,
                         holder[0],
                         fieldPath,
-                        nestedConfig));
+                        nestedConfig,
+                        relation));
         VirtualizedCardList virtual = holder[0];
         JScrollPane scroll = new JScrollPane();
         scroll.setBorder(BorderFactory.createEmptyBorder());
@@ -1336,14 +1317,16 @@ public class Card extends JPanel implements RenderedInstanceHost {
                 Viewable target,
                 VirtualizedCardList owner,
                 FieldPath fieldPath,
-                ViewConfig nestedConfig) {
+                ViewConfig nestedConfig,
+                ObjectRelation relation) {
             super(new BorderLayout());
             this.target = target;
             this.owner = owner;
             setOpaque(false);
             putClientProperty(FieldProperties.FIELD_VALUE_PROPERTY, target);
-            add(collapsibleReference(
-                    "", fieldPath, target, false, nestedConfig), BorderLayout.CENTER);
+            JComponent rendered = renderObjectOccurrence(
+                    "", fieldPath, target, nestedConfig, relation);
+            if (rendered != null) add(rendered, BorderLayout.CENTER);
         }
 
         @Override
@@ -1363,6 +1346,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
     /** Updates mutable inline-collection counts without rebuilding the card. */
     public void refreshInlineCollectionCounts() {
         refreshInlineCollectionCounts(this);
+        refreshCollectionHeaderCounts(this);
     }
 
     /**
@@ -1379,6 +1363,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
             }
         }
         updateInlineCollections(this, changedSet);
+        refreshCollectionHeaderCounts(this);
         revalidate();
         repaint();
     }
@@ -1400,6 +1385,9 @@ public class Card extends JPanel implements RenderedInstanceHost {
                         instanceof FieldPath value ? value : path;
                 ViewConfig nestedConfig = panel.getClientProperty(INLINE_NESTED_CONFIG)
                         instanceof ViewConfig value ? value : null;
+                ObjectRelation relation = panel.getClientProperty(INLINE_RELATION)
+                        instanceof ObjectRelation value
+                                ? value : ObjectRelation.REFERENCE;
                 VirtualizedCardList virtual =
                         panel.getClientProperty(INLINE_VIRTUAL_LIST)
                                 instanceof VirtualizedCardList value ? value : null;
@@ -1419,7 +1407,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
                             panel.removeAll();
                             rendered.clear();
                             virtual = installVirtualInlineCollection(
-                                    panel, current, fieldPath, nestedConfig);
+                                    panel, current, fieldPath, nestedConfig, relation);
                             panel.putClientProperty(INLINE_ITEM_COUNT, items.size());
                         }
                     }
@@ -1440,8 +1428,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
                             virtualAdditions.add(value);
                             newlyAdded.put(value, Boolean.TRUE);
                         } else {
-                            JComponent added = collapsibleReference(
-                                    "", fieldPath, value, false, nestedConfig);
+                            JComponent added = renderObjectOccurrence(
+                                    "", fieldPath, value, nestedConfig, relation);
                             if (added != null) {
                                 addInlineItem(panel, added, rendered.size());
                                 rendered.put(value, added);
@@ -1464,8 +1452,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
                         GridBagConstraints constraints =
                                 ((GridBagLayout) panel.getLayout()).getConstraints(old);
                         int position = panel.getComponentZOrder(old);
-                        JComponent replacement = collapsibleReference(
-                                "", fieldPath, value, false, nestedConfig);
+                        JComponent replacement = renderObjectOccurrence(
+                                "", fieldPath, value, nestedConfig, relation);
                         if (replacement != null) {
                             panel.remove(old);
                             panel.add(replacement, constraints, position);
@@ -1521,21 +1509,20 @@ public class Card extends JPanel implements RenderedInstanceHost {
         }
     }
 
-    private JComponent inlineViewable(Viewable q, FieldPath fieldPath) {
-        return inlineViewable(q, fieldPath, configForNested(q), false);
+    private static void refreshCollectionHeaderCounts(Container parent) {
+        for (Component component : parent.getComponents()) {
+            if (component instanceof CollectionHeader header) {
+                header.refreshCount();
+            }
+            if (component instanceof Container nested) {
+                refreshCollectionHeaderCounts(nested);
+            }
+        }
     }
 
     // suppressTitle: the name is already shown above (the chip that expanded
     // into this body, a same-named wrapper, or the field row naming the PART whose
     // owner this card is), so don't repeat it as a title.
-    private JComponent inlineViewable(
-            Viewable q,
-            FieldPath fieldPath,
-            ViewConfig nestedConfig,
-            boolean suppressTitle) {
-        return inlineViewable(q, fieldPath, nestedConfig, suppressTitle, false);
-    }
-
     private JComponent inlineViewable(
             Viewable q,
             FieldPath fieldPath,
@@ -1563,89 +1550,37 @@ public class Card extends JPanel implements RenderedInstanceHost {
         return nested.hasRenderedConfiguredContent() ? nested : null;
     }
 
-    private JComponent addReferenceToPanel(
-            JPanel panel,
+    private JComponent renderObjectOccurrence(
             String fieldName,
-            Viewable q,
             FieldPath fieldPath,
+            Viewable target,
             ViewConfig nestedConfig,
-            int row
-    ) {
-        JComponent component = collapsibleReference(
-                fieldName, fieldPath, q, false, nestedConfig);
-        if (component == null) return null;
-        panel.add(component,
-                GridBagUtils.weighted(
-                        0, row,
-                        1.0, 0.0,
-                        GridBagConstraints.NORTHWEST,
-                        GridBagConstraints.HORIZONTAL,
-                        new Insets(2, 6, 2, 6)));
-        return component;
-    }
-
-    // A Viewable reference renders as a collapsed chip by default; clicking
-    // it (see ReferenceRow) flips renderContext expand state and
-    // rebuilds the card, so here it renders the chip plus the inline panel.
-    // Children of the inline panel are themselves collapsed chips, so only
-    // one level opens per click -- safe even for broad/cyclic graphs.
-    private JComponent collapsibleReference(
-            String fieldName,
-            FieldPath fieldPath,
-            Viewable target) {
+            ObjectRelation relation) {
+        ObjectRelation effective = relation == null
+                ? ObjectRelation.REFERENCE : relation;
         return collapsibleReference(
-                fieldName, fieldPath, target, false, configForNested(target));
+                fieldName, fieldPath, target, nestedConfig,
+                effective.navigateToTopLevel, effective.decorateIdentity);
     }
 
-    // As above, but {@code defaultExpanded} seeds the initial state when the user
-    // hasn't toggled this reference yet — true for a reference that used to render
-    // always-inline (a dynamic map field), so it looks the same but is now a
-    // collapsible chip rather than a fixed inline panel.
+    // A Viewable occurrence renders its ticked fields; when its DISPLAY is ticked
+    // a chip additionally names it and lets the reader fold them away.
     private JComponent collapsibleReference(
             String fieldName,
             FieldPath fieldPath,
             Viewable target,
-            boolean defaultExpanded) {
-        return collapsibleReference(fieldName, fieldPath, target,
-                defaultExpanded, configForNested(target));
-    }
-
-    private JComponent collapsibleReference(
-            String fieldName,
-            FieldPath fieldPath,
-            Viewable target,
-            boolean defaultExpanded,
-            ViewConfig nestedConfig) {
-
-        return collapsibleReference(fieldName, fieldPath, target,
-                defaultExpanded, nestedConfig, true, true);
-    }
-
-    private JComponent collapsibleReference(
-            String fieldName,
-            FieldPath fieldPath,
-            Viewable target,
-            boolean defaultExpanded,
             ViewConfig nestedConfig,
             boolean navigateToTopLevel,
             boolean decorateIdentity) {
 
         ViewConfig targetConfig = nestedConfig == null
                 ? configForNested(target) : nestedConfig;
+        ObjectOccurrencePlan plan = occurrencePlan(target, targetConfig);
+        ObjectOccurrencePlan.Display display = plan.display();
 
-        // DISPLAY is an ordinary selected field. Its only presentation role is to
-        // become this object's caption. With DISPLAY off, never leak getDisplayName()
-        // through a reference chip: paint exactly the configured child fields inline.
-        if (target != null && !selectsDisplay(target, targetConfig)) {
-            JComponent body = inlineViewable(
-                    target, fieldPath, targetConfig, true, !navigateToTopLevel);
-            if (body != null) return body;
-            return new TextRow(fieldName, fieldPath, List.of());
-        }
-
-        // A reference to something that is itself a top-level card in this view
-        // is a navigation link (jump to that card) rather than an expand-in-place
-        // chip — so the same object never has two competing expand toggles.
+        // Navigation is a property of the reference target, not of DISPLAY. A
+        // target that already has a card is represented once here: by a link to
+        // that card, never by a second inline rendering of the same fields.
         if (navigateToTopLevel && renderContext != null
                 && renderContext.isTopLevel(target)) {
             return maybeDecoratedReference(new ReferenceRow(
@@ -1656,24 +1591,44 @@ public class Card extends JPanel implements RenderedInstanceHost {
                     targetConfig,
                     objectPathTitle(target),
                     false,
-                    true), target, decorateIdentity);
-        }
-
-        // A reference with nothing behind it is a value, not a door. Its target's only
-        // field is its display name — which the row already shows — so the triangle
-        // opens an empty box. Rendered as a plain row it keeps selection, search
-        // highlight and copy, and stops promising content it does not have.
-        if (!targetHasConfiguredContent(target, targetConfig)) {
-            String display = objectview.field.ViewableContractFieldSet.displayKey(
-                    FieldSet.of(target));
-            return maybeDecoratedReference(
-                    new TextRow(fieldName, fieldPath.append(display),
-                            ReferenceRow.referenceLabel(target)),
+                    true,
+                    display == null ? ReferenceRow.NAVIGATION_LABEL : display.value(),
+                    display == null ? null : display.fieldName()),
                     target, decorateIdentity);
         }
 
+        // DISPLAY is an ordinary selected field. Its only presentation role is to
+        // additionally become this object's caption. With DISPLAY off, never leak
+        // getDisplayName() through a reference chip: paint exactly the configured
+        // child fields inline.
+        if (display == null) {
+            // With no caption there is no top-level navigation chip to substitute for
+            // this occurrence. Render its configured body here even when the same object
+            // also has a top-level card in a MultiView (Show instances). Cycles are still
+            // stopped by the ancestor/visited checks inside the nested Card.
+            JComponent body = inlineViewable(
+                    target, fieldPath, targetConfig, true, true);
+            if (body != null) {
+                return wrapObjectField(fieldName, fieldPath, body);
+            }
+            return fieldName == null || fieldName.isBlank()
+                    ? null : new TextRow(fieldName, fieldPath, List.of());
+        }
+
+        // A reference with no selected body is a value, not a door. Rendered as a
+        // plain row it keeps selection, search highlight and copy, and stops
+        // promising content it does not have.
+        if (!plan.hasSelectedBody()) {
+            return maybeDecoratedReference(
+                    new TextRow(fieldName, fieldPath.append(display.fieldName()),
+                            display.value()),
+                    target, decorateIdentity);
+        }
+
+        // The ticked non-DISPLAY fields under this object are shown open by default.
+        // DISPLAY has already been painted once, as this chip's caption.
         boolean exp = renderContext != null
-                && renderContext.isExpanded(target, defaultExpanded);
+                && renderContext.isExpanded(target, true);
 
         ReferenceRow chip =
                 new ReferenceRow(
@@ -1683,7 +1638,9 @@ public class Card extends JPanel implements RenderedInstanceHost {
                         renderContext,
                         targetConfig,
                         objectPathTitle(target),
-                        exp);
+                        exp,
+                        false,
+                        display.value(), display.fieldName());
 
         if (!exp) {
             return maybeDecoratedReference(chip, target, decorateIdentity);
@@ -1735,76 +1692,28 @@ public class Card extends JPanel implements RenderedInstanceHost {
     // reference chip too, so a referenced entity surfaces its identity the SAME way a card
     // does — no bespoke identity rendering. Scoped to a non-null decoration, so a plain
     // reference (identity not actionable) stays a plain chip.
-    /**
-     * Whether {@code target} holds anything beyond its own identity.
-     *
-     * <p>A property of the OBJECT, deliberately not of the view config. A config that
-     * renders a reference as a leaf ({@link ViewConfig#leaf()}, how a table cell shows
-     * one) hides the target's fields on purpose, and that is an authoring choice the
-     * chip should still honour — the target can be opened in its own window. Having no
-     * fields at all is not a choice, it is a fact about the data, and it is the only
-     * case where an expander can promise nothing.
-     *
-     * <p>Identity and display fields do not count: the reference row already shows them.
-     * Neither does a null, blank or empty value — those render nothing.
-     */
-    private boolean targetHasConfiguredContent(
+    private ObjectOccurrencePlan occurrencePlan(
             Viewable target, ViewConfig targetConfig) {
-        if (target == null) return false;
-        FieldSet fields = FieldSet.of(target, renderContext == null
-                ? null : renderContext.fieldSchema(target));
-        for (FieldRef field : fields.fields()) {
-            if (!field.role().renderedInHeader()
-                    && shows(targetConfig, field)
-                    && hasContent(fields.read(field.name()))) {
-                return true;
-            }
-        }
-        return false;
+        return ObjectOccurrencePlan.of(target, targetConfig,
+                renderContext == null ? null : renderContext.fieldSchema(target));
     }
 
-    private static boolean captionOnlyObjectField(
-            ViewConfig child, FieldRef field, Object value) {
-        return child != null
-                && !child.isAllFields()
-                && !child.isAllMinorFields()
-                && child.getFields().isEmpty()
-                && (child.getCls() != null
-                        || field != null && field.reference()
-                        || containsViewable(value));
-    }
-
-    private static boolean selectsDisplay(Viewable target, ViewConfig targetConfig) {
-        if (targetConfig == null || targetConfig.isAllFields()) return true;
-        String displayKey = target == null
-                ? objectview.field.ViewableContractFieldSet.DISPLAY_KEY
-                : objectview.field.ViewableContractFieldSet.displayKey(
-                        FieldSet.of(target));
-        return targetConfig.getFields().containsKey(displayKey)
-                || targetConfig.getFields().containsKey(
-                        objectview.field.ViewableContractFieldSet.DISPLAY_KEY);
+    /** Give a captionless object field its own visible field name while leaving the
+     * selected child fields untouched beneath it. */
+    private static JComponent wrapObjectField(
+            String fieldName, FieldPath fieldPath, JComponent body) {
+        if (body == null || fieldName == null || fieldName.isBlank()) return body;
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setOpaque(false);
+        panel.setBorder(BorderFactory.createTitledBorder(fieldName));
+        panel.putClientProperty(FieldProperties.FIELD_NAME_PROPERTY, fieldName);
+        panel.putClientProperty(FieldProperties.FIELD_PATH_PROPERTY, fieldPath);
+        panel.add(body, BorderLayout.CENTER);
+        return panel;
     }
 
     private static boolean shows(ViewConfig config, FieldRef field) {
-        if (config == null || field == null) return false;
-        if (config.getFields().containsKey(field.name())) return true;
-        return field.minor() ? config.isAllMinorFields() : config.isAllFields();
-    }
-
-    private static boolean hasContent(Object value) {
-        if (value == null) {
-            return false;
-        }
-        if (value instanceof CharSequence text) {
-            return !text.toString().isBlank();
-        }
-        if (value instanceof java.util.Collection<?> items) {
-            return !items.isEmpty();
-        }
-        if (value instanceof java.util.Map<?, ?> entries) {
-            return !entries.isEmpty();
-        }
-        return true;
+        return ObjectOccurrencePlan.selected(config, field);
     }
 
     private JComponent decoratedReference(JComponent chip, Viewable target) {
@@ -1953,10 +1862,10 @@ public class Card extends JPanel implements RenderedInstanceHost {
 
     private ViewConfig configForNested(Viewable q) {
         ViewConfig fromContext =
-                renderContext.configFor(q.getClass());
+                renderContext.configFor(q);
 
         if (fromContext != null) {
-            return fromContext
+            return fromContext.copy()
                     .setAddListener(config.isAddListener())
                     .setThumb(config.isThumb());
         }
@@ -2121,11 +2030,6 @@ public class Card extends JPanel implements RenderedInstanceHost {
                       renderContext.detachedDetailContext());
     }
 
-    private String safeName(Viewable q) {
-        String n = q == null ? null : q.getName();
-        return n == null ? "" : n;
-    }
-
     // Replace a query image with its answer-hiding version (hand mask, else
     // runtime OCR). Best-effort: returns the original ImagePane on any failure.
     private Object blurForQuiz(ImagePane original) {
@@ -2162,44 +2066,6 @@ public class Card extends JPanel implements RenderedInstanceHost {
         return b;
     }
 
-    // A thin wrapper whose own name IS a single child's name (President ->
-    // Person, both "George Washington"; the name was historically the shared
-    // identifier). Drop this card's bold title so the name shows once -- on the
-    // child's chip, which keeps its Open-in-window / expand behaviour.
-    private boolean wrapsSameNameChild() {
-        if (viewable == null) {
-            return false;
-        }
-        String owner = safeName(viewable);
-        if (owner.isEmpty()) {
-            return false;
-        }
-        boolean sameNamedChild = false;
-        int otherValuedFields = 0;
-        for (Field field : config.visibleFieldsFor(viewable.getClass())) {
-            Object value;
-            try {
-                value = field.get(viewable);
-            } catch (Exception e) {
-                continue;
-            }
-            if (value == null) {
-                continue;
-            }
-            if (value instanceof Viewable child && owner.equals(safeName(child))) {
-                sameNamedChild = true;
-            } else {
-                otherValuedFields++;
-            }
-        }
-        // Only a thin wrapper whose *sole* content is the same-named child
-        // suppresses its own title (to avoid echoing the name). A full card
-        // that merely has a coincidentally same-named reference field — e.g.
-        // the constellation Andromeda whose "named after" is the figure
-        // Andromeda — must still show its title.
-        return sameNamedChild && otherValuedFields == 0;
-    }
-
     public Viewable getViewable() {
         return viewable;
     }
@@ -2217,13 +2083,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
     }
 
     public String getTitle() {
-        String displayKey = displayFieldKey(viewable);
-        return (config.isAllFields()
-                || config.getFields().containsKey(displayKey)
-                || config.getFields().containsKey(
-                        objectview.field.ViewableContractFieldSet.DISPLAY_KEY))
-                ? safeName(viewable)
-                : "";
+        ObjectOccurrencePlan.Display display = occurrencePlan(viewable, config).display();
+        return display == null ? "" : display.value();
     }
 
     private String displayFieldKey(Viewable value) {

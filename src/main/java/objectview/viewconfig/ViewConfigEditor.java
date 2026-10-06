@@ -739,17 +739,9 @@ public class ViewConfigEditor extends JPanel {
     private boolean isExcluded(FieldPath path) {
         if (path == null || path.isRoot() || excludedFieldPaths.isEmpty()) return false;
         for (FieldPath excluded : excludedFieldPaths) {
-            if (startsWith(path, excluded)) return true;
+            if (path.startsWith(excluded)) return true;
         }
         return false;
-    }
-
-    private static boolean startsWith(FieldPath path, FieldPath prefix) {
-        if (prefix.size() > path.size()) return false;
-        for (int i = 0; i < prefix.size(); i++) {
-            if (!path.segments().get(i).equals(prefix.segments().get(i))) return false;
-        }
-        return true;
     }
 
     private void toggleExpand(FieldPath path) {
@@ -1568,9 +1560,7 @@ public class ViewConfigEditor extends JPanel {
     }
 
     private static boolean isUnder(FieldPath candidate, FieldPath ancestor) {
-        return candidate.size() > ancestor.size()
-                && candidate.segments().subList(0, ancestor.size())
-                        .equals(ancestor.segments());
+        return candidate.size() > ancestor.size() && candidate.startsWith(ancestor);
     }
 
     private static ViewConfig emptyConfig(

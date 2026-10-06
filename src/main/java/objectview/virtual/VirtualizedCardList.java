@@ -1082,6 +1082,24 @@ public final class VirtualizedCardList
         updateVisible();
     }
 
+    /** Recomputes the height of a card whose existing component tree changed in
+     * place. Unlike {@link #invalidateCard(Viewable)}, this never calls the card
+     * factory and therefore preserves every unaffected nested component. */
+    public void remeasureCard(Viewable q) {
+        if (q == null) return;
+        JComponent card = built.get(q);
+        if (card == null || card.getParent() != this) return;
+        if (measureCardIfChanged(q, card)) {
+            rebuildTops();
+            int index = indexOf(q);
+            if (index >= 0) positionCard(index, card);
+        }
+        revalidate();
+        syncScrollPaneToContent();
+        repaint();
+        updateVisible();
+    }
+
     @Override
     public void doLayout() {
         updateVisible();

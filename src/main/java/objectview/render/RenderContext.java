@@ -14,15 +14,12 @@ import javax.swing.border.Border;
 import java.awt.*;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
 public class RenderContext {
-
-    /** Collections are collapsed by default; callers may still explicitly expand them. */
-    public static final int COLLECTION_AUTO_EXPAND_MAX = 0;
 
     private static final Logger log = LoggerFactory.getLogger(RenderContext.class);
 
@@ -73,8 +70,14 @@ public class RenderContext {
         return null;
     }
 
-    private final Map<Class<?>, ViewConfig> classConfigs =
-            new HashMap<>();
+    /**
+     * Top-level presentation belongs to the logical domain type, not to an object
+     * instance or its Java carrier class. Dynamic Person, Position and OfficeHolding
+     * values may share one adapter class, while 177,000 values of one logical type
+     * must not carry 177,000 copies of the same configuration. Nested occurrences do
+     * not consult this registry: their owning field passes its exact child config.
+     */
+    private final Map<String, ViewConfig> typeConfigs = new LinkedHashMap<>();
 
     // Optional domain schema resolver. Cards ask this for every object (including
     // nested references), so a typed object and its saved dynamic counterpart use
@@ -245,11 +248,7 @@ public class RenderContext {
             changed |= setExpanded(nested, true);
         }
         for (Object container : resolved.containers()) {
-            int count = container instanceof Collection<?> collection
-                    ? collection.size()
-                    : container instanceof Map<?, ?> map ? map.size() : 0;
-            boolean defaultExpanded = count <= COLLECTION_AUTO_EXPAND_MAX;
-            if (!isCollectionExpanded(container, defaultExpanded)) {
+            if (!isCollectionExpanded(container, false)) {
                 setCollectionExpanded(container, true);
                 changed = true;
             }
@@ -481,6 +480,8 @@ public class RenderContext {
     private final Map<Object, Boolean> cardExpanded = new IdentityHashMap<>();
     private final java.util.List<java.util.function.Consumer<Viewable>> cardToggleHandlers =
             new java.util.ArrayList<>();
+    private final java.util.List<java.util.function.Consumer<Viewable>> cardResizeHandlers =
+            new java.util.ArrayList<>();
 
     public boolean collapsibleCards() {
         return collapsibleCards;
@@ -532,9 +533,26 @@ public class RenderContext {
         cardToggleHandlers.remove(handler);
     }
 
-    public void notifyCardToggled(Viewable q) {
+    public boolean notifyCardToggled(Viewable q) {
+        if (cardToggleHandlers.isEmpty()) return false;
         for (java.util.function.Consumer<Viewable> handler : cardToggleHandlers) {
             handler.accept(q);
+        }
+        return true;
+    }
+
+    /** Registers a virtual owner that can remeasure a card changed in place. */
+    public void addCardResizeHandler(java.util.function.Consumer<Viewable> handler) {
+        if (handler != null) cardResizeHandlers.add(handler);
+    }
+
+    public void removeCardResizeHandler(java.util.function.Consumer<Viewable> handler) {
+        cardResizeHandlers.remove(handler);
+    }
+
+    public void notifyCardResized(Viewable value) {
+        for (java.util.function.Consumer<Viewable> handler : cardResizeHandlers) {
+            handler.accept(value);
         }
     }
 
@@ -769,30 +787,30 @@ public class RenderContext {
         }
     }
 
-    public void putClassConfig(Class<?> cls, ViewConfig config) {
-        if (cls != null && config != null) {
-            classConfigs.put(cls, config.copy());
+    /** Registers the configuration of one logical top-level type. */
+    public void putConfig(Viewable value, ViewConfig config) {
+        if (value != null && config != null) {
+            typeConfigs.put(logicalType(value), config.copy());
         }
     }
 
-    public ViewConfig configFor(Class<?> cls) {
-        if (cls == null) {
-            return null;
+    /** Registers a type only when the owning view has not supplied one yet. */
+    public void putConfigIfAbsent(Viewable value, ViewConfig config) {
+        if (value != null && config != null) {
+            typeConfigs.computeIfAbsent(logicalType(value), ignored -> config.copy());
         }
+    }
 
-        ViewConfig exact = classConfigs.get(cls);
+    /** Returns the shared top-level type configuration. Callers that alter
+     * presentation flags must copy it first. */
+    public ViewConfig configFor(Viewable value) {
+        if (value == null) return null;
+        return typeConfigs.get(logicalType(value));
+    }
 
-        if (exact != null) {
-            return exact.copy();
-        }
-
-        for (Map.Entry<Class<?>, ViewConfig> e : classConfigs.entrySet()) {
-            if (e.getKey().isAssignableFrom(cls)) {
-                return e.getValue().copy();
-            }
-        }
-
-        return null;
+    private static String logicalType(Viewable value) {
+        String type = value.typeName();
+        return type == null || type.isBlank() ? value.getClass().getName() : type;
     }
 
     /** Rendering services for a detached detail window, without borrowing the
@@ -804,8 +822,8 @@ public class RenderContext {
         detail.fieldSchemaResolver = fieldSchemaResolver;
         detail.cardDecorator = cardDecorator;
         detail.valueLinker = valueLinker;
-        classConfigs.forEach((type, config) ->
-                detail.classConfigs.put(type, config.copy()));
+        typeConfigs.forEach((type, config) ->
+                detail.typeConfigs.put(type, config.copy()));
         return detail;
     }
 }

@@ -39,7 +39,7 @@ class ANestedRowAnswersForItsOwnFieldTest {
         @Override public String getDisplayName() { return city; }
     }
 
-    /** A selected object field with no selected children shows only its own caption. */
+    /** A selected object field with no selected children shows only its field name. */
     @Test void aReferenceWithNoChildSelectionDoesNotSelectItsFields() throws Exception {
         ViewConfig config = ViewConfig.of(Parent.class);
         config.setAllFields(false);

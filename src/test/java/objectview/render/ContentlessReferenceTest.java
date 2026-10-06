@@ -15,28 +15,28 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * A reference with nothing behind it is a value, not a door.
+ * A reference with no selected body is a value, not a door.
  *
  * <p>An extracted director, composer or location arrives as a QID and a label and
- * nothing else — its only field is the display name, which the reference row already
- * shows. It was still rendered with an expand triangle, so every one of them promised
- * content and opened an empty box.
+ * nothing else. DISPLAY is a real selected field whose one painted occurrence is
+ * the caption; it must not create a second row or an empty expander.
  *
  * <p>The distinction has to be made from the SAME questions the card asks when it
  * builds fields, or the promise and the content drift apart again.
  */
 class ContentlessReferenceTest {
 
-    @Test void aReferenceWhoseTargetHasNoFieldsRendersWithoutAnExpander() throws Exception {
+    @Test void aSelectedDisplayIsPaintedOnceAsTheCaption() throws Exception {
         Film film = new Film("12 Monkeys", new Person("Terry Gilliam"));
 
         Card card = cardFor(film);
 
         assertNull(find(card, ReferenceRow.class),
-                   "the director has only a name — an expander here opens nothing");
-        assertNotNull(find(card, TextRow.class), "but the name is still shown");
+                "a display-only value must not promise an expandable body");
+        assertEquals(1, renderedCount(card, "Terry Gilliam"));
     }
 
     @Test void aReferenceWhoseTargetHasFieldsKeepsItsExpander() throws Exception {
@@ -52,18 +52,18 @@ class ContentlessReferenceTest {
 
     /** A declared field that happens to be empty renders nothing, so it cannot be what
      *  justifies an expander — otherwise the box opens empty again. */
-    @Test void aDeclaredButEmptyFieldDoesNotJustifyAnExpander() throws Exception {
+    @Test void aBlankSiblingDoesNotCreateAnExpanderBehindTheCaption() throws Exception {
         Person director = new Person("Terry Gilliam");
         director.nationality = "   ";
         Film film = new Film("12 Monkeys", director);
 
         Card card = cardFor(film);
 
-        assertNull(find(card, ReferenceRow.class),
-                   "a blank value renders nothing; the expander would open an empty box");
+        assertNull(find(card, ReferenceRow.class));
+        assertEquals(1, renderedCount(card, "Terry Gilliam"));
     }
 
-    @Test void aSelectedObjectFieldWithNoChildrenShowsOnlyItsCaption() throws Exception {
+    @Test void aSelectedObjectFieldWithNoChildrenShowsOnlyItsFieldName() throws Exception {
         Film film = new Film("12 Monkeys", new Person("Terry Gilliam"));
         ViewConfig config = ViewConfig.of(Film.class);
         config.setAllFields(false);
@@ -192,6 +192,19 @@ class ContentlessReferenceTest {
             }
         }
         return false;
+    }
+
+    private static int renderedCount(Component root, String text) {
+        int count = 0;
+        if (root instanceof TextRow row
+                && row.matchesRenderedText(java.util.List.of(text), true)) count++;
+        if (root instanceof javax.swing.JLabel label && text.equals(label.getText())) count++;
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                count += renderedCount(child, text);
+            }
+        }
+        return count;
     }
 
     private static ReferenceRow findReference(Component root, String text) {

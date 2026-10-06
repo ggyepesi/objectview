@@ -33,6 +33,7 @@ public class CardListView {
     private RenderContext registeredContext;
     private java.util.function.Function<Object, JComponent> topLevelResolver;
     private java.util.function.Consumer<Viewable> cardToggleHandler;
+    private java.util.function.Consumer<Viewable> cardResizeHandler;
     private final List<CardListener> windowSearchListeners = new ArrayList<>();
 
     // Column count and trailing glue filler, remembered so a live add can
@@ -138,7 +139,10 @@ public class CardListView {
         // sort and re-layout are O(visible), not O(N), so it stays fast at tens of
         // thousands of cards.
         virtualList = new VirtualizedCardList(this::buildVirtualCard);
-        virtualList.setCardConfigConsumer(resolver -> cardConfigResolver = resolver);
+        virtualList.setCardConfigConsumer(resolver -> {
+            cardConfigResolver = resolver;
+            registerTypeConfigs(resolver);
+        });
         // A card virtualized out and rebuilt on scroll-back is fresh — tell listeners
         // (the search panel) so they can re-apply a lost highlight.
         virtualList.setOnCardBuilt(card -> {
@@ -211,6 +215,8 @@ public class CardListView {
             }
         };
         renderContext.addCardToggleHandler(cardToggleHandler);
+        cardResizeHandler = list::remeasureCard;
+        renderContext.addCardResizeHandler(cardResizeHandler);
         registeredContext = renderContext;
     }
 
@@ -218,9 +224,11 @@ public class CardListView {
         if (registeredContext == null) return;
         registeredContext.removeTopLevelResolver(topLevelResolver);
         registeredContext.removeCardToggleHandler(cardToggleHandler);
+        registeredContext.removeCardResizeHandler(cardResizeHandler);
         registeredContext = null;
         topLevelResolver = null;
         cardToggleHandler = null;
+        cardResizeHandler = null;
     }
 
     // The enlarged-image view: one holder per raw ImagePane, filling the frame
@@ -298,7 +306,7 @@ public class CardListView {
             }
         }
 
-        context.putClassConfig(q.getClass(), cfg);
+        context.putConfigIfAbsent(q, cfg);
 
         Card panel =
                 new Card(q, cfg, context, false);
@@ -308,6 +316,18 @@ public class CardListView {
         tuneCardSize(panel);
 
         return panel;
+    }
+
+    /** One config per logical type, regardless of the number of instances using it. */
+    private void registerTypeConfigs(
+            java.util.function.Function<Viewable, ViewConfig> resolver) {
+        if (context == null || resolver == null) return;
+        java.util.Set<String> registered = new java.util.LinkedHashSet<>();
+        for (Viewable value : viewables) {
+            if (value == null || !registered.add(value.typeName())) continue;
+            ViewConfig resolved = resolver.apply(value);
+            if (resolved != null) context.putConfig(value, resolved);
+        }
     }
 
     /**
@@ -495,7 +515,8 @@ public class CardListView {
         RenderContext context =
                 new RenderContext(viewables);
 
-        // First pass: register class configs before rendering.
+        // First pass: register each occurrence config before rendering. Logical
+        // types may share one adapter class, so a class-keyed registration is unsafe.
         for (Viewable q : viewables) {
             if (q == null) {
                 continue;
@@ -506,7 +527,7 @@ public class CardListView {
                               .setAddListener(true)
                               .setThumb(true);
 
-            context.putClassConfig(q.getClass(), cfg);
+            context.putConfigIfAbsent(q, cfg);
         }
 
         // Second pass: create direct Card cards.
@@ -516,13 +537,14 @@ public class CardListView {
             }
 
             ViewConfig cfg =
-                    context.configFor(q.getClass());
+                    context.configFor(q);
 
             if (cfg == null) {
                 cfg = ViewConfig.all(q.getClass())
                                 .setAddListener(true)
                                 .setThumb(true);
             }
+            cfg = cfg.copy();
 
             Card panel =
                     new Card(q, cfg, context, false);

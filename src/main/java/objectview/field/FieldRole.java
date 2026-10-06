@@ -18,7 +18,7 @@ public enum FieldRole {
      * copy, merge, index as a member, or traverse as part of the modeled graph. */
     PROVENANCE;
 
-    /** Roles represented by the card header rather than an ordinary field row. */
+    /** Roles represented once by the object header rather than a body field row. */
     public boolean renderedInHeader() {
         return this == IDENTITY || this == DISPLAY;
     }

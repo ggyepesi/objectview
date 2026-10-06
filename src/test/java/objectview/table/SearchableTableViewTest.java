@@ -10,6 +10,7 @@ import objectview.media.ImagePane;
 import objectview.media.MediaValue;
 import objectview.render.RenderingMode;
 import objectview.render.LinkRow;
+import objectview.render.CollectionHeader;
 import objectview.render.ReferenceRow;
 import objectview.render.TextRow;
 import objectview.search.SearchAndSort;
@@ -134,6 +135,49 @@ class SearchableTableViewTest {
         assertTrue(values(table.row(complete)).contains("Budapest"));
         assertTrue(!values(table.row(missing)).contains("Budapest"),
                 "a null nested value leaves the configured leaf cell empty");
+    }
+
+    @Test void aSelectedObjectWithNoSelectedChildrenStillOwnsAColumn() {
+        Nested nested = new Nested("Budapest");
+        Parent parent = new Parent("Hungary", nested);
+        ViewConfig objectOnly = ViewConfig.leaf();
+        objectOnly.setCls(Nested.class);
+        ViewConfig view = ViewConfig.of(Parent.class);
+        view.setAllFields(false);
+        view.addField("nested", objectOnly);
+
+        ViewableColumnsView table = SearchableView.builder(List.of(parent))
+                .mode(RenderingMode.TABLE)
+                .sample(parent)
+                .configState(new SearchPanel.ConfigState(null, null, view))
+                .build().table();
+
+        assertEquals(List.of("nested"), dottedColumns(table));
+        assertFalse(values(table.row(parent)).contains("Budapest"),
+                "DISPLAY is not selected; the column header is the field-name-only view");
+    }
+
+    @Test void anObjectCollectionWithNoSelectedChildrenShowsItsSizeInTheCell() {
+        List<Nested> children = List.of(new Nested("one"), new Nested("two"));
+        InlineCollectionItem item = new InlineCollectionItem("owner", children);
+        ViewConfig childOnly = ViewConfig.leaf();
+        childOnly.setCls(Nested.class);
+        ViewConfig view = ViewConfig.of(InlineCollectionItem.class);
+        view.setAllFields(false);
+        view.addField("children", childOnly);
+
+        ViewableColumnsView table = SearchableView.builder(List.of(item))
+                .mode(RenderingMode.TABLE)
+                .sample(item)
+                .configState(new SearchPanel.ConfigState(null, null, view))
+                .build().table();
+        JComponent row = table.row(item);
+        CollectionHeader header = find(row, CollectionHeader.class);
+
+        assertEquals(List.of("children"), dottedColumns(table));
+        assertNotNull(header);
+        assertTrue(header.getToolTipText().contains("2 items"));
+        assertFalse(values(row).contains("one"));
     }
 
     @Test void explicitSubtypeOnlyFieldContributesAColumnAndOnlySubtypeValues() {
@@ -262,7 +306,7 @@ class SearchableTableViewTest {
         JComponent row = table.row(country);
 
         assertNotNull(find(row, TextRow.class),
-                "a display-only object field paints its selected display as the caption");
+                "a display-only object field paints the selected display value");
         assertTrue(componentText(row).contains("Q1781"),
                 "the same identity decorator is attached to the reference chip");
     }

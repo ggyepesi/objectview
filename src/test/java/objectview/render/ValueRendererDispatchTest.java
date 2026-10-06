@@ -71,12 +71,16 @@ class ValueRendererDispatchTest {
     }
 
     @Test void inlineMediaCollectionIsNotMistakenForStructuralViewables() {
-        Card card = new Card(new Illustrated(), ViewConfig.all(Illustrated.class),
-                new RenderContext(List.of()), false);
+        Illustrated illustrated = new Illustrated();
+        RenderContext context = new RenderContext(List.of(illustrated));
+        context.setCollectionExpanded(illustrated.image, true);
+        Card card = new Card(illustrated, ViewConfig.all(Illustrated.class),
+                context, false);
 
         assertNotNull(find(card, ImagePane.class),
                 "INLINE media is still value data; the structural inline renderer "
-                        + "must not discard its non-Viewable members");
+                        + "must not discard its non-Viewable members after the "
+                        + "collection is expanded");
     }
 
     private static final class Linked extends objectview.ViewableAdapter {

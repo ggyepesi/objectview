@@ -43,6 +43,15 @@ public class ReferenceRow extends TextRow {
     // than expanding in place (avoids the per-target expand flag being shared
     // between the card and a chip for the same object).
     private final boolean navigate;
+    private final String displayFieldName;
+
+    /** The caption of a navigation link whose target has no selected DISPLAY. It names
+     * the action, not the object, so nothing the ViewConfig left unticked leaks in. */
+    public static final String NAVIGATION_LABEL = "Open";
+
+    boolean navigatesToTopLevel() { return navigate; }
+
+    Viewable target() { return target; }
 
     public ReferenceRow(String fieldName,
                         FieldPath fieldPath,
@@ -63,9 +72,27 @@ public class ReferenceRow extends TextRow {
                         String openTitle,
                         boolean expanded,
                         boolean navigate) {
+        this(fieldName, fieldPath, target, renderContext, openConfig,
+                openTitle, expanded, navigate, referenceLabel(target),
+                objectview.field.ViewableContractFieldSet.displayKey(
+                        objectview.field.FieldSet.of(target)));
+    }
+
+    /** A reference whose caption has already been resolved from the selected DISPLAY
+     * field through the caller's authoritative schema. */
+    public ReferenceRow(String fieldName,
+                        FieldPath fieldPath,
+                        Viewable target,
+                        RenderContext renderContext,
+                        ViewConfig openConfig,
+                        String openTitle,
+                        boolean expanded,
+                        boolean navigate,
+                        String caption,
+                        String displayFieldName) {
         super(fieldName,
                 fieldPath == null ? FieldPath.ROOT : fieldPath,
-                List.of(name(target)));
+                List.of(caption == null ? "" : caption));
         Card.RenderStats.referenceRows++;
 
         this.target = target;
@@ -74,6 +101,7 @@ public class ReferenceRow extends TextRow {
         this.openTitle = openTitle;
         this.expanded = expanded;
         this.navigate = navigate;
+        this.displayFieldName = displayFieldName;
 
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         setToolTipText(navigate
@@ -98,10 +126,10 @@ public class ReferenceRow extends TextRow {
         if (super.represents(selectedPath)) return true;
         if (selectedPath == null) return false;
         if (!selectedPath.parent().equals(fieldPath())) return false;
-        objectview.field.FieldRef selected = objectview.field.FieldSet.of(target)
-                .field(selectedPath.leaf());
-        return selected != null
-                && selected.role() == objectview.field.FieldRole.DISPLAY;
+        return displayFieldName != null
+                && (displayFieldName.equals(selectedPath.leaf())
+                || objectview.field.ViewableContractFieldSet.DISPLAY_KEY.equals(
+                        selectedPath.leaf()));
     }
 
     @Override
@@ -208,10 +236,6 @@ public class ReferenceRow extends TextRow {
                           .setAddListener(true)
                           .setThumb(true),
                 renderContext.detachedDetailContext());
-    }
-
-    private static String name(Viewable target) {
-        return referenceLabel(target);
     }
 
     /** The text a reference to {@code target} shows. Shared with the plain-row form
