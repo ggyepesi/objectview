@@ -51,7 +51,7 @@ class ViewConfigDesugarTest {
         TypeShape name = new TypeShape() {
             @Override public List<FieldRef> fields() {
                 return List.of(field("givenName", FieldRole.NONE, false, false),
-                        object("country", false));
+                        object("country", false), object("familyName", false));
             }
             @Override public TypeShape nested(FieldRef field) {
                 return field.name().equals("country") ? country : null;
@@ -69,13 +69,37 @@ class ViewConfigDesugarTest {
         ViewConfig defaults = ViewDefaults.newView(person);
 
         ViewConfig structured = defaults.getFieldConfig("structuredName");
-        assertEquals(List.of("givenName", "country"),
+        assertEquals(List.of("givenName", "country", "familyName"),
                 List.copyOf(structured.getFields().keySet()));
         assertEquals(List.of("title"),
                 List.copyOf(structured.getFieldConfig("country").getFields().keySet()),
                 "below the inline object, an object gets its DISPLAY alone");
+        // A family name is a Wikidata entity of no declared type: it still reads as its
+        // caption (Afonso Costa's family name rendered as nothing on the web).
+        assertEquals(List.of(objectview.field.ViewableContractFieldSet.DISPLAY_KEY),
+                List.copyOf(structured.getFieldConfig("familyName").getFields().keySet()));
         assertEquals(List.of("title"),
                 List.copyOf(defaults.getFieldConfig("citizenship").getFields().keySet()));
+    }
+
+    /** The field editors read a domain schema as a field-type source, which nests only
+     *  into targets that declare fields. A vocabulary target (a person's Type, a given
+     *  name) declares none, and the default ticked nothing below it: TransformApp showed
+     *  "type (1)" open and empty where the web showed "human". */
+    @Test void aReferenceToATypeWithNoFieldsStillDefaultsToItsCaption() {
+        objectview.viewconfig.FieldTypeSource person = new objectview.viewconfig.FieldTypeSource() {
+            @Override public FieldTypeInfo field(String name) {
+                return "type".equals(name) ? new FieldTypeInfo("List<Type>", false, false,
+                        null, null, "type", FieldRole.NONE, FieldKind.COLLECTION,
+                        FieldKind.REFERENCE) : null;
+            }
+            @Override public List<String> fieldNames() { return List.of("type"); }
+        };
+
+        ViewConfig defaults = ViewDefaults.newView(TypeShape.of(person));
+
+        assertEquals(List.of(objectview.field.ViewableContractFieldSet.DISPLAY_KEY),
+                List.copyOf(defaults.getFieldConfig("type").getFields().keySet()));
     }
 
     private static FieldRef object(String name, boolean inline) {

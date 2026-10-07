@@ -32,11 +32,18 @@ public final class ViewDefaults {
             ViewConfig everything = ViewConfig.leaf();
             everything.setAllFields(true);
             everything.setAllMinorFields(true);
-            return ViewConfigDesugar.literal(everything, nested,
-                    (inner, innerShape) -> displayOnly(innerShape));
+            return ViewConfigDesugar.literal(everything, nested, ViewDefaults::display);
         }
+        return display(field, nested);
+    }
+
+    /** The DISPLAY of the object {@code field} leads to: its declared type's DISPLAY,
+     * or the contract alias when the target type is not declared (it may be any
+     * object). */
+    private static ViewConfig display(FieldRef field, TypeShape nested) {
         if (nested == null && field != null && (field.reference()
-                || field.kind() == objectview.field.FieldKind.REFERENCE)) {
+                || field.kind() == objectview.field.FieldKind.REFERENCE
+                || field.valueKind() == objectview.field.FieldKind.REFERENCE)) {
             return anyObjectDisplay();
         }
         return displayOnly(nested);

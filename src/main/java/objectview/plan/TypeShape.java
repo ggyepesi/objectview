@@ -134,8 +134,12 @@ public interface TypeShape {
                 if (info == null) continue;
                 FieldKind kind = info.kind() == null ? FieldKind.UNKNOWN : info.kind();
                 FieldKind valueKind = info.valueKind() == null ? kind : info.valueKind();
+                // A reference by its kind, not by whether its target declares fields: a
+                // vocabulary target (Type, a given name) has none and is still an object.
+                boolean reference = info.nested() != null || kind == FieldKind.REFERENCE
+                        || valueKind == FieldKind.REFERENCE;
                 out.add(FieldRef.described(name, info.label(), info.role(),
-                        kind, valueKind, info.typeLabel(), info.nested() != null,
+                        kind, valueKind, info.typeLabel(), reference,
                         kind == FieldKind.COLLECTION, info.nestedClassName(),
                         info.structural(), info.minor(),
                         info.embedded(), info.embedded(),
