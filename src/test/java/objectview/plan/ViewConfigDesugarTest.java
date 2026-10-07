@@ -20,14 +20,35 @@ class ViewConfigDesugarTest {
     private final HistoryShape history = new HistoryShape();
     private final TypeShape person = history.shape(history.wigmund);
 
-    @Test void theDefaultTicksEveryTopLevelFieldAndNothingBelowThem() {
+    @Test void theDefaultTicksEveryTopLevelFieldAndTheDisplayOfEachObjectBelowThem() {
         ViewConfig defaults = ViewDefaults.newView(person);
 
         assertEquals(List.of("name", "offices", "epithet"),
                 List.copyOf(defaults.getFields().keySet()));
-        assertTrue(defaults.getFieldConfig("offices").getFields().isEmpty(),
-                "selecting offices never ticks source, position or anything else under it");
+        assertEquals(List.of("label"),
+                List.copyOf(defaults.getFieldConfig("offices").getFields().keySet()),
+                "the default ticks the office's DISPLAY, never source or position");
+        assertTrue(defaults.getFieldConfig("offices").getFieldConfig("label")
+                .getFields().isEmpty(), "nothing deeper than the DISPLAY");
         assertTrue(ViewConfigDesugar.isLiteral(defaults));
+    }
+
+    /** A quiz key or search selection enters a nested value only when it is ticked,
+     *  so its shorthand includes an object with nothing under it. */
+    @Test void aFieldSelectionsShorthandTicksNothingBelowTheObjectsItIncludes() {
+        ViewConfig all = ViewConfig.leaf();
+        all.setAllFields(true);
+
+        assertTrue(ViewConfigDesugar.selection(all, person)
+                .getFieldConfig("offices").getFields().isEmpty());
+    }
+
+    @Test void anObjectTickedByHandTicksNothingUnderIt() {
+        ViewConfig config = ViewConfig.leaf();
+        config.addField("offices", ViewConfig.leaf());
+
+        assertTrue(ViewConfigDesugar.literal(config, person)
+                .getFieldConfig("offices").getFields().isEmpty());
     }
 
     @Test void explicitTicksKeepTheirOrderAndTheDisplayAliasBecomesTheRealField() {
@@ -70,8 +91,9 @@ class ViewConfigDesugarTest {
 
         assertEquals(List.of("label", "source", "position", "startDate", "endDate"),
                 List.copyOf(offices.getFields().keySet()));
-        assertTrue(offices.getFieldConfig("position").getFields().isEmpty());
-        assertTrue(offices.getFieldConfig("source").getFields().isEmpty());
+        assertEquals(List.of("name"),
+                List.copyOf(offices.getFieldConfig("position").getFields().keySet()),
+                "an object the shorthand includes gets its DISPLAY alone");
     }
 
     @Test void shorthandNeverIncludesIdentityOrStructuralFieldsAndMinorOnlyWithItsSwitch() {

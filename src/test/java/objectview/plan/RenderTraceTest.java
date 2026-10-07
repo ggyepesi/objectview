@@ -72,6 +72,30 @@ class RenderTraceTest {
                 "Person:Wigmund of Mercia.offices"), h.reads);
     }
 
+    /** The default ticks each office's DISPLAY, so an opened office reads as its label,
+     *  and nothing else of the office is read. */
+    @Test void theDefaultOpenedShowsEachOfficeByItsDisplayAlone() {
+        ViewConfig defaults = ViewDefaults.newView(h.shape(h.wigmund));
+
+        assertTrace(render(defaults, opened(), notTopLevel()), """
+                OBJECT <root> caption="Wigmund of Mercia" open
+                  COLLECTION offices (2) open
+                    OBJECT offices[0] caption="Wigmund of Mercia" open
+                      SKIP offices[0].source OFF
+                      SKIP offices[0].position OFF
+                      SKIP offices[0].startDate OFF
+                      SKIP offices[0].endDate OFF
+                    OBJECT offices[1] caption="Wigmund of Mercia" open
+                      SKIP offices[1].source OFF
+                      SKIP offices[1].position OFF
+                      SKIP offices[1].startDate OFF
+                      SKIP offices[1].endDate OFF
+                  SKIP epithet ABSENT""");
+        assertTrue(h.reads.stream().noneMatch(read -> read.endsWith(".source")
+                        || read.endsWith(".position")),
+                "only the office's DISPLAY is read: " + h.reads);
+    }
+
     @Test void aTickedObjectWithNothingTickedUnderItIsItsFieldNameOnly() {
         ViewConfig config = person(offices(field("position", ViewConfig.leaf())));
 

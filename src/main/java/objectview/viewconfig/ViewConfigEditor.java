@@ -310,7 +310,11 @@ public class ViewConfigEditor extends JPanel {
         }
         ViewConfig plain = config.copy();
         branches.keySet().forEach(plain.getFields()::remove);
-        ViewConfig literal = objectview.plan.ViewConfigDesugar.literal(plain, shape);
+        // A selection editor (search, sort, quiz key) never ticks below an object it
+        // includes; the View editor's default ticks each object's DISPLAY.
+        ViewConfig literal = nestedDefaultNameOnly
+                ? objectview.plan.ViewConfigDesugar.selection(plain, shape)
+                : objectview.plan.ViewConfigDesugar.literal(plain, shape);
         branches.forEach(literal::addField);
         return literal;
     }

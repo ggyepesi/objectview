@@ -7,6 +7,7 @@ import objectview.viewconfig.ConfiguredFieldSelection;
 import objectview.viewconfig.ViewConfig;
 
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * The only reader of ViewConfig shorthand (directive 24). Rewrites {@code allFields},
@@ -15,16 +16,31 @@ import java.util.Map;
  *
  * <p>A literal config has both flags off at every level. Its field map lists exactly
  * the ticked fields under their real names, and each ticked object field carries its
- * own literal child config, possibly empty. An object implicitly included by "all
- * fields" gets an empty child: selecting an object never selects its children.
+ * own literal child config, possibly empty. Shorthand is how a default is written, so
+ * what it includes is what a new config ticks. In a View an object it includes gets
+ * {@link ViewDefaults#implicitObject}, its DISPLAY; in a field selection (search, sort,
+ * quiz key) it gets an empty child, since a nested value enters a key only when the
+ * user ticks it. Ticking an object by hand never ticks its children.
  */
 public final class ViewConfigDesugar {
 
     private ViewConfigDesugar() {}
 
-    /** The literal form of {@code config} against {@code shape}. A null shape keeps
-     * only the explicitly ticked fields, since there is nothing to expand against. */
+    /** The literal form of the View config {@code config} against {@code shape}. A null
+     * shape keeps only the explicitly ticked fields, since there is nothing to expand
+     * against. */
     public static ViewConfig literal(ViewConfig config, TypeShape shape) {
+        return literal(config, shape, ViewDefaults::implicitObject);
+    }
+
+    /** The literal form of a field selection (search, sort, quiz key): an object the
+     * shorthand includes has nothing ticked under it. */
+    public static ViewConfig selection(ViewConfig config, TypeShape shape) {
+        return literal(config, shape, nested -> ViewConfig.leaf());
+    }
+
+    private static ViewConfig literal(ViewConfig config, TypeShape shape,
+                                      Function<TypeShape, ViewConfig> implicit) {
         ViewConfig out = header(config);
         if (config == null) return out;
 
@@ -37,13 +53,13 @@ public final class ViewConfigDesugar {
             }
             if (out.hasField(name)) continue;
             FieldRef field = shape == null ? null : field(shape, name);
-            out.addField(name, child(entry.getValue(), field, shape));
+            out.addField(name, child(entry.getValue(), field, shape, implicit));
         }
         // Then what the shorthand includes, in schema order.
         if (shape != null && (config.isAllFields() || config.isAllMinorFields())) {
             for (FieldRef field : shape.fields()) {
                 if (out.hasField(field.name()) || !includedByShorthand(config, field)) continue;
-                out.addField(field.name(), child(null, field, shape));
+                out.addField(field.name(), child(null, field, shape, implicit));
             }
         }
         for (Map.Entry<String, ViewConfig> remembered
@@ -71,10 +87,11 @@ public final class ViewConfigDesugar {
                 field, config.isAllFields(), config.isAllMinorFields(), java.util.Set.of());
     }
 
-    private static ViewConfig child(ViewConfig explicit, FieldRef field, TypeShape shape) {
+    private static ViewConfig child(ViewConfig explicit, FieldRef field, TypeShape shape,
+                                    Function<TypeShape, ViewConfig> implicit) {
         TypeShape nested = field == null || shape == null ? null : shape.nested(field);
-        if (explicit == null) return header(null);   // implicitly included: nothing under it
-        return literal(explicit, nested);
+        if (explicit == null) return implicit.apply(nested);
+        return literal(explicit, nested, implicit);
     }
 
     private static FieldRef field(TypeShape shape, String name) {
