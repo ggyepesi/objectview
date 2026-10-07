@@ -77,7 +77,6 @@ public class RenderContext {
      * must not carry 177,000 copies of the same configuration. Nested occurrences do
      * not consult this registry: their owning field passes its exact child config.
      */
-    private final Map<String, ViewConfig> typeConfigs = new LinkedHashMap<>();
 
     // Optional domain schema resolver. Cards ask this for every object (including
     // nested references), so a typed object and its saved dynamic counterpart use
@@ -808,31 +807,6 @@ public class RenderContext {
         }
     }
 
-    /** Registers the configuration of one logical top-level type. */
-    public void putConfig(Viewable value, ViewConfig config) {
-        if (value != null && config != null) {
-            typeConfigs.put(logicalType(value), config.copy());
-        }
-    }
-
-    /** Registers a type only when the owning view has not supplied one yet. */
-    public void putConfigIfAbsent(Viewable value, ViewConfig config) {
-        if (value != null && config != null) {
-            typeConfigs.computeIfAbsent(logicalType(value), ignored -> config.copy());
-        }
-    }
-
-    /** Returns the shared top-level type configuration. Callers that alter
-     * presentation flags must copy it first. */
-    public ViewConfig configFor(Viewable value) {
-        if (value == null) return null;
-        return typeConfigs.get(logicalType(value));
-    }
-
-    private static String logicalType(Viewable value) {
-        String type = value.typeName();
-        return type == null || type.isBlank() ? value.getClass().getName() : type;
-    }
 
     /** Rendering services for a detached detail window, without borrowing the
      * navigation, selection or expansion state of the originating list. Dynamic
@@ -843,8 +817,6 @@ public class RenderContext {
         detail.fieldSchemaResolver = fieldSchemaResolver;
         detail.cardDecorator = cardDecorator;
         detail.valueLinker = valueLinker;
-        typeConfigs.forEach((type, config) ->
-                detail.typeConfigs.put(type, config.copy()));
         return detail;
     }
 }

@@ -43,8 +43,15 @@ class ContentlessReferenceTest {
         Person director = new Person("Terry Gilliam");
         director.nationality = "British";
         Film film = new Film("12 Monkeys", director);
+        ViewConfig person = ViewConfig.of(Person.class);
+        person.setAllFields(false);
+        person.addField("personName", ViewConfig.leaf());
+        person.addField("nationality", ViewConfig.leaf());
+        ViewConfig config = ViewConfig.of(Film.class);
+        config.setAllFields(false);
+        config.addField("director", person);
 
-        Card card = cardFor(film);
+        Card card = cardFor(film, config);
 
         assertNotNull(find(card, ReferenceRow.class),
                       "there IS something behind this one, so it must stay expandable");
@@ -136,7 +143,7 @@ class ContentlessReferenceTest {
     }
 
     private static Card cardFor(Film film) throws Exception {
-        return cardFor(film, ViewConfig.all(Film.class));
+        return cardFor(film, ViewConfig.of(Film.class));
     }
 
     private static Card cardFor(Film film, ViewConfig config) throws Exception {

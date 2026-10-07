@@ -353,7 +353,7 @@ class RenderingFollowsTheViewConfigTest {
 
     @Test void untickingNestedDisplaysDoesNotRemoveSelectedSiblingObjectsFromTheEditor()
             throws Exception {
-        ViewConfig office = ViewConfig.all(Office.class);
+        ViewConfig office = ViewConfig.of(Office.class);
         ViewConfig root = ruler(office);
         ViewConfig[] edited = new ViewConfig[1];
 

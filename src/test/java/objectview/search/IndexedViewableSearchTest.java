@@ -32,8 +32,8 @@ class IndexedViewableSearchTest {
     @Test void aChangedScopeReadsOnlyWhatItHasNotReadBefore() {
         CountingItem king = new CountingItem("King of France");
         CountingItem writer = new CountingItem("Court poet");
-        List<ViewableFieldPaths.PathInfo> paths = ViewableFieldPaths.collect(
-                ViewConfig.of(CountingItem.class), ViewableFieldPaths.NOT_MEDIA_FIELDS);
+        List<ViewableFieldPaths.PathInfo> paths = selectedPaths(
+                ViewConfig.of(CountingItem.class), true);
         SearchAndSort search = new SearchAndSort();
 
         search.indexViewables(List.of(king), paths);
@@ -56,8 +56,8 @@ class IndexedViewableSearchTest {
     @Test void repeatedSubstringSearchesUseTheIndexNotTheObjectGraph() {
         CountingItem apostolic = new CountingItem("Apostolic King of Hungary");
         CountingItem minister = new CountingItem("Minister of Finance");
-        List<ViewableFieldPaths.PathInfo> paths = ViewableFieldPaths.collect(
-                ViewConfig.of(CountingItem.class), ViewableFieldPaths.NOT_MEDIA_FIELDS);
+        List<ViewableFieldPaths.PathInfo> paths = selectedPaths(
+                ViewConfig.of(CountingItem.class), true);
         SearchAndSort search = new SearchAndSort();
 
         search.indexViewables(List.of(apostolic, minister), paths);
@@ -83,8 +83,8 @@ class IndexedViewableSearchTest {
             rows.add(new CountingItem(i == 72_341
                     ? "Apostolic King of Hungary" : "Position " + i));
         }
-        List<ViewableFieldPaths.PathInfo> paths = ViewableFieldPaths.collect(
-                ViewConfig.of(CountingItem.class), ViewableFieldPaths.NOT_MEDIA_FIELDS);
+        List<ViewableFieldPaths.PathInfo> paths = selectedPaths(
+                ViewConfig.of(CountingItem.class), true);
         SearchAndSort search = new SearchAndSort();
         search.indexViewables(rows, paths);
 
@@ -125,8 +125,8 @@ class IndexedViewableSearchTest {
                 new CountingItem("Kingdom of Hungary"),
                 new CountingItem("mayor of a place in France"),
                 new CountingItem("ma"));
-        List<ViewableFieldPaths.PathInfo> paths = ViewableFieldPaths.collect(
-                ViewConfig.of(CountingItem.class), ViewableFieldPaths.NOT_MEDIA_FIELDS);
+        List<ViewableFieldPaths.PathInfo> paths = selectedPaths(
+                ViewConfig.of(CountingItem.class), true);
         SearchAndSort search = new SearchAndSort();
         search.indexViewables(List.copyOf(rows), paths);
 
@@ -146,8 +146,8 @@ class IndexedViewableSearchTest {
     @Test void aPhraseIsOneContinuousSubstring() {
         CountingItem wanted = new CountingItem("King of Hungary");
         CountingItem falsePositive = new CountingItem("Kingdom of Hungary");
-        List<ViewableFieldPaths.PathInfo> paths = ViewableFieldPaths.collect(
-                ViewConfig.of(CountingItem.class), ViewableFieldPaths.NOT_MEDIA_FIELDS);
+        List<ViewableFieldPaths.PathInfo> paths = selectedPaths(
+                ViewConfig.of(CountingItem.class), true);
         SearchAndSort search = new SearchAndSort();
         search.indexViewables(List.of(wanted, falsePositive), paths);
 
@@ -261,5 +261,32 @@ class IndexedViewableSearchTest {
         }
         @Override public String getIdentifier() { return display; }
         @Override public String getDisplayName() { return display; }
+    }
+
+    // The selection's value paths (LiteralPaths.selection) against a class, sample or
+    // schema shape; the old collectors each read the shorthand themselves.
+    private static java.util.List<objectview.field.ViewableFieldPaths.PathInfo> selectedPaths(
+            objectview.viewconfig.ViewConfig config, boolean excludeMedia) {
+        return objectview.plan.LiteralPaths.selection(config,
+                objectview.plan.TypeShape.ofClass(config.getCls()), excludeMedia);
+    }
+
+    private static java.util.List<objectview.field.ViewableFieldPaths.PathInfo> selectedPaths(
+            objectview.Viewable sample, objectview.viewconfig.ViewConfig config,
+            boolean excludeMedia) {
+        return objectview.plan.LiteralPaths.selection(config,
+                objectview.plan.TypeShape.ofSample(sample, null), excludeMedia);
+    }
+
+    private static java.util.List<objectview.field.ViewableFieldPaths.PathInfo> selectedPaths(
+            objectview.viewconfig.ViewConfig config,
+            objectview.viewconfig.FieldTypeSource schema, boolean excludeMedia) {
+        return objectview.plan.LiteralPaths.selection(config,
+                objectview.plan.TypeShape.of(schema), excludeMedia);
+    }
+
+    private static java.util.List<objectview.field.ViewableFieldPaths.PathInfo> selectedPaths(
+            objectview.viewconfig.ViewConfig config) {
+        return selectedPaths(config, true);
     }
 }

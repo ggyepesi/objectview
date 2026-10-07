@@ -57,8 +57,8 @@ class NestedValueSearchTest {
     }
 
     private static List<ViewableFieldPaths.PathInfo> paths() {
-        return ViewableFieldPaths.collect(
-                stepConfig(4), ViewableFieldPaths.NOT_MEDIA_FIELDS);
+        return selectedPaths(
+                stepConfig(4), true);
     }
 
     private static ViewConfig stepConfig(int remainingDepth) {
@@ -181,8 +181,8 @@ class NestedValueSearchTest {
 
         List<objectview.Viewable> sorted = new SearchAndSort().sortViewables(
                 List.of(b, a),
-                ViewableFieldPaths.collect(
-                        nameOnly(), ViewableFieldPaths.NOT_MEDIA_FIELDS));
+                selectedPaths(
+                        nameOnly(), true));
 
         assertEquals(List.of("a", "b"), sorted.stream().map(q -> q.getName()).toList());
     }
@@ -214,5 +214,32 @@ class NestedValueSearchTest {
         config.setAllFields(false);
         config.addField("name", ViewConfig.leaf());
         return config;
+    }
+
+    // The selection's value paths (LiteralPaths.selection) against a class, sample or
+    // schema shape; the old collectors each read the shorthand themselves.
+    private static java.util.List<objectview.field.ViewableFieldPaths.PathInfo> selectedPaths(
+            objectview.viewconfig.ViewConfig config, boolean excludeMedia) {
+        return objectview.plan.LiteralPaths.selection(config,
+                objectview.plan.TypeShape.ofClass(config.getCls()), excludeMedia);
+    }
+
+    private static java.util.List<objectview.field.ViewableFieldPaths.PathInfo> selectedPaths(
+            objectview.Viewable sample, objectview.viewconfig.ViewConfig config,
+            boolean excludeMedia) {
+        return objectview.plan.LiteralPaths.selection(config,
+                objectview.plan.TypeShape.ofSample(sample, null), excludeMedia);
+    }
+
+    private static java.util.List<objectview.field.ViewableFieldPaths.PathInfo> selectedPaths(
+            objectview.viewconfig.ViewConfig config,
+            objectview.viewconfig.FieldTypeSource schema, boolean excludeMedia) {
+        return objectview.plan.LiteralPaths.selection(config,
+                objectview.plan.TypeShape.of(schema), excludeMedia);
+    }
+
+    private static java.util.List<objectview.field.ViewableFieldPaths.PathInfo> selectedPaths(
+            objectview.viewconfig.ViewConfig config) {
+        return selectedPaths(config, true);
     }
 }

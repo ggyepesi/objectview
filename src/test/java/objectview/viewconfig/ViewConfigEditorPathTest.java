@@ -53,7 +53,7 @@ class ViewConfigEditorPathTest {
             throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             ViewConfigEditor editor = new ViewConfigEditor(
-                    ViewConfig.all(Team.class), new Team());
+                    ViewConfig.of(Team.class), new Team());
             editor.setExcludedFieldPaths(Set.of(FieldPath.of("league")));
 
             assertFalse(tableContains(findTable(editor), "league"));
@@ -68,9 +68,15 @@ class ViewConfigEditorPathTest {
     }
 
     @Test void aNestedExclusionKeepsItsSiblingAvailable() throws Exception {
+        ViewConfig placeTicks = ViewConfig.leaf();
+        placeTicks.addField("country", ViewConfig.leaf());
+        placeTicks.addField("city", ViewConfig.leaf());
+        ViewConfig team = ViewConfig.of(Team.class);
+        team.setAllFields(false);
+        team.addField("league", ViewConfig.leaf());
+        team.addField("place", placeTicks);
         SwingUtilities.invokeAndWait(() -> {
-            ViewConfigEditor editor = new ViewConfigEditor(
-                    ViewConfig.all(Team.class), new Team());
+            ViewConfigEditor editor = new ViewConfigEditor(team, new Team());
             editor.setExcludedFieldPaths(Set.of(FieldPath.parse("place.country")));
 
             List<FieldPath> selected = editor.selectedFieldPaths();

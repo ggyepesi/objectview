@@ -139,10 +139,7 @@ public class CardListView {
         // sort and re-layout are O(visible), not O(N), so it stays fast at tens of
         // thousands of cards.
         virtualList = new VirtualizedCardList(this::buildVirtualCard);
-        virtualList.setCardConfigConsumer(resolver -> {
-            cardConfigResolver = resolver;
-            registerTypeConfigs(resolver);
-        });
+        virtualList.setCardConfigConsumer(resolver -> cardConfigResolver = resolver);
         // A card virtualized out and rebuilt on scroll-back is fresh — tell listeners
         // (the search panel) so they can re-apply a lost highlight.
         virtualList.setOnCardBuilt(card -> {
@@ -296,7 +293,7 @@ public class CardListView {
         ViewConfig configured = cardConfigResolver == null
                 ? null : cardConfigResolver.apply(q);
         if (configured == null) {
-            cfg = ViewConfig.all(q.getClass())
+            cfg = ViewConfig.of(q.getClass())
                     .setAddListener(true)
                     .setThumb(true);
         } else {
@@ -306,8 +303,6 @@ public class CardListView {
             }
         }
 
-        context.putConfigIfAbsent(q, cfg);
-
         Card panel =
                 new Card(q, cfg, context, false);
 
@@ -316,18 +311,6 @@ public class CardListView {
         tuneCardSize(panel);
 
         return panel;
-    }
-
-    /** One config per logical type, regardless of the number of instances using it. */
-    private void registerTypeConfigs(
-            java.util.function.Function<Viewable, ViewConfig> resolver) {
-        if (context == null || resolver == null) return;
-        java.util.Set<String> registered = new java.util.LinkedHashSet<>();
-        for (Viewable value : viewables) {
-            if (value == null || !registered.add(value.typeName())) continue;
-            ViewConfig resolved = resolver.apply(value);
-            if (resolved != null) context.putConfig(value, resolved);
-        }
     }
 
     /**
@@ -515,36 +498,14 @@ public class CardListView {
         RenderContext context =
                 new RenderContext(viewables);
 
-        // First pass: register each occurrence config before rendering. Logical
-        // types may share one adapter class, so a class-keyed registration is unsafe.
         for (Viewable q : viewables) {
             if (q == null) {
                 continue;
             }
 
-            ViewConfig cfg =
-                    ViewConfig.all(q.getClass())
-                              .setAddListener(true)
-                              .setThumb(true);
-
-            context.putConfigIfAbsent(q, cfg);
-        }
-
-        // Second pass: create direct Card cards.
-        for (Viewable q : viewables) {
-            if (q == null) {
-                continue;
-            }
-
-            ViewConfig cfg =
-                    context.configFor(q);
-
-            if (cfg == null) {
-                cfg = ViewConfig.all(q.getClass())
-                                .setAddListener(true)
-                                .setThumb(true);
-            }
-            cfg = cfg.copy();
+            ViewConfig cfg = ViewConfig.of(q.getClass())
+                    .setAddListener(true)
+                    .setThumb(true);
 
             Card panel =
                     new Card(q, cfg, context, false);

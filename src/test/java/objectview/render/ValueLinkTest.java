@@ -82,7 +82,7 @@ class ValueLinkTest {
     private static Card cardFor(Film film, RenderContext context) throws Exception {
         Card[] rendered = new Card[1];
         SwingUtilities.invokeAndWait(() -> rendered[0] =
-                new Card(film, ViewConfig.all(Film.class), context, false));
+                new Card(film, ViewConfig.of(Film.class), context, false));
         return rendered[0];
     }
 

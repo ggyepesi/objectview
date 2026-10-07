@@ -28,15 +28,12 @@ class DetachedDetailContextTest {
         list.setFieldSchemaResolver(viewable -> schema);
         list.setValueLinker(value -> "Q42".equals(value) ? "https://example.org/Q42" : null);
         Film film = new Film("Hitchhiker");
-        list.putConfig(film, ViewConfig.all(Film.class));
 
         RenderContext detail = list.detachedDetailContext();
 
         assertEquals(schema, detail.fieldSchema(film),
                 "without the resolver a dynamic object renders with no domain fields");
         assertEquals("https://example.org/Q42", detail.valueLink("Q42"));
-        assertNotNull(detail.configFor(film),
-                "the detail window shows the object the way the list was configured to");
     }
 
     @Test void theDetailWindowDoesNotInheritWhatTheReaderSelectedInTheList() {

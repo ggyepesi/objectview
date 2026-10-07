@@ -59,7 +59,7 @@ public final class ViewableListPanel extends JPanel implements AutoCloseable {
         // An auxiliary/browser list starts compact: minor metadata remains available
         // by name in View Config, but the user opts it into the cards explicitly.
         this.configState = new SearchPanel.ConfigState(
-                null, null, ViewConfig.all(type).setAddListener(true).setThumb(true));
+                null, null, ViewConfig.of(type).setAddListener(true).setThumb(true));
         setViewables(List.of());
     }
 

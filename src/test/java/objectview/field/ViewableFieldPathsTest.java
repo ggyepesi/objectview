@@ -23,7 +23,7 @@ class ViewableFieldPathsTest {
         config.addField("tags", ViewConfig.leaf());
 
         List<ViewableFieldPaths.PathInfo> paths =
-                ViewableFieldPaths.collect(config, ViewableFieldPaths.NOT_MEDIA_FIELDS);
+                selectedPaths(config, true);
 
         assertEquals(Set.of("tags"), pathStrings(paths));
     }
@@ -39,7 +39,7 @@ class ViewableFieldPathsTest {
         config.addField("children", childConfig);
 
         List<ViewableFieldPaths.PathInfo> paths =
-                ViewableFieldPaths.collect(config, ViewableFieldPaths.NOT_MEDIA_FIELDS);
+                selectedPaths(config, true);
 
         assertEquals(Set.of("children.name"), pathStrings(paths));
     }
@@ -56,8 +56,8 @@ class ViewableFieldPathsTest {
         config.addField("place", place);
 
         assertEquals(Set.of("name", "place.country", "place.city"),
-                pathStrings(ViewableFieldPaths.collect(
-                        config, ViewableFieldPaths.ALL_FIELDS)));
+                pathStrings(selectedPaths(
+                        config, false)));
     }
 
     @Test
@@ -75,8 +75,8 @@ class ViewableFieldPathsTest {
         config.setAllFields(false);
         config.addField("children", ViewConfig.leaf());
 
-        Set<String> paths = pathStrings(ViewableFieldPaths.collectFromSample(
-                card, config, ViewableFieldPaths.NOT_MEDIA_FIELDS));
+        Set<String> paths = pathStrings(selectedPaths(
+                card, config, true));
 
         assertEquals(Set.of(), paths);
     }
@@ -99,8 +99,8 @@ class ViewableFieldPathsTest {
         config.setAllFields(false);
         config.addField("children", childConfig);
 
-        Set<String> paths = pathStrings(ViewableFieldPaths.collectFromSample(
-                card, config, ViewableFieldPaths.NOT_MEDIA_FIELDS));
+        Set<String> paths = pathStrings(selectedPaths(
+                card, config, true));
 
         assertEquals(Set.of("children.code"), paths);
     }
@@ -113,20 +113,26 @@ class ViewableFieldPathsTest {
         config.setAllFields(false);
         config.addField("child", ViewConfig.leaf());
 
-        Set<String> paths = pathStrings(ViewableFieldPaths.collectFromSample(
-                parent, config, ViewableFieldPaths.NOT_MEDIA_FIELDS));
+        Set<String> paths = pathStrings(selectedPaths(
+                parent, config, true));
 
         assertEquals(Set.of(), paths);
     }
 
     @Test
-    void allFieldsKeepsAnObjectFieldSearchableWithoutAuthoringChildren() {
+    /** A literal config cannot tell an object "all fields" implied from one ticked by
+     *  hand, so both follow one rule: an object with nothing ticked below it
+     *  contributes its caption to what is shown, never a value path. The class
+     *  collector used to make an implied object searchable while the schema and
+     *  sample collectors did not. */
+    void anObjectAllFieldsIncludesContributesNoValuePath() {
         ViewConfig config = ViewConfig.of(TestCard.class);
 
-        Set<String> paths = pathStrings(ViewableFieldPaths.collect(
-                config, ViewableFieldPaths.NOT_MEDIA_FIELDS));
+        Set<String> paths = pathStrings(selectedPaths(
+                config, true));
 
-        assertTrue(paths.contains("children"), paths.toString());
+        assertFalse(paths.contains("children"), paths.toString());
+        assertTrue(paths.contains("tags"), paths.toString());
     }
 
     @Test
@@ -137,7 +143,7 @@ class ViewableFieldPathsTest {
         config.addField("image", ViewConfig.leaf());
 
         List<ViewableFieldPaths.PathInfo> paths =
-                ViewableFieldPaths.collect(config, ViewableFieldPaths.NOT_MEDIA_FIELDS);
+                selectedPaths(config, true);
 
         assertEquals(Set.of("name"), pathStrings(paths));
     }
@@ -149,7 +155,7 @@ class ViewableFieldPathsTest {
         config.addField("name", ViewConfig.leaf());
 
         List<ViewableFieldPaths.PathInfo> paths =
-                ViewableFieldPaths.collect(config, ViewableFieldPaths.NOT_MEDIA_FIELDS);
+                selectedPaths(config, true);
 
         assertEquals(Set.of("name"), pathStrings(paths));
     }
@@ -223,37 +229,17 @@ class ViewableFieldPathsTest {
         // name even when the user unchecked it. Identity is never a field either way.
         ViewConfig all = ViewConfig.of(EntityCard.class);
         all.setAllFields(true);
-        Set<String> allPaths = pathStrings(ViewableFieldPaths.collect(
-                all, ViewableFieldPaths.NOT_MEDIA_FIELDS));
+        Set<String> allPaths = pathStrings(selectedPaths(
+                all, true));
         assertTrue(allPaths.contains(ViewableContractFieldSet.DISPLAY_KEY), allPaths.toString());
         assertFalse(allPaths.contains(ViewableContractFieldSet.IDENTITY_KEY), allPaths.toString());
 
         ViewConfig explicit = ViewConfig.of(EntityCard.class);
         explicit.setAllFields(false);
-        Set<String> explicitPaths = pathStrings(ViewableFieldPaths.collect(
-                explicit, ViewableFieldPaths.NOT_MEDIA_FIELDS));
+        Set<String> explicitPaths = pathStrings(selectedPaths(
+                explicit, true));
         assertFalse(explicitPaths.contains(ViewableContractFieldSet.DISPLAY_KEY),
                 explicitPaths.toString());
-    }
-
-    @Test
-    void dedupByPathKeepsFirstOfEachDistinctPath() {
-        ViewableFieldPaths.PathInfo name =
-                new ViewableFieldPaths.PathInfo(
-                        "name", FieldPath.of("name"), null);
-        ViewableFieldPaths.PathInfo nameAgain =
-                new ViewableFieldPaths.PathInfo(
-                        "name (dup)", FieldPath.of("name"), null);
-        ViewableFieldPaths.PathInfo code =
-                new ViewableFieldPaths.PathInfo(
-                        "code", FieldPath.of("code"), null);
-
-        List<ViewableFieldPaths.PathInfo> out =
-                ViewableFieldPaths.dedupByPath(List.of(name, nameAgain, code));
-
-        assertEquals(2, out.size());
-        assertSame(name, out.get(0), "first occurrence of the duplicated path is kept");
-        assertEquals(FieldPath.of("code"), out.get(1).path());
     }
 
     @Test
@@ -263,8 +249,8 @@ class ViewableFieldPathsTest {
         // a field, so it never appears.
         ViewConfig config = ViewConfig.of(EntityCard.class);
 
-        List<ViewableFieldPaths.PathInfo> paths = ViewableFieldPaths.collect(
-                config, ViewableFieldPaths.NOT_MEDIA_FIELDS);
+        List<ViewableFieldPaths.PathInfo> paths = selectedPaths(
+                config, true);
 
         List<FieldPath> allPaths = paths.stream()
                 .map(ViewableFieldPaths.PathInfo::path)
@@ -283,8 +269,8 @@ class ViewableFieldPathsTest {
         ViewConfig config = ViewConfig.of(TestChild.class);
         config.setAllFields(false);
 
-        Set<String> paths = pathStrings(ViewableFieldPaths.collect(
-                config, ViewableFieldPaths.NOT_MEDIA_FIELDS));
+        Set<String> paths = pathStrings(selectedPaths(
+                config, true));
 
         assertFalse(paths.contains(ViewableContractFieldSet.DISPLAY_KEY), paths.toString());
     }
@@ -306,7 +292,7 @@ class ViewableFieldPathsTest {
         nested.addField("category", categoryConfig);
         nested.addField("image", ViewConfig.leaf());
 
-        Set<String> paths = pathStrings(ViewableFieldPaths.collectFromSchema(
+        Set<String> paths = pathStrings(selectedPaths(
                 nested, root, true));
         assertEquals(Set.of("category.code"), paths);
     }
@@ -333,5 +319,32 @@ class ViewableFieldPathsTest {
                 return refs.stream().map(FieldRef::name).toList();
             }
         };
+    }
+
+    // The selection's value paths (LiteralPaths.selection) against a class, sample or
+    // schema shape; the old collectors each read the shorthand themselves.
+    private static java.util.List<objectview.field.ViewableFieldPaths.PathInfo> selectedPaths(
+            objectview.viewconfig.ViewConfig config, boolean excludeMedia) {
+        return objectview.plan.LiteralPaths.selection(config,
+                objectview.plan.TypeShape.ofClass(config.getCls()), excludeMedia);
+    }
+
+    private static java.util.List<objectview.field.ViewableFieldPaths.PathInfo> selectedPaths(
+            objectview.Viewable sample, objectview.viewconfig.ViewConfig config,
+            boolean excludeMedia) {
+        return objectview.plan.LiteralPaths.selection(config,
+                objectview.plan.TypeShape.ofSample(sample, null), excludeMedia);
+    }
+
+    private static java.util.List<objectview.field.ViewableFieldPaths.PathInfo> selectedPaths(
+            objectview.viewconfig.ViewConfig config,
+            objectview.viewconfig.FieldTypeSource schema, boolean excludeMedia) {
+        return objectview.plan.LiteralPaths.selection(config,
+                objectview.plan.TypeShape.of(schema), excludeMedia);
+    }
+
+    private static java.util.List<objectview.field.ViewableFieldPaths.PathInfo> selectedPaths(
+            objectview.viewconfig.ViewConfig config) {
+        return selectedPaths(config, true);
     }
 }

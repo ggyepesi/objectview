@@ -889,10 +889,12 @@ public class SearchPanel extends JPanel
             ViewConfigEditor baseEditor,
             java.util.Map<String, ViewConfigEditor> subtypeEditors,
             boolean excludeMedia) {
+        // The selection's value paths, read off its literal ticks against the shape it
+        // enters with: the base type's schema and each subtype's, or the sample/class.
         List<ViewableFieldPaths.PathInfo> paths = new ArrayList<>();
         if (rootFieldTypes != null) {
-            paths.addAll(ViewableFieldPaths.collectFromSchema(
-                    baseEditor.getConfig(), rootFieldTypes, excludeMedia));
+            paths.addAll(objectview.plan.LiteralPaths.selection(baseEditor.getConfig(),
+                    objectview.plan.TypeShape.of(rootFieldTypes), excludeMedia));
             java.util.Map<String, ViewConfig> branches = baseEditor.classBranchConfigs();
             for (SubtypeConfig subtype : subtypeConfigs) {
                 ViewConfig config = branches.get(subtype.typeName());
@@ -901,19 +903,16 @@ public class SearchPanel extends JPanel
                     config = editor == null ? null : editor.getConfig();
                 }
                 if (config != null && subtype.fieldTypes() != null) {
-                    paths.addAll(ViewableFieldPaths.collectFromSchema(
-                            config, subtype.fieldTypes(), excludeMedia));
+                    paths.addAll(objectview.plan.LiteralPaths.selection(config,
+                            objectview.plan.TypeShape.of(subtype.fieldTypes()), excludeMedia));
                 }
             }
         } else {
             ViewConfig config = effectiveConfig(baseEditor, subtypeEditors, null);
-            ViewableFieldPaths.FieldFilter filter = excludeMedia
-                    ? ViewableFieldPaths.NOT_MEDIA_FIELDS
-                    : ViewableFieldPaths.ALL_FIELDS;
-            paths.addAll(fieldPathSample == null
-                    ? ViewableFieldPaths.collect(config, filter)
-                    : ViewableFieldPaths.collectFromSample(
-                            fieldPathSample, config, filter));
+            objectview.plan.TypeShape shape = fieldPathSample != null
+                    ? objectview.plan.TypeShape.ofSample(fieldPathSample, null)
+                    : objectview.plan.TypeShape.ofClass(config.getCls());
+            paths.addAll(objectview.plan.LiteralPaths.selection(config, shape, excludeMedia));
         }
         java.util.LinkedHashMap<String, ViewableFieldPaths.PathInfo> unique =
                 new java.util.LinkedHashMap<>();

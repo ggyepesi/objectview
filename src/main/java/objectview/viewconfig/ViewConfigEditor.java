@@ -300,8 +300,7 @@ public class ViewConfigEditor extends JPanel {
      * Subtype-branch entries are this editor's own synthetic keys and are kept as given.
      */
     private ViewConfig literal(ViewConfig config) {
-        objectview.plan.TypeShape shape = editorShape(config);
-        if (shape == null) return config;
+        objectview.plan.TypeShape shape = editorShape(config);   // null: explicit ticks only
         java.util.Map<String, ViewConfig> branches = new java.util.LinkedHashMap<>();
         for (Map.Entry<String, ViewConfig> entry : config.getFields().entrySet()) {
             if (entry.getKey().startsWith(CLASS_BRANCH_PREFIX)) {
@@ -458,7 +457,8 @@ public class ViewConfigEditor extends JPanel {
                     || ConfigFieldRowSource.INSTANCE.hasMinorFields(context)));
         // When this table does not govern them, force OFF so getConfig() can't read a
         // stale 'selected'.
-        allMinorFieldsBox.setSelected(governs && sourceConfig.isAllMinorFields());
+        allMinorFieldsBox.setSelected(governs
+                && Boolean.TRUE.equals(sourceConfig.minorFieldsVisible()));
         revalidate();
         repaint();
     }
@@ -511,9 +511,8 @@ public class ViewConfigEditor extends JPanel {
             if (!preserveState) {
                 Boolean rememberedGate = sourceConfig.minorFieldsVisible();
                 boolean showMinor = rememberedGate != null ? rememberedGate
-                        : sourceConfig.isAllMinorFields()
-                            || allRows.stream().anyMatch(state ->
-                                    state.minorBranch && state.use);
+                        : allRows.stream().anyMatch(state ->
+                                state.minorBranch && state.use);
                 allMinorFieldsBox.setSelected(showMinor);
                 if (showMinor) expandedPaths.add(FieldRow.minorBlockPath());
                 else expandedPaths.remove(FieldRow.minorBlockPath());
@@ -639,9 +638,7 @@ public class ViewConfigEditor extends JPanel {
         // box was unticked is not. Reading every remembered field as ticked turned an
         // unticked reference back on whenever the editor re-read its own output.
         if (config.getRememberedFieldConfig(name) != null) return minorBranch;
-        return row.field() != null
-                ? config.showsField(row.field())
-                : config.showsFieldByName(name);
+        return config.getFields().containsKey(name);   // the config is literal
     }
 
     /** Flat path-row sources do not receive one context per nested level, so resolve
@@ -654,15 +651,12 @@ public class ViewConfigEditor extends JPanel {
             if (child == null) {
                 child = config.getRememberedFieldConfig(segments.get(i));
             }
-            if (child == null) return config.isAllFields();
+            if (child == null) return false;
             config = child;
         }
         String leaf = segments.get(segments.size() - 1);
         if (config.getRememberedFieldConfig(leaf) != null) return true;
-        if (config.getFields().isEmpty() && !config.isAllFields()) return true;
-        return row.field() != null
-                ? config.showsField(row.field())
-                : config.showsFieldByName(leaf);
+        return config.getFields().containsKey(leaf);   // the config is literal
     }
 
     private FieldRowContext childContext(
@@ -1037,23 +1031,12 @@ public class ViewConfigEditor extends JPanel {
             return result;
         }
         ViewConfig result = copyHeader(sourceConfig);
-        result.setAllFields(false);
-        result.setAllMinorFields(
-                !minorOnly
-                        && allMinorFieldsBox.isSelected());
+        result.minorFieldsVisible(!minorOnly && allMinorFieldsBox.isSelected());
         result.getFields().clear();
 
         for (RowState state : rows) {
             FieldRow row = state.row;
             if (!row.isField() || !state.use) {
-                continue;
-            }
-
-            if (!minorOnly
-                    && result.isAllMinorFields()
-                    && row.isMinor()
-                    && sourceConfig.getFieldConfig(
-                            row.path().leaf()) == null) {
                 continue;
             }
 
@@ -1109,12 +1092,9 @@ public class ViewConfigEditor extends JPanel {
      *  deepest-first so a parent sees its already-attached descendants. */
     private ViewConfig buildTreeConfig() {
         ViewConfig result = copyHeader(sourceConfig);
-        result.setAllFields(false);
         // In the inline tree, the Minor fields switch is a visibility/admission
         // gate. Each minor field remains an ordinary explicit selection, so turning
         // the gate off can hide the set without erasing those remembered choices.
-        boolean hasMinorBranch = allRows.stream().anyMatch(state -> state.minorBranch);
-        result.setAllMinorFields(hasMinorBranch ? false : sourceConfig.isAllMinorFields());
         result.minorFieldsVisible(allMinorFieldsBox.isSelected());
         result.getFields().clear();
 
@@ -1183,9 +1163,11 @@ public class ViewConfigEditor extends JPanel {
                 attach = ref.cfg;   // header (from explicit) + inline-checked children
             } else if (ref.classBranch) {
                 attach = ref.explicit == null ? ref.cfg : ref.explicit;
-            } else if (ref.state.cutNote != null && ref.explicit != null) {
-                // The tree did not expand this branch (a cycle or the depth cap), so its
-                // saved config is the only record of what is ticked below it.
+            } else if (ref.explicit != null
+                    && (ref.state.cutNote != null || !hasChildRows(ref.fullPath()))) {
+                // The tree shows no rows below this branch (a cycle, the depth cap, or a
+                // type it cannot enumerate without a sample), so its config is the only
+                // record of what is ticked below it.
                 attach = ref.explicit;
             } else {
                 // A ticked reference whose children are all unticked shows its field
@@ -1208,6 +1190,15 @@ public class ViewConfigEditor extends JPanel {
         }
 
         return result;
+    }
+
+    /** Whether the tree has any row directly below {@code path}. */
+    private boolean hasChildRows(FieldPath path) {
+        for (RowState state : allRows) {
+            FieldPath row = state.row.path();
+            if (row.size() == path.size() + 1 && row.startsWith(path)) return true;
+        }
+        return false;
     }
 
     private record RefEntry(
@@ -1276,8 +1267,8 @@ public class ViewConfigEditor extends JPanel {
         }
 
         result.setCls(source.getCls());
-        result.setAllFields(source.isAllFields());
-        result.setAllMinorFields(source.isAllMinorFields());
+        result.setAllFields(false);   // the editor emits literal configs
+        result.setAllMinorFields(false);
         result.setAddListener(source.isAddListener());
         result.setThumb(source.isThumb());
         result.setAnswerType(source.getAnswerType());

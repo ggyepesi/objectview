@@ -38,8 +38,23 @@ class CollapseGutterTest {
     private static Card cardFor(RenderContext context, Entry root) throws Exception {
         Card[] rendered = new Card[1];
         SwingUtilities.invokeAndWait(() -> rendered[0] =
-                new Card(root, ViewConfig.all(Entry.class), context, false));
+                new Card(root, entryConfig(), context, false));
         return rendered[0];
+    }
+
+    /** Each entry's caption and its steps, two levels deep: a nested entry has a
+     *  caption and a body to expand. */
+    private static ViewConfig entryConfig() {
+        ViewConfig inner = ViewConfig.leaf();
+        inner.addField("@view:display", ViewConfig.leaf());
+        ViewConfig step = ViewConfig.leaf();
+        step.addField("@view:display", ViewConfig.leaf());
+        step.addField("steps", inner);
+        ViewConfig root = ViewConfig.of(Entry.class);
+        root.setAllFields(false);
+        root.addField("@view:display", ViewConfig.leaf());
+        root.addField("steps", step);
+        return root;
     }
 
     private static MouseEvent pressAt(javax.swing.JComponent component, int x) {

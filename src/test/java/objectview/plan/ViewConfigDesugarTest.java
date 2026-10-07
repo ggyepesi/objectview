@@ -43,6 +43,47 @@ class ViewConfigDesugarTest {
                 .getFieldConfig("offices").getFields().isEmpty());
     }
 
+    /** An {@code @Inline} object is part of its owner: the default ticks its own
+     *  fields one level deep, and an object below it gets its DISPLAY alone. A
+     *  referenced object gets its DISPLAY alone. */
+    @Test void theDefaultShowsAnInlineObjectsOwnFieldsAndAReferencesCaption() {
+        TypeShape country = shape(field("title", FieldRole.DISPLAY, false, false));
+        TypeShape name = new TypeShape() {
+            @Override public List<FieldRef> fields() {
+                return List.of(field("givenName", FieldRole.NONE, false, false),
+                        object("country", false));
+            }
+            @Override public TypeShape nested(FieldRef field) {
+                return field.name().equals("country") ? country : null;
+            }
+        };
+        TypeShape person = new TypeShape() {
+            @Override public List<FieldRef> fields() {
+                return List.of(object("structuredName", true), object("citizenship", false));
+            }
+            @Override public TypeShape nested(FieldRef field) {
+                return field.name().equals("structuredName") ? name : country;
+            }
+        };
+
+        ViewConfig defaults = ViewDefaults.newView(person);
+
+        ViewConfig structured = defaults.getFieldConfig("structuredName");
+        assertEquals(List.of("givenName", "country"),
+                List.copyOf(structured.getFields().keySet()));
+        assertEquals(List.of("title"),
+                List.copyOf(structured.getFieldConfig("country").getFields().keySet()),
+                "below the inline object, an object gets its DISPLAY alone");
+        assertEquals(List.of("title"),
+                List.copyOf(defaults.getFieldConfig("citizenship").getFields().keySet()));
+    }
+
+    private static FieldRef object(String name, boolean inline) {
+        return FieldRef.described(name, name, FieldRole.NONE, FieldKind.REFERENCE,
+                FieldKind.REFERENCE, "Object", true, false, null, false, false,
+                inline, inline, false, "", false);
+    }
+
     @Test void anObjectTickedByHandTicksNothingUnderIt() {
         ViewConfig config = ViewConfig.leaf();
         config.addField("offices", ViewConfig.leaf());

@@ -38,6 +38,10 @@ public interface TypeShape {
      * object field or its target is not described. */
     TypeShape nested(FieldRef field);
 
+    /** The declared Java field behind {@code field}, or null for a dynamic or
+     * contract field. Sort reads a numeric Java type off it. */
+    default Field javaField(FieldRef field) { return null; }
+
     /** The field carrying the DISPLAY role at this level, or null. */
     default FieldRef displayField() {
         for (FieldRef field : fields()) {
@@ -102,6 +106,10 @@ public interface TypeShape {
             return out;
         }
 
+        @Override public Field javaField(FieldRef ref) {
+            return ref == null ? null : ViewableAdapter.getField(type, ref.name());
+        }
+
         @Override public TypeShape nested(FieldRef ref) {
             Field field = ref == null ? null : ViewableAdapter.getField(type, ref.name());
             Class<? extends Viewable> target = field == null ? null : viewableTarget(field);
@@ -130,6 +138,10 @@ public interface TypeShape {
         }
 
         @Override public List<FieldRef> fields() { return set().fields(); }
+
+        @Override public Field javaField(FieldRef field) {
+            return field == null ? null : ViewableAdapter.getField(sample.getClass(), field.name());
+        }
 
         @Override public TypeShape nested(FieldRef field) {
             if (field == null) return null;

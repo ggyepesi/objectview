@@ -37,7 +37,7 @@ class MinorBlockRowTest {
 
     private static List<FieldRow> rowsFor(Object sample) {
         return ConfigFieldRowSource.INSTANCE.rows(new FieldRowContext(
-                ViewConfig.all(sample.getClass().asSubclass(objectview.Viewable.class)),
+                ViewConfig.of(sample.getClass().asSubclass(objectview.Viewable.class)),
                 (objectview.Viewable) sample, false, false, Set.of(), null));
     }
 
@@ -57,11 +57,11 @@ class MinorBlockRowTest {
     // editor keeps its bar precisely on that distinction.
     @Test void aDynamicCarrierWithNoSampleCannotAnswerTheMinorQuestion() {
         assertFalse(ConfigFieldRowSource.INSTANCE.minorFieldsDecidable(
-                        new FieldRowContext(ViewConfig.all(Carrier.class), null,
+                        new FieldRowContext(ViewConfig.of(Carrier.class), null,
                                 false, false, Set.of(), null)),
                 "fields on the instance mean the class settles nothing");
         assertTrue(ConfigFieldRowSource.INSTANCE.minorFieldsDecidable(
-                        new FieldRowContext(ViewConfig.all(Plain.class), null,
+                        new FieldRowContext(ViewConfig.of(Plain.class), null,
                                 false, false, Set.of(), null)),
                 "a reflected class declares its own fields, so it answers for itself");
     }
@@ -102,14 +102,14 @@ class MinorBlockRowTest {
 
     @Test void theMinorOnlyTableNeverCarriesTheBlock() {
         List<FieldRow> minorOnly = ConfigFieldRowSource.INSTANCE.rows(new FieldRowContext(
-                ViewConfig.all(Town.class), new Town(), true, false, Set.of(), null));
+                ViewConfig.of(Town.class), new Town(), true, false, Set.of(), null));
         assertFalse(hasBlock(minorOnly),
                 "the minor-only table IS the block's contents — it cannot contain itself");
     }
 
     @Test void hidingTheOnlyMinorFieldRemovesTheBlock() {
         List<FieldRow> hidden = ConfigFieldRowSource.INSTANCE.rows(new FieldRowContext(
-                ViewConfig.all(Town.class), new Town(), false, false,
+                ViewConfig.of(Town.class), new Town(), false, false,
                 Set.of("postcode"), null));
         assertFalse(hasBlock(hidden),
                 "a block over nothing the reader can see is a dead control");
@@ -127,7 +127,7 @@ class MinorBlockRowTest {
 
     @Test void aSchemaDeclaredMinorFieldRaisesTheSameInlineGate() {
         List<FieldRow> rows = ConfigFieldRowSource.INSTANCE.rows(new FieldRowContext(
-                ViewConfig.all(Plain.class), new Plain(), false, false,
+                ViewConfig.of(Plain.class), new Plain(), false, false,
                 Set.of(), new SchemaMinor()));
 
         assertTrue(hasBlock(rows),
@@ -136,7 +136,7 @@ class MinorBlockRowTest {
 
     @Test void theGateAndMinorDetectionShareOneDefinition() {
         FieldRowContext context = new FieldRowContext(
-                ViewConfig.all(Plain.class), new Plain(), false, false,
+                ViewConfig.of(Plain.class), new Plain(), false, false,
                 Set.of(), new SchemaMinor());
 
         assertTrue(ConfigFieldRowSource.INSTANCE.hasMinorFields(context),

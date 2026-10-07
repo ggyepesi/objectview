@@ -12,7 +12,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The leaf paths of a literal config: what a flat layout (a table's columns) shows.
+ * The paths of a literal config. {@link #leaves}: what a flat layout (a table's
+ * columns) shows. {@link #selection}: the value paths a search, sort or quiz key reads.
  * A ticked field with nothing ticked under it is a leaf, an object field alone
  * included (its column shows the field name, rule 3); a ticked object with ticked
  * children contributes its children instead. Read straight off the ticks, so the
@@ -21,6 +22,62 @@ import java.util.Map;
 public final class LiteralPaths {
 
     private LiteralPaths() {}
+
+    /**
+     * The value paths of a field selection (search, sort, quiz key): its shorthand
+     * rewritten by {@link ViewConfigDesugar#selection}, then read straight off the
+     * ticks. A ticked field with ticks below it contributes those; a ticked object
+     * with nothing ticked below it contributes its caption to what is shown but no
+     * value path; any other ticked field is a path. {@code excludeMedia} drops media
+     * fields, which cannot be searched or ordered.
+     */
+    public static List<PathInfo> selection(ViewConfig config, TypeShape shape,
+                                           boolean excludeMedia) {
+        List<PathInfo> out = new ArrayList<>();
+        if (config == null) return out;
+        values(ViewConfigDesugar.isLiteral(config)
+                        ? config : ViewConfigDesugar.selection(config, shape),
+                shape, FieldPath.ROOT, "", excludeMedia, out);
+        java.util.LinkedHashMap<FieldPath, PathInfo> unique = new java.util.LinkedHashMap<>();
+        for (PathInfo path : out) unique.putIfAbsent(path.path(), path);
+        return List.copyOf(unique.values());
+    }
+
+    private static void values(ViewConfig literal, TypeShape shape, FieldPath prefix,
+                               String titlePrefix, boolean excludeMedia,
+                               List<PathInfo> out) {
+        for (Map.Entry<String, ViewConfig> ticked : literal.getFields().entrySet()) {
+            String name = ticked.getKey();
+            FieldRef field = shape == null ? null : field(shape, name);
+            if (excludeMedia && field != null && (field.kind() == FieldKind.MEDIA
+                    || field.valueKind() == FieldKind.MEDIA)) continue;
+            TypeShape nested = field == null ? null : shape.nested(field);
+            FieldPath path = prefix.append(name);
+            String label = field == null
+                    ? objectview.field.ViewableContractFieldSet.label(name) : field.label();
+            String title = titlePrefix.isEmpty() ? label : titlePrefix + "." + label;
+            ViewConfig child = ticked.getValue();
+            if (child != null && !child.getFields().isEmpty()) {
+                values(child, nested, path, title, excludeMedia, out);
+            } else if (nested == null && !objectField(field, child)) {
+                out.add(field == null
+                        ? new PathInfo(title, path, null, FieldKind.UNKNOWN,
+                                objectview.field.ViewableContractFieldSet.DISPLAY_KEY
+                                        .equals(name) ? FieldRole.DISPLAY : FieldRole.NONE)
+                        : new PathInfo(title, path, shape.javaField(field),
+                                field.valueKind(), field.role()));
+            }
+        }
+    }
+
+    /** Whether a ticked field is an object even where its shape could not follow it:
+     * its schema says so, or its child config names an object class. */
+    private static boolean objectField(FieldRef field, ViewConfig child) {
+        if (field != null && (field.reference() || field.embedded()
+                || field.kind() == FieldKind.REFERENCE)) return true;
+        return child != null && child.getCls() != null
+                && objectview.Viewable.class.isAssignableFrom(child.getCls());
+    }
 
     public static List<PathInfo> leaves(ViewConfig literal, TypeShape shape) {
         if (!ViewConfigDesugar.isLiteral(literal)) {

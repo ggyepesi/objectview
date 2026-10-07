@@ -50,7 +50,7 @@ class DynamicCollectionCardTest {
         context.setCollectionExpanded(parent.steps, true);
         javax.swing.SwingUtilities.invokeAndWait(() -> {
             card[0] = new Card(
-                    parent, ViewConfig.all(LiveParent.class), context, false);
+                    parent, liveParentConfig(), context, false);
             card[0].setSize(900, 700);
             layoutTree(card[0]);
         });
@@ -96,7 +96,7 @@ class DynamicCollectionCardTest {
 
         Card[] card = new Card[1];
         javax.swing.SwingUtilities.invokeAndWait(() -> {
-            card[0] = new Card(subject, ViewConfig.all(Superclassed.class),
+            card[0] = new Card(subject, ViewConfig.of(Superclassed.class),
                     context, false);
             card[0].setSize(900, 700);
             layoutTree(card[0]);
@@ -129,7 +129,7 @@ class DynamicCollectionCardTest {
 
         Card[] card = new Card[1];
         javax.swing.SwingUtilities.invokeAndWait(() -> {
-            card[0] = new Card(subject, ViewConfig.all(Superclassed.class),
+            card[0] = new Card(subject, ViewConfig.of(Superclassed.class),
                     context, false);
             card[0].setSize(900, 700);
             layoutTree(card[0]);
@@ -160,7 +160,7 @@ class DynamicCollectionCardTest {
         context.setCollectionExpanded(parent.steps, true);
         javax.swing.SwingUtilities.invokeAndWait(() ->
                 card[0] = new Card(
-                        parent, ViewConfig.all(LiveParent.class), context, false));
+                        parent, liveParentConfig(), context, false));
         assertEquals(200, count(card[0], ReferenceRow.class));
 
         LiveChild next = new LiveChild("request 200", "done");
@@ -188,7 +188,7 @@ class DynamicCollectionCardTest {
         Card[] card = new Card[1];
         javax.swing.SwingUtilities.invokeAndWait(() ->
                 card[0] = new Card(
-                        parent, ViewConfig.all(LiveParent.class),
+                        parent, liveParentConfig(),
                         new RenderContext(), false));
         assertTrue(collectionHeader(card[0], "steps").getToolTipText()
                 .contains("1 items"));
@@ -213,7 +213,7 @@ class DynamicCollectionCardTest {
 
         Card[] card = new Card[1];
         javax.swing.SwingUtilities.invokeAndWait(() ->
-                card[0] = new Card(parent, ViewConfig.all(LiveParent.class), context, false));
+                card[0] = new Card(parent, liveParentConfig(), context, false));
         List<ReferenceRow> before = findAll(card[0], ReferenceRow.class);
         assertEquals(1, before.size());
         TextBlock openedRequest = find(card[0], TextBlock.class);
@@ -252,7 +252,7 @@ class DynamicCollectionCardTest {
 
         Card[] card = new Card[1];
         javax.swing.SwingUtilities.invokeAndWait(() ->
-                card[0] = new Card(thing, ViewConfig.all(DynamicThing.class), false));
+                card[0] = new Card(thing, ViewConfig.of(DynamicThing.class), false));
 
         assertNotNull(find(card[0], CollectionHeader.class),
                 "snapshot-backed collections must retain an expand/collapse chip");
@@ -310,9 +310,6 @@ class DynamicCollectionCardTest {
         stateConfig.addField("languages", languageConfig);
 
         RenderContext context = new RenderContext();
-        // This is the important snapshot condition: State and Language have
-        // different logical schemas but the same runtime adapter class.
-        context.putConfig(state, stateConfig);
         context.setCollectionExpanded(languages, true);
         context.setExpanded(language, true);
 
@@ -335,7 +332,7 @@ class DynamicCollectionCardTest {
 
         ReferenceRow row = new ReferenceRow(
                 "groups", FieldPath.of("groups"), target,
-                new RenderContext(), ViewConfig.all(DynamicThing.class),
+                new RenderContext(), ViewConfig.of(DynamicThing.class),
                 "Vienna", false);
 
         assertEquals("All/Capitals/VI/Vienna",
@@ -383,7 +380,7 @@ class DynamicCollectionCardTest {
 
         Card[] card = new Card[1];
         javax.swing.SwingUtilities.invokeAndWait(() -> {
-            card[0] = new Card(value, ViewConfig.all(DynamicThing.class), context, false);
+            card[0] = new Card(value, ViewConfig.of(DynamicThing.class), context, false);
             card[0].setSize(260, 120);
             layoutTree(card[0]);
         });
@@ -528,6 +525,19 @@ class DynamicCollectionCardTest {
                 collect(child, type, result);
             }
         }
+    }
+
+
+    /** Every step's caption and request ticked: each virtualized row is a caption
+     *  chip with a body. */
+    private static ViewConfig liveParentConfig() {
+        ViewConfig step = ViewConfig.leaf();
+        step.addField("@view:display", ViewConfig.leaf());
+        step.addField("request", ViewConfig.leaf());
+        ViewConfig parent = ViewConfig.of(LiveParent.class);
+        parent.setAllFields(false);
+        parent.addField("steps", step);
+        return parent;
     }
 
     /** A plain @Reference collection — the path that is not @Inline. */

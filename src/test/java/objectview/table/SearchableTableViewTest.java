@@ -101,8 +101,8 @@ class SearchableTableViewTest {
         config.setAllFields(false);
         config.addField("facts", ViewConfig.leaf());
         List<ViewableFieldPaths.PathInfo> paths =
-                ViewableFieldPaths.collectFromSample(
-                        item, config, ViewableFieldPaths.ALL_FIELDS);
+                selectedPaths(
+                        item, config, false);
 
         Map<ViewableFieldPaths.PathInfo, List<objectview.Viewable>> hits =
                 new SearchAndSort().searchViewablesByPath(
@@ -530,5 +530,32 @@ class SearchableTableViewTest {
             super(name);
             this.extra = extra;
         }
+    }
+
+    // The selection's value paths (LiteralPaths.selection) against a class, sample or
+    // schema shape; the old collectors each read the shorthand themselves.
+    private static java.util.List<objectview.field.ViewableFieldPaths.PathInfo> selectedPaths(
+            objectview.viewconfig.ViewConfig config, boolean excludeMedia) {
+        return objectview.plan.LiteralPaths.selection(config,
+                objectview.plan.TypeShape.ofClass(config.getCls()), excludeMedia);
+    }
+
+    private static java.util.List<objectview.field.ViewableFieldPaths.PathInfo> selectedPaths(
+            objectview.Viewable sample, objectview.viewconfig.ViewConfig config,
+            boolean excludeMedia) {
+        return objectview.plan.LiteralPaths.selection(config,
+                objectview.plan.TypeShape.ofSample(sample, null), excludeMedia);
+    }
+
+    private static java.util.List<objectview.field.ViewableFieldPaths.PathInfo> selectedPaths(
+            objectview.viewconfig.ViewConfig config,
+            objectview.viewconfig.FieldTypeSource schema, boolean excludeMedia) {
+        return objectview.plan.LiteralPaths.selection(config,
+                objectview.plan.TypeShape.of(schema), excludeMedia);
+    }
+
+    private static java.util.List<objectview.field.ViewableFieldPaths.PathInfo> selectedPaths(
+            objectview.viewconfig.ViewConfig config) {
+        return selectedPaths(config, true);
     }
 }

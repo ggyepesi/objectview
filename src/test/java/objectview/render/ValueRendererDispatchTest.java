@@ -59,7 +59,7 @@ class ValueRendererDispatchTest {
      * and unclickable text in CARD mode — one view-mode toggle apart, same data.
      */
     @Test void aCardShowsWhatTheValueDenotesRatherThanItsText() {
-        Card card = new Card(new Linked(), ViewConfig.all(Linked.class),
+        Card card = new Card(new Linked(), ViewConfig.of(Linked.class),
                 new RenderContext(List.of()), false);
 
         assertNotNull(find(card, ImagePane.class),
@@ -74,7 +74,7 @@ class ValueRendererDispatchTest {
         Illustrated illustrated = new Illustrated();
         RenderContext context = new RenderContext(List.of(illustrated));
         context.setCollectionExpanded(illustrated.image, true);
-        Card card = new Card(illustrated, ViewConfig.all(Illustrated.class),
+        Card card = new Card(illustrated, ViewConfig.of(Illustrated.class),
                 context, false);
 
         assertNotNull(find(card, ImagePane.class),

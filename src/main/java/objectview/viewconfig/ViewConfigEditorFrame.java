@@ -76,7 +76,6 @@ public class ViewConfigEditorFrame extends JFrame {
 
     private void saveJson() {
         ViewConfig config = editor.getConfig();
-        config.clearCache();
 
         java.io.File file =
                 ViewConfigJsonIO.defaultFileFor(sample.getClass());
@@ -108,7 +107,6 @@ public class ViewConfigEditorFrame extends JFrame {
 
     private void refreshPreview() {
         ViewConfig config = editor.getConfig();
-        config.clearCache();
 
         previewPanel.removeAll();
 

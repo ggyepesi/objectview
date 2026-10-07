@@ -24,7 +24,7 @@ class MediaCollectionCardTest {
         Gallery gallery = new Gallery(List.of(
                 image("one"), image("two"), image("three")));
 
-        Card card = new Card(gallery, ViewConfig.all(Gallery.class), false);
+        Card card = new Card(gallery, ViewConfig.of(Gallery.class), false);
 
         List<CollectionHeader> headers = descendants(card, CollectionHeader.class);
         assertEquals(1, headers.size());
@@ -39,7 +39,7 @@ class MediaCollectionCardTest {
     void oneImageRemainsImmediatelyVisibleInsideItsCountedCollection() {
         Gallery gallery = new Gallery(List.of(image("only")));
 
-        Card card = new Card(gallery, ViewConfig.all(Gallery.class), false);
+        Card card = new Card(gallery, ViewConfig.of(Gallery.class), false);
 
         List<CollectionHeader> headers = descendants(card, CollectionHeader.class);
         assertEquals(1, headers.size());
@@ -55,7 +55,7 @@ class MediaCollectionCardTest {
         context.setCollectionExpanded(gallery.images, true);
 
         Card card = new Card(
-                gallery, ViewConfig.all(Gallery.class), context, false);
+                gallery, ViewConfig.of(Gallery.class), context, false);
 
         List<CollectionHeader> headers = descendants(card, CollectionHeader.class);
         assertEquals(1, headers.size());

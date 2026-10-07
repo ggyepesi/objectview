@@ -68,9 +68,10 @@ public class TableRenderBenchmark {
 
         long b0 = System.nanoTime();
         ViewableColumnsView table = new ViewableColumnsView(items, ctx,
-                () -> ViewableFieldPaths.collectFromSample(
-                        columnSample, objectview.viewconfig.ViewConfig.all(Item.class),
-                        ViewableFieldPaths.ALL_FIELDS));
+                () -> objectview.plan.LiteralPaths.leaves(
+                        objectview.plan.ViewDefaults.newView(
+                                objectview.plan.TypeShape.ofSample(columnSample, null)),
+                        objectview.plan.TypeShape.ofSample(columnSample, null)));
         long buildMs = ms(b0);
 
         SearchPanel engine = new SearchPanel(Item.class);

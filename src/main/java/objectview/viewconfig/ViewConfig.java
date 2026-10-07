@@ -1,12 +1,8 @@
 package objectview.viewconfig;
 
 import objectview.Viewable;
-import objectview.ViewableAdapter;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class ViewConfig {
 
@@ -16,9 +12,6 @@ public class ViewConfig {
     // these; reopening/rebuilding an editor can restore the exact child choices.
     private final Map<String, ViewConfig> rememberedFields = new LinkedHashMap<>();
     private Class<? extends Viewable> cls;
-
-    private transient final Map<Class<?>, List<Field>> visibleFieldsCache =
-            new ConcurrentHashMap<>();
 
     // Means: include all non-minor fields by default.
     private boolean allFields = true;
@@ -42,12 +35,10 @@ public class ViewConfig {
         return c;
     }
 
-    public static ViewConfig all(Class<? extends Viewable> cls) {
-        return of(cls).initializeAllFields(true);
-    }
-
+    /** The full default as shorthand: every field, minor ones included. It is
+     * rewritten into ticks where it enters ({@code ViewConfigDesugar}). */
     public static ViewConfig allWithMinorFields(Class<? extends Viewable> cls) {
-        return of(cls).setAllMinorFields(true).initializeAllFields(true);
+        return of(cls).setAllMinorFields(true);
     }
 
     public static ViewConfig leaf() {
@@ -79,126 +70,6 @@ public class ViewConfig {
         return c;
     }
 
-    public ViewConfig initializeAllFields(boolean force) {
-        if (cls == null) {
-            return this;
-        }
-
-        if (!allFields && !force) {
-            return this;
-        }
-
-        for (Field f : ViewableAdapter.getAllFields(cls)) {
-            if (Modifier.isStatic(f.getModifiers())) {
-                continue;
-            }
-
-            if (ViewableAdapter.isMinorField(f) && !allMinorFields) {
-                continue;
-            }
-
-            if (fields.containsKey(f.getName())) {
-                continue;
-            }
-
-            fields.put(f.getName(), defaultChildConfigForField(f));
-        }
-
-        return this;
-    }
-
-    public void clearCache() {
-        visibleFieldsCache.clear();
-
-        for (ViewConfig child : fields.values()) {
-            if (child != null) {
-                child.clearCache();
-            }
-        }
-        for (ViewConfig child : rememberedFields.values()) {
-            if (child != null) child.clearCache();
-        }
-    }
-
-    private ViewConfig defaultChildConfigForField(Field f) {
-        if (Viewable.class.isAssignableFrom(f.getType())) {
-            @SuppressWarnings("unchecked") Class<? extends Viewable> sub = (Class<? extends Viewable>) f.getType();
-
-            return ViewConfig.of(sub);
-        }
-
-        return new ViewConfig();
-    }
-
-    /**
-     * Central display rule:
-     * <p>
-     * - explicitly configured field: show
-     * - normal field + allFields: show
-     * - minor field + allMinorFields: show
-     * - minor field + only allFields: hide
-     */
-    public boolean showsField(Field field) {
-        if (field == null) {
-            return false;
-        }
-
-        String name = field.getName();
-
-        if (fields.containsKey(name)) {
-            return true;
-        }
-
-        boolean minor = ViewableAdapter.isMinorField(field);
-
-        return minor ? allMinorFields : allFields;
-    }
-
-    /** Show-decision by field NAME — for a dynamic (map-held) field with no
-     *  declared {@link Field} (no minor-field concept). */
-    public boolean showsFieldByName(String name) {
-        return name != null && (fields.containsKey(name) || allFields);
-    }
-
-    /**
-     * Returns a configuration suitable for rendering a child field.
-     * Child parameters override the parent, but display flags cascade down.
-     */
-    public ViewConfig mergedForChild(ViewConfig child) {
-        if (child == null) {
-            ViewConfig merged = new ViewConfig();
-
-            merged.cls = this.cls;
-            merged.allFields = this.allFields;
-            merged.allMinorFields = this.allMinorFields;
-            merged.addListener = this.addListener;
-            merged.thumb = this.thumb;
-            merged.answerType = this.answerType;
-
-            for (Map.Entry<String, ViewConfig> e : this.fields.entrySet()) {
-                merged.fields.put(e.getKey(), e.getValue().copy());
-            }
-
-            return merged;
-        }
-
-        ViewConfig merged = child.copy();
-
-        if (merged.getCls() == null) {
-            merged.cls = this.cls;
-        }
-
-        merged.setAddListener(merged.isAddListener() || this.isAddListener());
-        merged.setThumb(merged.isThumb() || this.isThumb());
-        merged.setBlurImages(merged.isBlurImages() || this.isBlurImages());
-
-        if (merged.getAnswerType() == AnswerType.AUTO) {
-            merged.setAnswerType(this.getAnswerType());
-        }
-
-        return merged;
-    }
-
     /** Adds explicitly selected fields from a subtype configuration while retaining
      * this configuration's base-field choices and display flags. */
     public ViewConfig withAdditionalFields(ViewConfig additional) {
@@ -207,7 +78,6 @@ public class ViewConfig {
         for (Map.Entry<String, ViewConfig> entry : additional.fields.entrySet()) {
             merged.fields.put(entry.getKey(), entry.getValue().copy());
         }
-        merged.allMinorFields |= additional.allMinorFields;
         return merged;
     }
 
@@ -307,24 +177,6 @@ public class ViewConfig {
 
     public void setAnswerType(AnswerType t) {
         answerType = t;
-    }
-
-    public List<Field> visibleFieldsFor(Class<?> cls) {
-        if (cls == null) {
-            return List.of();
-        }
-
-        return visibleFieldsCache.computeIfAbsent(cls, c -> {
-            List<Field> result = new ArrayList<>();
-
-            for (Field field : ViewableAdapter.getAllFields(c)) {
-                if (showsField(field)) {
-                    result.add(field);
-                }
-            }
-
-            return Collections.unmodifiableList(result);
-        });
     }
 
     @Override

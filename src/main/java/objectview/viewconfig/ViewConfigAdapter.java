@@ -21,7 +21,7 @@ public final class ViewConfigAdapter {
         Class<? extends Viewable> cls = q.getClass();
 
         if (expand) {
-            return ViewConfig.all(cls)
+            return ViewConfig.of(cls)
                              .setAddListener(true)
                              .setThumb(showImages);
         }
@@ -48,7 +48,7 @@ public final class ViewConfigAdapter {
         if (value instanceof Collection<?> collection) {
             for (Object item : collection) {
                 if (item instanceof Viewable q) {
-                    return ViewConfig.all(q.getClass());
+                    return ViewConfig.of(q.getClass());
                 }
             }
             return ViewConfig.leaf();
@@ -57,7 +57,7 @@ public final class ViewConfigAdapter {
         if (value instanceof Map<?, ?> map) {
             for (Object item : map.values()) {
                 if (item instanceof Viewable q) {
-                    return ViewConfig.all(q.getClass());
+                    return ViewConfig.of(q.getClass());
                 }
             }
             return ViewConfig.leaf();

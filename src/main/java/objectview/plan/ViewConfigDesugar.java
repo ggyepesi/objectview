@@ -3,11 +3,10 @@ package objectview.plan;
 import objectview.field.FieldRef;
 import objectview.field.FieldRole;
 import objectview.field.ViewableContractFieldSet;
-import objectview.viewconfig.ConfiguredFieldSelection;
 import objectview.viewconfig.ViewConfig;
 
 import java.util.Map;
-import java.util.function.Function;
+import java.util.function.BiFunction;
 
 /**
  * The only reader of ViewConfig shorthand (directive 24). Rewrites {@code allFields},
@@ -18,7 +17,7 @@ import java.util.function.Function;
  * the ticked fields under their real names, and each ticked object field carries its
  * own literal child config, possibly empty. Shorthand is how a default is written, so
  * what it includes is what a new config ticks. In a View an object it includes gets
- * {@link ViewDefaults#implicitObject}, its DISPLAY; in a field selection (search, sort,
+ * {@link ViewDefaults#implicitObject}; in a field selection (search, sort,
  * quiz key) it gets an empty child, since a nested value enters a key only when the
  * user ticks it. Ticking an object by hand never ticks its children.
  */
@@ -36,11 +35,13 @@ public final class ViewConfigDesugar {
     /** The literal form of a field selection (search, sort, quiz key): an object the
      * shorthand includes has nothing ticked under it. */
     public static ViewConfig selection(ViewConfig config, TypeShape shape) {
-        return literal(config, shape, nested -> ViewConfig.leaf());
+        return literal(config, shape, (field, nested) -> ViewConfig.leaf());
     }
 
-    private static ViewConfig literal(ViewConfig config, TypeShape shape,
-                                      Function<TypeShape, ViewConfig> implicit) {
+    /** The literal form with {@code implicit} deciding the child of an object the
+     * shorthand includes. */
+    static ViewConfig literal(ViewConfig config, TypeShape shape,
+                              BiFunction<FieldRef, TypeShape, ViewConfig> implicit) {
         ViewConfig out = header(config);
         if (config == null) return out;
 
@@ -81,16 +82,17 @@ public final class ViewConfigDesugar {
         return true;
     }
 
+    /** What "all fields" and "all minor fields" include: every non-structural,
+     * non-IDENTITY field, a minor one only with the minor switch. */
     private static boolean includedByShorthand(ViewConfig config, FieldRef field) {
         if (field.structural() || field.role() == FieldRole.IDENTITY) return false;
-        return ConfiguredFieldSelection.selected(
-                field, config.isAllFields(), config.isAllMinorFields(), java.util.Set.of());
+        return field.minor() ? config.isAllMinorFields() : config.isAllFields();
     }
 
     private static ViewConfig child(ViewConfig explicit, FieldRef field, TypeShape shape,
-                                    Function<TypeShape, ViewConfig> implicit) {
+                                    BiFunction<FieldRef, TypeShape, ViewConfig> implicit) {
         TypeShape nested = field == null || shape == null ? null : shape.nested(field);
-        if (explicit == null) return implicit.apply(nested);
+        if (explicit == null) return implicit.apply(field, nested);
         return literal(explicit, nested, implicit);
     }
 
