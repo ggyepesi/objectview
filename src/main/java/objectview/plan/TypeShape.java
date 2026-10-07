@@ -7,6 +7,7 @@ import objectview.field.FieldRef;
 import objectview.field.FieldRole;
 import objectview.field.FieldSchema;
 import objectview.field.FieldSet;
+import objectview.field.RecordTypes;
 import objectview.field.ReflectionFieldSet;
 import objectview.field.ViewableContractFieldSet;
 import objectview.viewconfig.FieldTypeSource;
@@ -50,6 +51,47 @@ public interface TypeShape {
         return null;
     }
 
+    /** {@code fields} (first of each name kept) with the contract fields when no real
+     * field carries DISPLAY — the one rule every shape follows, as an object's field set
+     * does. */
+    private static List<FieldRef> withContractFields(List<FieldRef> fields) {
+        Map<String, FieldRef> out = new java.util.LinkedHashMap<>();
+        for (FieldRef field : fields) out.putIfAbsent(field.name(), field);
+        boolean display = out.values().stream().anyMatch(field ->
+                field.role() == FieldRole.DISPLAY
+                        && !field.name().equals(ViewableContractFieldSet.DISPLAY_KEY));
+        if (display) out.remove(ViewableContractFieldSet.DISPLAY_KEY);
+        else for (FieldRef contract : ViewableContractFieldSet.fieldRefs()) {
+            out.putIfAbsent(contract.name(), contract);
+        }
+        return new ArrayList<>(out.values());
+    }
+
+    /** {@code shape} as the field editors read a domain schema: one row per field,
+     * each object field expanding into its declared target type's shape. */
+    static FieldTypeSource fieldTypes(TypeShape shape) {
+        if (shape == null) return null;
+        return new FieldTypeSource() {
+            @Override public FieldTypeInfo field(String name) {
+                for (FieldRef field : shape.fields()) {
+                    if (!field.name().equals(name)) continue;
+                    TypeShape nested = shape.nested(field);
+                    String target = field.targetType() != null && !field.targetType().isBlank()
+                            ? field.targetType() : field.typeLabel();
+                    return new FieldTypeInfo(field.typeLabel(), field.structural(),
+                            field.minor(), nested == null ? null : target,
+                            fieldTypes(nested), field.label(), field.role(),
+                            field.kind(), field.valueKind(), field.embedded());
+                }
+                return null;
+            }
+
+            @Override public List<String> fieldNames() {
+                return shape.fields().stream().map(FieldRef::name).toList();
+            }
+        };
+    }
+
     /** A domain schema, as the field editors receive it. */
     static TypeShape of(FieldTypeSource source) {
         return source == null ? null : new SchemaShape(source);
@@ -60,10 +102,28 @@ public interface TypeShape {
         return type == null ? null : new ClassShape(type);
     }
 
-    /** A sample instance read through its schema; nested shapes come from the sample's
-     * own values. */
-    static TypeShape ofSample(Viewable sample, Function<Viewable, FieldSchema> schemas) {
-        return sample == null ? null : new SampleShape(sample, schemas);
+    /**
+     * The type of {@code value}: its schema ({@code schema}, else the one a dynamic
+     * value carries) together with what its Java class declares — never the values it
+     * holds. A nested shape is the field's declared target type, looked up in
+     * {@code byType}; with no schema the value's class is reflected.
+     */
+    static TypeShape of(Viewable value, FieldSchema schema,
+                        Function<String, FieldSchema> byType) {
+        if (value == null) return null;
+        FieldSchema effective = schema != null ? schema : FieldSet.carriedSchema(value);
+        return effective == null ? ofClass(value.getClass())
+                : new SchemaTypeShape(effective, value.getClass(),
+                        !FieldSet.declaresItsFields(value), byType);
+    }
+
+    /** The declared type {@code typeName}, from its schema (a domain's, else a runtime
+     * record type's declaration); null when it has none. */
+    static TypeShape ofType(String typeName, Function<String, FieldSchema> byType) {
+        if (typeName == null) return null;
+        FieldSchema schema = byType == null ? null : byType.apply(typeName);
+        if (schema == null) schema = RecordTypes.schema(typeName);
+        return schema == null ? null : new SchemaTypeShape(schema, null, false, byType);
     }
 
     record SchemaShape(FieldTypeSource source) implements TypeShape {
@@ -78,9 +138,10 @@ public interface TypeShape {
                         kind, valueKind, info.typeLabel(), info.nested() != null,
                         kind == FieldKind.COLLECTION, info.nestedClassName(),
                         info.structural(), info.minor(),
-                        false, false, false, "", false));
+                        info.embedded(), info.embedded(),
+                        false, "", false));
             }
-            return out;
+            return withContractFields(out);
         }
 
         @Override public TypeShape nested(FieldRef field) {
@@ -131,33 +192,41 @@ public interface TypeShape {
         }
     }
 
-    record SampleShape(Viewable sample, Function<Viewable, FieldSchema> schemas)
-            implements TypeShape {
-        private FieldSet set() {
-            return FieldSet.of(sample, schemas == null ? null : schemas.apply(sample));
+    /**
+     * A schema's fields, with the role and link fields its Java class declares (for a
+     * dynamic value, whose other class fields are storage) and the contract fields when
+     * nothing carries DISPLAY. A field the schema declares nests into its target type's
+     * schema; a field only the class declares nests through the class.
+     */
+    record SchemaTypeShape(FieldSchema schema, Class<?> declaring, boolean dynamic,
+                           Function<String, FieldSchema> byType) implements TypeShape {
+        @Override public List<FieldRef> fields() {
+            List<FieldRef> out = new ArrayList<>(schema.fields());
+            if (declaring != null && Viewable.class.isAssignableFrom(declaring)) {
+                for (FieldRef field : classShape().fields()) {
+                    if (dynamic && !(field.link() || field.role() != FieldRole.NONE)) continue;
+                    out.add(field);
+                }
+            }
+            return withContractFields(out);
         }
 
-        @Override public List<FieldRef> fields() { return set().fields(); }
-
         @Override public Field javaField(FieldRef field) {
-            return field == null ? null : ViewableAdapter.getField(sample.getClass(), field.name());
+            return field == null || declaring == null
+                    ? null : ViewableAdapter.getField(declaring, field.name());
         }
 
         @Override public TypeShape nested(FieldRef field) {
             if (field == null) return null;
-            Object value = set().read(field.name());
-            Viewable target = firstViewable(value);
-            return target == null ? null : TypeShape.ofSample(target, schemas);
+            if (schema.field(field.name()) != null) {
+                return TypeShape.ofType(field.targetType(), byType);
+            }
+            return declaring == null ? null : classShape().nested(field);
         }
 
-        private static Viewable firstViewable(Object value) {
-            if (value instanceof Viewable viewable) return viewable;
-            Iterable<?> items = value instanceof Collection<?> collection ? collection
-                    : value instanceof Map<?, ?> map ? map.values() : List.of();
-            for (Object item : items) {
-                if (item instanceof Viewable viewable) return viewable;
-            }
-            return null;
+        @SuppressWarnings("unchecked")
+        private ClassShape classShape() {
+            return new ClassShape((Class<? extends Viewable>) declaring);
         }
     }
 }

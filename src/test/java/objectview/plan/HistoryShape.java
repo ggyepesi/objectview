@@ -51,9 +51,14 @@ final class HistoryShape {
         return office;
     }
 
-    /** The authoritative schema of each logical type, as the domain supplies it. */
+    /** The authoritative schema of an object: its logical type's. */
     static FieldSchema schema(Viewable value) {
-        return switch (value.typeName()) {
+        return schemaOf(value.typeName());
+    }
+
+    /** The authoritative schema of each logical type, as the domain supplies it. */
+    static FieldSchema schemaOf(String type) {
+        return switch (type) {
             case "Person" -> () -> List.of(
                     display("name"),
                     objects("offices", "OfficeHolding"),
@@ -73,7 +78,7 @@ final class HistoryShape {
     }
 
     TypeShape shape(Thing sample) {
-        return TypeShape.ofSample(sample, HistoryShape::schema);
+        return TypeShape.of(sample, schema(sample), HistoryShape::schemaOf);
     }
 
     private static FieldRef display(String name) {

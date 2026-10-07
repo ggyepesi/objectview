@@ -39,11 +39,22 @@ public interface FieldTypeSource {
      *                         dialog caption (or null — falls back to the sample class)
      * @param nested           the source for the referenced object's fields (or null)
      */
+    /** {@code embedded}: an {@code @Inline} object, shown in place as part of its
+     * owner. */
     record FieldTypeInfo(String typeLabel, boolean structural, boolean minor,
                          String nestedClassName, FieldTypeSource nested,
                          String label, objectview.field.FieldRole role,
                          objectview.field.FieldKind kind,
-                         objectview.field.FieldKind valueKind) {
+                         objectview.field.FieldKind valueKind,
+                         boolean embedded) {
 
+        public FieldTypeInfo(String typeLabel, boolean structural, boolean minor,
+                             String nestedClassName, FieldTypeSource nested,
+                             String label, objectview.field.FieldRole role,
+                             objectview.field.FieldKind kind,
+                             objectview.field.FieldKind valueKind) {
+            this(typeLabel, structural, minor, nestedClassName, nested, label, role,
+                    kind, valueKind, false);
+        }
     }
 }

@@ -89,6 +89,33 @@ public class RenderContext {
         fieldSchemaResolver = resolver == null ? ignored -> null : resolver;
     }
 
+    // The schema of a declared type, by name: what a nested field's target type is.
+    // An object's own schema comes from fieldSchemaResolver (its most specific class);
+    // the types its fields lead to are looked up here, never read off their values.
+    private java.util.function.Function<String, FieldSchema>
+            typeSchemaResolver = ignored -> null;
+
+    public void setTypeSchemaResolver(
+            java.util.function.Function<String, FieldSchema> resolver) {
+        typeSchemaResolver = resolver == null ? ignored -> null : resolver;
+    }
+
+    /** One domain schema for both questions: an object's schema is its type's. */
+    public void setSchemas(java.util.function.Function<String, FieldSchema> byType) {
+        setTypeSchemaResolver(byType);
+        setFieldSchemaResolver(byType == null ? null : value -> byType.apply(value.typeName()));
+    }
+
+    public FieldSchema typeSchema(String typeName) {
+        return typeName == null ? null : typeSchemaResolver.apply(typeName);
+    }
+
+    /** The shape a config of {@code value} is rewritten against: its schema and the
+     * schemas of the types its fields lead to, never its values. */
+    public objectview.plan.TypeShape shape(Viewable value) {
+        return objectview.plan.TypeShape.of(value, fieldSchema(value), this::typeSchema);
+    }
+
     private objectview.plan.RenderExecutor executor;
 
     /**
@@ -815,6 +842,7 @@ public class RenderContext {
     public RenderContext detachedDetailContext() {
         RenderContext detail = new RenderContext();
         detail.fieldSchemaResolver = fieldSchemaResolver;
+        detail.typeSchemaResolver = typeSchemaResolver;
         detail.cardDecorator = cardDecorator;
         detail.valueLinker = valueLinker;
         return detail;

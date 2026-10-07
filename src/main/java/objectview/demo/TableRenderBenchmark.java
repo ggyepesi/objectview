@@ -70,8 +70,8 @@ public class TableRenderBenchmark {
         ViewableColumnsView table = new ViewableColumnsView(items, ctx,
                 () -> objectview.plan.LiteralPaths.leaves(
                         objectview.plan.ViewDefaults.newView(
-                                objectview.plan.TypeShape.ofSample(columnSample, null)),
-                        objectview.plan.TypeShape.ofSample(columnSample, null)));
+                                objectview.plan.TypeShape.ofClass(Item.class)),
+                        objectview.plan.TypeShape.ofClass(Item.class)));
         long buildMs = ms(b0);
 
         SearchPanel engine = new SearchPanel(Item.class);

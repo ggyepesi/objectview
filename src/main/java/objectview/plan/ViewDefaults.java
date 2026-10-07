@@ -35,6 +35,10 @@ public final class ViewDefaults {
             return ViewConfigDesugar.literal(everything, nested,
                     (inner, innerShape) -> displayOnly(innerShape));
         }
+        if (nested == null && field != null && (field.reference()
+                || field.kind() == objectview.field.FieldKind.REFERENCE)) {
+            return anyObjectDisplay();
+        }
         return displayOnly(nested);
     }
 
@@ -42,6 +46,14 @@ public final class ViewDefaults {
         ViewConfig child = ViewConfig.leaf();
         FieldRef display = nested == null ? null : nested.displayField();
         if (display != null) child.addField(display.name(), ViewConfig.leaf());
+        return child;
+    }
+
+    /** The child of a reference whose target type is not declared (it may be any
+     * object): every object has a DISPLAY, named by the contract alias. */
+    private static ViewConfig anyObjectDisplay() {
+        ViewConfig child = ViewConfig.leaf();
+        child.addField(objectview.field.ViewableContractFieldSet.DISPLAY_KEY, ViewConfig.leaf());
         return child;
     }
 }

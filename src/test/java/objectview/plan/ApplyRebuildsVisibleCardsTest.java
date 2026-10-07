@@ -36,6 +36,7 @@ class ApplyRebuildsVisibleCardsTest {
 
         RenderContext context = new RenderContext(List.of(h.wigmund));
         context.setFieldSchemaResolver(HistoryShape::schema);
+        context.setTypeSchemaResolver(HistoryShape::schemaOf);
         context.setCollectionExpanded(h.wigmund.dynamicFieldValues().get("offices"), true);
         SearchableView[] built = new SearchableView[1];
         JComponent[] before = new JComponent[1];

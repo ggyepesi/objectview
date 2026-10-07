@@ -285,6 +285,25 @@ public class ViewConfigEditor extends JPanel {
         fireConfigChanged();
     }
 
+    // The schemas the sample's type is read from when no field-type source is given:
+    // the sample's own schema and a declared type's by name (a nested field's target).
+    private java.util.function.Function<Viewable, objectview.field.FieldSchema>
+            valueSchemas = value -> null;
+    private java.util.function.Function<String, objectview.field.FieldSchema>
+            typeSchemas = type -> null;
+
+    /** The schemas behind the sample: an instance's own and a declared type's by name.
+     * The entered config is rewritten against them, as for {@link #setFieldTypes}. */
+    public void setSchemas(
+            java.util.function.Function<Viewable, objectview.field.FieldSchema> valueSchemas,
+            java.util.function.Function<String, objectview.field.FieldSchema> typeSchemas) {
+        this.valueSchemas = valueSchemas == null ? value -> null : valueSchemas;
+        this.typeSchemas = typeSchemas == null ? type -> null : typeSchemas;
+        sourceConfig = literal(enteredConfig == null ? sourceConfig : enteredConfig);
+        // The rows were read without these schemas; their states are not the config's.
+        rebuildRows(false);
+    }
+
     public void setFieldTypes(FieldTypeSource source) {
         typeSource = source;
         // The schema can name the DISPLAY field and fields a sample did not carry:
@@ -322,7 +341,10 @@ public class ViewConfigEditor extends JPanel {
         if (typeSource != null && !typeSource.fieldNames().isEmpty()) {
             return objectview.plan.TypeShape.of(typeSource);
         }
-        if (sample != null) return objectview.plan.TypeShape.ofSample(sample, null);
+        // The sample names its type; its schema (or class) is the shape, never its values.
+        if (sample != null) {
+            return objectview.plan.TypeShape.of(sample, valueSchemas.apply(sample), typeSchemas);
+        }
         return config == null || config.getCls() == null
                 ? null : objectview.plan.TypeShape.ofClass(config.getCls());
     }
@@ -480,6 +502,15 @@ public class ViewConfigEditor extends JPanel {
     }
 
     private FieldRowContext rowContext() {
+        // A dynamic sample's values never say what fields exist: its rows come from its
+        // type's schema, exactly as a domain schema's do. A declared class's fields are
+        // its class's own.
+        if ((typeSource == null || typeSource.fieldNames().isEmpty())
+                && sample != null && !objectview.field.FieldSet.declaresItsFields(sample)) {
+            return new FieldRowContext(sourceConfig, null, minorOnly, hideMedia,
+                    hiddenFields, objectview.plan.TypeShape.fieldTypes(
+                            editorShape(sourceConfig)));
+        }
         return new FieldRowContext(
                 sourceConfig,
                 sample,

@@ -344,8 +344,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
         // still carries shorthand; an absent one ticks nothing under the field (rule 9).
         ViewConfig child = fieldConfig == null ? ViewConfig.leaf()
                 : ViewConfigDesugar.isLiteral(fieldConfig) ? fieldConfig
-                : ViewConfigDesugar.literal(fieldConfig, TypeShape.ofSample(
-                        owner, renderer.renderContext::fieldSchema).nested(field));
+                : ViewConfigDesugar.literal(fieldConfig,
+                        renderer.renderContext.shape(owner).nested(field));
         ObjectPlan.FieldPlan plan = new ObjectPlan.FieldPlan(
                 field, PlanResolver.representation(field), child);
         Set<Object> ancestors = identitySetOf();
@@ -605,8 +605,9 @@ public class Card extends JPanel implements RenderedInstanceHost {
     private static ViewConfig literal(Viewable viewable, ViewConfig config,
                                       RenderContext context) {
         if (config != null && ViewConfigDesugar.isLiteral(config)) return config;
-        TypeShape shape = viewable == null
-                ? null : TypeShape.ofSample(viewable, context::fieldSchema);
+        TypeShape shape = viewable == null ? null
+                : context == null ? TypeShape.of(viewable, null, null)
+                : context.shape(viewable);
         return config == null
                 ? ViewDefaults.newView(shape) : ViewConfigDesugar.literal(config, shape);
     }

@@ -294,7 +294,10 @@ class ViewableFieldPathsTest {
 
         Set<String> paths = pathStrings(selectedPaths(
                 nested, root, true));
-        assertEquals(Set.of("category.code"), paths);
+        // Category declares no DISPLAY, so "all fields" includes its contract one, as
+        // for a reflected class: every shape follows the same contract-field rule.
+        assertEquals(Set.of("category.code",
+                "category." + ViewableContractFieldSet.DISPLAY_KEY), paths);
     }
 
     private static FieldTypeSource source(List<FieldRef> refs) {
@@ -333,7 +336,7 @@ class ViewableFieldPathsTest {
             objectview.Viewable sample, objectview.viewconfig.ViewConfig config,
             boolean excludeMedia) {
         return objectview.plan.LiteralPaths.selection(config,
-                objectview.plan.TypeShape.ofSample(sample, null), excludeMedia);
+                objectview.plan.TypeShape.of(sample, null, null), excludeMedia);
     }
 
     private static java.util.List<objectview.field.ViewableFieldPaths.PathInfo> selectedPaths(

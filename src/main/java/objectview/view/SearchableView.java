@@ -50,6 +50,7 @@ public final class SearchableView extends JPanel {
         this.context = b.context == null ? new RenderContext() : b.context;
         if (b.collapsible != null) context.setCollapsibleCards(b.collapsible);
         if (b.fieldSchemas != null) context.setFieldSchemaResolver(b.fieldSchemas);
+        if (b.typeSchemas != null) context.setTypeSchemaResolver(b.typeSchemas);
         if (b.cardDecorator != null) context.setCardDecorator(b.cardDecorator);
         if (b.valueLinker != null) context.setValueLinker(b.valueLinker);
         removeActivationRegistration = context.addActivationHandler(
@@ -89,7 +90,8 @@ public final class SearchableView extends JPanel {
             return;
         }
 
-        search = new SearchPanel(type, b.sample, b.configState, b.subtypeConfigs, b.fieldTypes);
+        search = new SearchPanel(type, b.sample, b.configState, b.subtypeConfigs, b.fieldTypes,
+                context);
         // Rendering, table cells, search and sort all read through this one context's
         // schema resolver, including when TABLE is the initial mode.
         search.setRenderContext(context);
@@ -349,6 +351,7 @@ public final class SearchableView extends JPanel {
         private Set<String> hiddenFields = Set.of();
         private FieldTypeSource fieldTypes;
         private Function<Viewable, FieldSchema> fieldSchemas;
+        private Function<String, FieldSchema> typeSchemas;
         private Function<Viewable, JComponent> cardDecorator;
         private Function<Object, String> valueLinker;
         private Consumer<Viewable> activationListener;
@@ -378,6 +381,11 @@ public final class SearchableView extends JPanel {
             hiddenFields = value == null ? Set.of() : value; return this;
         }
         public Builder fieldTypes(FieldTypeSource value) { fieldTypes = value; return this; }
+        /** A declared type's schema, by name: what a nested field leads to. */
+        public Builder typeSchemas(Function<String, FieldSchema> value) {
+            typeSchemas = value; return this;
+        }
+
         public Builder fieldSchemas(Function<Viewable, FieldSchema> value) {
             fieldSchemas = value; return this;
         }

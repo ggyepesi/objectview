@@ -23,20 +23,25 @@ public class GroupView extends JPanel {
     private final Viewable fieldConfigurationSample;
     private final FieldTypeSource fieldTypes;
     private final java.util.function.Function<Viewable, FieldSchema> fieldSchemas;
+    private final java.util.function.Function<String, FieldSchema> typeSchemas;
 
     public GroupView(ViewableGroup<?> rootGroup) {
-        this(rootGroup, null, null, null);
+        this(rootGroup, null, null, null, null);
     }
 
+    /** {@code fieldSchemas}: an instance's own schema; {@code typeSchemas}: a declared
+     * type's, by name. */
     public GroupView(
             ViewableGroup<?> rootGroup,
             Viewable fieldConfigurationSample,
             FieldTypeSource fieldTypes,
-            java.util.function.Function<Viewable, FieldSchema> fieldSchemas) {
+            java.util.function.Function<Viewable, FieldSchema> fieldSchemas,
+            java.util.function.Function<String, FieldSchema> typeSchemas) {
         super(new BorderLayout());
         this.fieldConfigurationSample = fieldConfigurationSample;
         this.fieldTypes = fieldTypes;
         this.fieldSchemas = fieldSchemas;
+        this.typeSchemas = typeSchemas;
         treeView = new GroupTreeView(rootGroup);
         treeView.setShowGroupHandler(this::showGroup);
         add(treeView, BorderLayout.CENTER);
@@ -50,6 +55,7 @@ public class GroupView extends JPanel {
             if (fieldSchemas != null) {
                 RenderContext context = new RenderContext(selected.getMembers());
                 context.setFieldSchemaResolver(fieldSchemas);
+                context.setTypeSchemaResolver(typeSchemas);
                 created.setRenderContext(context);
             }
             for (Viewable member : selected.getMembers()) created.addViewable(member);

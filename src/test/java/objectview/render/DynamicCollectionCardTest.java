@@ -249,6 +249,11 @@ class DynamicCollectionCardTest {
             throws Exception {
         DynamicThing thing = new DynamicThing();
         thing.values.put("images", List.of("one", "two"));
+        // A snapshot-backed object carries its schema; its map keys never say what
+        // fields exist.
+        thing.schema = () -> List.of(FieldRef.described("images", "images",
+                objectview.field.FieldRole.NONE, FieldKind.COLLECTION, FieldKind.TEXT, "List<String>",
+                false, true, null, false, false, false, false, false, "", false));
 
         Card[] card = new Card[1];
         javax.swing.SwingUtilities.invokeAndWait(() ->

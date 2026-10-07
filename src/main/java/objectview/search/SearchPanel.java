@@ -241,6 +241,15 @@ public class SearchPanel extends JPanel
         this.renderContext = context;
         searchAndSort.setFieldSchemaResolver(
                 context == null ? null : context::fieldSchema);
+        // The editors read their sample's type from the same schemas the cards use.
+        if (context != null) {
+            List<ViewConfigEditor> editors = new ArrayList<>(
+                    List.of(searchEditor, sortEditor, viewEditor));
+            editors.addAll(subtypeSearchEditors.values());
+            editors.addAll(subtypeSortEditors.values());
+            editors.addAll(subtypeViewEditors.values());
+            editors.forEach(this::applySchemas);
+        }
         invalidateSearchIndex();
         if (context == null) {
             backButton.setEnabled(false);
@@ -476,6 +485,20 @@ public class SearchPanel extends JPanel
             ConfigState initialConfigs,
             java.util.List<SubtypeConfig> subtypeConfigs,
             FieldTypeSource initialFieldTypes) {
+        this(cls, sample, initialConfigs, subtypeConfigs, initialFieldTypes, null);
+    }
+
+    /** As above, with the render context whose schemas the editors read the sample's
+     * type from from the start: rewriting an entered config before they are known
+     * would lose the ticks they name (a nested DISPLAY alias, an inline object). */
+    public SearchPanel(
+            Class<? extends Viewable> cls,
+            Viewable sample,
+            ConfigState initialConfigs,
+            java.util.List<SubtypeConfig> subtypeConfigs,
+            FieldTypeSource initialFieldTypes,
+            RenderContext schemaContext) {
+        this.renderContext = schemaContext;
         this.searchClass = cls;
         this.rootFieldTypes = initialFieldTypes;
         this.fieldPathSample = sample;
@@ -521,6 +544,9 @@ public class SearchPanel extends JPanel
         searchEditor.setFieldTypes(initialFieldTypes);
         sortEditor.setFieldTypes(initialFieldTypes);
         viewEditor.setFieldTypes(initialFieldTypes);
+        applySchemas(searchEditor);
+        applySchemas(sortEditor);
+        applySchemas(viewEditor);
 
         for (SubtypeConfig subtype : this.subtypeConfigs) {
             if (subtype == null || subtype.typeName() == null) continue;
@@ -787,6 +813,7 @@ public class SearchPanel extends JPanel
                 retained == null ? fallback : retained,
                 selectionOnly, subtype.sample(), FieldTableContributor.REORDERABLE);
         editor.setFieldTypes(subtype.fieldTypes());
+        applySchemas(editor);
         java.util.Set<String> hidden = new java.util.LinkedHashSet<>();
         if (subtype.fieldTypes() != null) {
             hidden.addAll(subtype.fieldTypes().fieldNames());
@@ -870,7 +897,7 @@ public class SearchPanel extends JPanel
             }
         } else {
             objectview.plan.TypeShape shape = fieldPathSample != null
-                    ? objectview.plan.TypeShape.ofSample(fieldPathSample, null)
+                    ? sampleTypeShape()
                     : objectview.plan.TypeShape.ofClass(viewEditor.getConfig().getCls());
             paths.addAll(objectview.plan.LiteralPaths.leaves(
                     objectview.plan.ViewConfigDesugar.literal(
@@ -883,6 +910,18 @@ public class SearchPanel extends JPanel
             unique.putIfAbsent(path.dotted(), path);
         }
         return List.copyOf(unique.values());
+    }
+
+    private void applySchemas(ViewConfigEditor editor) {
+        if (renderContext != null) {
+            editor.setSchemas(renderContext::fieldSchema, renderContext::typeSchema);
+        }
+    }
+
+    /** The type of the sample's class: its schema, never its values. */
+    private objectview.plan.TypeShape sampleTypeShape() {
+        return renderContext != null ? renderContext.shape(fieldPathSample)
+                : objectview.plan.TypeShape.of(fieldPathSample, null, null);
     }
 
     private List<ViewableFieldPaths.PathInfo> configuredPaths(
@@ -910,7 +949,7 @@ public class SearchPanel extends JPanel
         } else {
             ViewConfig config = effectiveConfig(baseEditor, subtypeEditors, null);
             objectview.plan.TypeShape shape = fieldPathSample != null
-                    ? objectview.plan.TypeShape.ofSample(fieldPathSample, null)
+                    ? sampleTypeShape()
                     : objectview.plan.TypeShape.ofClass(config.getCls());
             paths.addAll(objectview.plan.LiteralPaths.selection(config, shape, excludeMedia));
         }

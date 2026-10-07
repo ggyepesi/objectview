@@ -290,8 +290,7 @@ public final class ViewableColumnsView
                 .computeIfAbsent(configured == null ? NO_CONFIG : configured,
                         ignored -> new java.util.HashMap<>())
                 .computeIfAbsent(q.typeName(), type -> {
-                    objectview.plan.TypeShape shape =
-                            objectview.plan.TypeShape.ofSample(q, context::fieldSchema);
+                    objectview.plan.TypeShape shape = context.shape(q);
                     return configured == null
                             ? objectview.plan.ViewDefaults.newView(shape)
                             : objectview.plan.ViewConfigDesugar.literal(configured, shape);

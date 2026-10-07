@@ -228,7 +228,7 @@ class NestedValueSearchTest {
             objectview.Viewable sample, objectview.viewconfig.ViewConfig config,
             boolean excludeMedia) {
         return objectview.plan.LiteralPaths.selection(config,
-                objectview.plan.TypeShape.ofSample(sample, null), excludeMedia);
+                objectview.plan.TypeShape.of(sample, null, null), excludeMedia);
     }
 
     private static java.util.List<objectview.field.ViewableFieldPaths.PathInfo> selectedPaths(

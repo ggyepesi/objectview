@@ -42,6 +42,7 @@ class TableFollowsTheTicksTest {
 
         RenderContext context = new RenderContext(List.of(h.wigmund));
         context.setFieldSchemaResolver(HistoryShape::schema);
+        context.setTypeSchemaResolver(HistoryShape::schemaOf);
         context.setCollectionExpanded(h.wigmund.dynamicFieldValues().get("offices"), true);
         ViewableColumnsView[] table = new ViewableColumnsView[1];
         JComponent[] row = new JComponent[1];

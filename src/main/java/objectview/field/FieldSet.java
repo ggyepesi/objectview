@@ -73,6 +73,19 @@ public interface FieldSet {
      * A backing-appropriate FieldSet: the dynamic property map when present,
      * else declared-field reflection.
      */
+    /** The schema {@code object} carries itself (a loaded snapshot object's field-graph
+     * schema, a runtime record's declared type), or null. Asked here, at the seam, so no
+     * consumer branches on how an object stores its fields. */
+    static FieldSchema carriedSchema(Viewable object) {
+        return object instanceof DynamicFields dynamic ? dynamic.dynamicFieldSchema() : null;
+    }
+
+    /** Whether {@code object}'s Java class declares its fields. An object that holds them
+     * by value says what fields exist only through a schema. */
+    static boolean declaresItsFields(Viewable object) {
+        return object != null && !(object instanceof DynamicFields);
+    }
+
     static FieldSet of(Viewable object) {
         return of(object, null);
     }
