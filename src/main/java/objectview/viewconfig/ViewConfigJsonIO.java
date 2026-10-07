@@ -43,6 +43,50 @@ public class ViewConfigJsonIO {
         }
     }
 
+    /** The saved config of a domain type as a {@link ViewConfig}, or null when none is
+     *  saved. Shorthand is kept as saved; it is rewritten where the config enters. */
+    public static ViewConfig loadForType(String typeName) {
+        return typeName == null || typeName.isBlank()
+                ? null : fromJson(loadJson(fileForType(typeName)));
+    }
+
+    /** The {@link ViewConfig} a saved JSON config describes, or null for null. */
+    @SuppressWarnings("unchecked")
+    public static ViewConfig fromJson(JsonConfig j) {
+        if (j == null) return null;
+        ViewConfig cfg = new ViewConfig();
+        if (j.className != null) {
+            try {
+                Class<?> cls = Class.forName(j.className);
+                if (objectview.Viewable.class.isAssignableFrom(cls)) {
+                    cfg.setCls((Class<? extends objectview.Viewable>) cls);
+                }
+            } catch (ClassNotFoundException | LinkageError ignored) {
+                // a config saved for a class no longer present still selects by name
+            }
+        }
+        cfg.setAllFields(j.allFields);
+        cfg.setAllMinorFields(j.allMinorFields);
+        cfg.minorFieldsVisible(j.minorFieldsVisible);
+        cfg.setAddListener(j.addListener);
+        cfg.setThumb(j.thumb);
+        cfg.setBlurImages(j.blurImages);
+        if (j.answerType != null) {
+            try {
+                cfg.setAnswerType(ViewConfig.AnswerType.valueOf(j.answerType));
+            } catch (IllegalArgumentException ignored) {
+                // unknown answer type: keep the default
+            }
+        }
+        if (j.fields != null) {
+            j.fields.forEach((name, child) -> cfg.addField(name, fromJson(child)));
+        }
+        if (j.rememberedFields != null) {
+            j.rememberedFields.forEach((name, child) -> cfg.rememberField(name, fromJson(child)));
+        }
+        return cfg;
+    }
+
     private static JsonConfig toJson(ViewConfig cfg) {
         JsonConfig j = new JsonConfig();
 
