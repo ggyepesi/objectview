@@ -68,6 +68,12 @@ public final class RenderExecutor {
         public String captionField() {
             return caption == null ? null : plan.caption().name();
         }
+
+        /** Where the caption occurs when this level occurs at {@code at}, else null. */
+        public RenderSink.Occurrence captionAt(RenderSink.Occurrence at) {
+            return captionField() == null ? null
+                    : at.field(captionField(), plan.caption().label());
+        }
     }
 
     public enum Kind { SKIP, LEAF, OBJECT, NAVIGATION, BACK_REFERENCE, COLLECTION }
@@ -196,56 +202,96 @@ public final class RenderExecutor {
         RenderSink.Occurrence at = RenderSink.Occurrence.root();
         Level level = level(root, config);
         boolean open = rootOpen(root);
-        sink.beginObject(at, root, level.caption(), open);
+        RenderSink.ObjectOccurrence occurrence = objectOccurrence(
+                at, null, Representation.OBJECT, level, open);
+        sink.beginObject(occurrence);
         if (open) {
             ancestors.add(root);
             walk(level, at, sink, ancestors);
         } else {
             sink.defer(at, RenderSink.DeferReason.COLLAPSED);
         }
-        sink.endObject(at);
+        sink.endObject(occurrence);
     }
 
     private void walk(Level level, RenderSink.Occurrence owner, RenderSink sink,
                       Set<Viewable> ancestors) {
-        for (Decision decision : fields(level, owner, ancestors)) emit(decision, sink, ancestors);
+        Walk walk = new Walk(sink, ancestors);
+        for (Decision decision : fields(level, owner, ancestors)) {
+            walk.renderDecision(decision, null);
+        }
     }
 
-    private void emit(Decision decision, RenderSink sink, Set<Viewable> ancestors) {
-        RenderSink.Occurrence at = decision.at();
-        switch (decision.kind()) {
-            case SKIP -> sink.skip(at, decision.skip());
-            case LEAF -> sink.leaf(at, decision.representation(), decision.value());
-            case NAVIGATION -> sink.navigation(at, decision.object().target(),
-                    decision.object().caption());
-            case BACK_REFERENCE -> sink.backReference(at, decision.object().target(),
-                    decision.object().caption());
-            case OBJECT -> {
-                Level object = decision.object();
-                sink.beginObject(at, object.target(), object.caption(), decision.open());
-                if (decision.open()) {
-                    ancestors.add(object.target());
-                    walk(object, at, sink, ancestors);
-                    ancestors.remove(object.target());
-                } else {
-                    sink.defer(at, RenderSink.DeferReason.COLLAPSED);
-                }
-                sink.endObject(at);
-            }
-            case COLLECTION -> {
-                sink.beginCollection(at, decision.size(), decision.open());
-                if (decision.open()) {
-                    int index = 0;
-                    for (Object item : ValueShape.members(decision.value())) {
-                        emit(member(decision.field(), item, at.member(index++), ancestors),
-                                sink, ancestors);
-                    }
-                } else if (decision.size() > 0) {
-                    sink.defer(at, RenderSink.DeferReason.COLLAPSED);
-                }
-                sink.endCollection(at);
-            }
+    /** The walk for a sink without its own component tree: the same exhaustive
+     * dispatch Card and the web sink use, turning each decision into sink calls and
+     * descending into open objects and collections. */
+    private final class Walk implements DecisionRenderer<Void, Void> {
+        private final RenderSink sink;
+        private final Set<Viewable> ancestors;
+
+        Walk(RenderSink sink, Set<Viewable> ancestors) {
+            this.sink = sink;
+            this.ancestors = ancestors;
         }
+
+        @Override public Void skip(Decision decision, Void unused) {
+            sink.skip(decision);
+            return null;
+        }
+
+        @Override public Void leaf(Decision decision, Void unused) {
+            sink.leaf(decision);
+            return null;
+        }
+
+        @Override public Void navigation(Decision decision, Void unused) {
+            sink.navigation(decision);
+            return null;
+        }
+
+        @Override public Void backReference(Decision decision, Void unused) {
+            sink.backReference(decision);
+            return null;
+        }
+
+        @Override public Void object(Decision decision, Void unused) {
+            Level object = decision.object();
+            RenderSink.ObjectOccurrence occurrence = objectOccurrence(
+                    decision.at(), decision.field(), decision.representation(), object,
+                    decision.open());
+            sink.beginObject(occurrence);
+            if (decision.open()) {
+                ancestors.add(object.target());
+                walk(object, decision.at(), sink, ancestors);
+                ancestors.remove(object.target());
+            } else {
+                sink.defer(decision.at(), RenderSink.DeferReason.COLLAPSED);
+            }
+            sink.endObject(occurrence);
+            return null;
+        }
+
+        @Override public Void collection(Decision decision, Void unused) {
+            sink.beginCollection(decision);
+            if (decision.open()) {
+                int index = 0;
+                for (Object item : ValueShape.members(decision.value())) {
+                    renderDecision(member(decision.field(), item,
+                            decision.at().member(index++), ancestors), null);
+                }
+            } else if (decision.size() > 0) {
+                sink.defer(decision.at(), RenderSink.DeferReason.COLLAPSED);
+            }
+            sink.endCollection(decision);
+            return null;
+        }
+    }
+
+    private static RenderSink.ObjectOccurrence objectOccurrence(
+            RenderSink.Occurrence at, ObjectPlan.FieldPlan field,
+            Representation representation, Level level, boolean open) {
+        return new RenderSink.ObjectOccurrence(
+                at, field, representation, level, level.captionAt(at), open);
     }
 
     /** The members of a collection value, for a sink that lays them out itself. */

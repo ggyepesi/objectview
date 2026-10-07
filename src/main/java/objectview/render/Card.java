@@ -13,6 +13,7 @@ import objectview.field.FieldRef;
 import objectview.field.FieldSet;
 import objectview.field.FieldProperties;
 import objectview.plan.Disclosure;
+import objectview.plan.DecisionRenderer;
 import objectview.plan.ObjectPlan;
 import objectview.plan.PlanResolver;
 import objectview.plan.RenderExecutor;
@@ -869,15 +870,6 @@ public class Card extends JPanel implements RenderedInstanceHost {
             String label = decision.field().label();
 
             if (decision.kind() == RenderExecutor.Kind.LEAF) {
-                // A boolean flag reads as a badge, not "won: true": nothing when false,
-                // the humanized field name when true.
-                if (decision.value() instanceof Boolean flag) {
-                    if (flag) {
-                        textRows.add(new TextBlock.Row(null, fieldPath, flag,
-                                List.of(FieldLabels.humanize(label))));
-                    }
-                    continue;
-                }
                 if (isTextBlockCandidate(decision.field().field(), decision.value())) {
                     textRows.add(textBlockRow(label, fieldPath, decision.value()));
                     continue;
@@ -941,24 +933,50 @@ public class Card extends JPanel implements RenderedInstanceHost {
     /** Paints one decision. {@code ancestors} are the objects on the path to it. */
     private JComponent paint(RenderExecutor.Decision decision, String label,
                              Set<Object> ancestors) {
-        FieldPath fieldPath = decision.at().path();
-        return switch (decision.kind()) {
-            case SKIP -> null;
-            case LEAF -> paintLeaf(decision, label);
-            case NAVIGATION -> {
-                RenderExecutor.Level object = decision.object();
-                yield maybeDecoratedReference(new ReferenceRow(
-                        label, fieldPath, object.target(), renderContext, object.config(),
-                        objectPathTitle(object.target()), false, true,
-                        object.caption() == null
-                                ? ReferenceRow.NAVIGATION_LABEL : object.caption(),
-                        object.captionField()), object.target(), true);
-            }
-            case BACK_REFERENCE -> paintBackReference(decision, label);
-            case OBJECT -> paintObject(decision, label, ancestors);
-            case COLLECTION -> paintCollection(decision, label, ancestors);
-        };
+        return painter.renderDecision(decision, new PaintContext(label, ancestors));
     }
+
+    /** Layout-only information; all semantic branching stays in DecisionRenderer. */
+    private record PaintContext(String label, Set<Object> ancestors) {}
+
+    /** This card's side of the one decision dispatch, kept off its public API. */
+    private final DecisionRenderer<JComponent, PaintContext> painter = new DecisionRenderer<>() {
+        @Override public JComponent skip(RenderExecutor.Decision decision,
+                                         PaintContext context) {
+            return null;
+        }
+
+        @Override public JComponent leaf(RenderExecutor.Decision decision,
+                                         PaintContext context) {
+            return paintLeaf(decision, context.label());
+        }
+
+        @Override public JComponent navigation(RenderExecutor.Decision decision,
+                                               PaintContext context) {
+            RenderExecutor.Level object = decision.object();
+            return maybeDecoratedReference(new ReferenceRow(
+                    context.label(), decision.at().path(), object.target(), renderContext,
+                    object.config(), objectPathTitle(object.target()), false, true,
+                    object.caption() == null
+                            ? ReferenceRow.NAVIGATION_LABEL : object.caption(),
+                    object.captionField()), object.target(), true);
+        }
+
+        @Override public JComponent backReference(RenderExecutor.Decision decision,
+                                                  PaintContext context) {
+            return paintBackReference(decision, context.label());
+        }
+
+        @Override public JComponent object(RenderExecutor.Decision decision,
+                                           PaintContext context) {
+            return paintObject(decision, context.label(), context.ancestors());
+        }
+
+        @Override public JComponent collection(RenderExecutor.Decision decision,
+                                               PaintContext context) {
+            return paintCollection(decision, context.label(), context.ancestors());
+        }
+    };
 
     private JComponent paintLeaf(RenderExecutor.Decision decision, String label) {
         FieldPath fieldPath = decision.at().path();

@@ -7,7 +7,7 @@ import objectview.field.FieldSet;
 import objectview.viewconfig.ViewConfig;
 
 import java.util.ArrayList;
-import java.util.IdentityHashMap;
+import java.util.WeakHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -18,7 +18,10 @@ import java.util.Map;
  */
 public final class PlanResolver {
 
-    private final Map<ViewConfig, Map<String, ObjectPlan>> memo = new IdentityHashMap<>();
+    // A render context can outlive many literal configs produced by editor changes.
+    // ViewConfig uses identity equality, so a weak map preserves the original cache key
+    // rule without retaining every obsolete config for the lifetime of the context.
+    private final Map<ViewConfig, Map<String, ObjectPlan>> memo = new WeakHashMap<>();
 
     /** The plan for an object of {@code logicalType} whose fields are {@code fields}.
      * Plans are shared per (config, logical type) when the fields come from a schema. */
@@ -29,8 +32,10 @@ public final class PlanResolver {
                     "not a literal config; desugar it where it enters: " + literal);
         }
         if (!schemaBacked) return compile(literal, fields, logicalType);
-        return memo.computeIfAbsent(literal, ignored -> new java.util.HashMap<>())
-                   .computeIfAbsent(logicalType, type -> compile(literal, fields, type));
+        synchronized (memo) {
+            return memo.computeIfAbsent(literal, ignored -> new java.util.HashMap<>())
+                       .computeIfAbsent(logicalType, type -> compile(literal, fields, type));
+        }
     }
 
     private static ObjectPlan compile(ViewConfig literal, FieldSet fields, String logicalType) {

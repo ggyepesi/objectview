@@ -1,12 +1,12 @@
 package objectview.plan;
 
-import objectview.Viewable;
 import objectview.field.FieldPath;
 
 /**
- * Receives the executor's decisions and paints them: Swing, JSON, or a mock trace. A
- * sink has no other input and makes no selection, representation or disclosure
- * decision of its own.
+ * Receives the executor's complete decisions while it walks their nested structure: a
+ * trace, a mock component tree, or any renderer without its own component tree. A sink
+ * has no other input and makes no selection, representation, disclosure, navigation or
+ * caption decision of its own.
  */
 public interface RenderSink {
 
@@ -29,28 +29,34 @@ public interface RenderSink {
 
     enum DeferReason { COLLAPSED }
 
-    /** An object occurrence. {@code caption} is its ticked DISPLAY value, else null;
-     * with no caption and an empty body the sink shows the field name only. */
-    void beginObject(Occurrence at, Viewable target, String caption, boolean expanded);
+    /** Complete object occurrence, including the representation and DISPLAY occurrence
+     * that a component-level test must retain. {@code field} is null only for the root.
+     * Keeping the executor's level avoids re-reading fields merely to describe a mock. */
+    record ObjectOccurrence(Occurrence at, ObjectPlan.FieldPlan field,
+                            Representation representation, RenderExecutor.Level level,
+                            Occurrence captionAt, boolean expanded) {}
 
-    void endObject(Occurrence at);
+    void beginObject(ObjectOccurrence object);
 
-    /** A scalar reference to an object that has its own card. {@code caption} is the
-     * target's ticked DISPLAY value, else null (the sink shows "Open"). */
-    void navigation(Occurrence at, Viewable target, String caption);
+    void endObject(ObjectOccurrence object);
 
-    /** An object already on the current path. */
-    void backReference(Occurrence at, Viewable target, String caption);
+    /** A scalar reference to an object that has its own card. The decision's
+     * {@code object().caption()} is the target's ticked DISPLAY value, else null (the
+     * sink shows "Open"). */
+    void navigation(RenderExecutor.Decision decision);
+
+    /** An object already on the current path; its caption as for {@link #navigation}. */
+    void backReference(RenderExecutor.Decision decision);
 
     /** {@code label (size)}; members follow only when {@code expanded}. */
-    void beginCollection(Occurrence at, int size, boolean expanded);
+    void beginCollection(RenderExecutor.Decision decision);
 
-    void endCollection(Occurrence at);
+    void endCollection(RenderExecutor.Decision decision);
 
     /** A text, link or media value. */
-    void leaf(Occurrence at, Representation representation, Object value);
+    void leaf(RenderExecutor.Decision decision);
 
-    void skip(Occurrence at, SkipReason reason);
+    void skip(RenderExecutor.Decision decision);
 
     void defer(Occurrence at, DeferReason reason);
 }

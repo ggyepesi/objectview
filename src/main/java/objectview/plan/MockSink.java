@@ -8,33 +8,84 @@ import java.util.Deque;
 import java.util.List;
 
 /**
- * A sink of the real {@link RenderExecutor} that builds no UI. It records the decision
- * trace and a tree of mock components, one counterpart per representation, so a test can
- * state exactly what is rendered, skipped and deferred.
+ * A component-level test renderer over the real {@link RenderExecutor}. Unlike a
+ * string trace, every mock retains the complete decision (field occurrence,
+ * representation, value/target identity and disclosure state). Tests can therefore
+ * compare what a renderer was told to paint without re-deriving that information.
  */
 public final class MockSink implements RenderSink {
 
-    /** A mock counterpart of one painted component. */
+    /** One mock counterpart for every renderer-visible outcome. */
     public sealed interface Mock permits MockObject, MockCollection, MockNavigation,
-            MockBackReference, MockLeaf {}
+            MockBackReference, MockLeaf, MockSkip, MockDeferred {
+        Occurrence occurrence();
+        default String at() { return occurrence().at(); }
+        default String label() { return occurrence().label(); }
+    }
 
-    public record MockObject(String at, String label, String caption, boolean expanded,
-                             List<Mock> children) implements Mock {}
+    public record MockObject(ObjectOccurrence object,
+                             List<Mock> children) implements Mock {
+        public MockObject { children = List.copyOf(children); }
+        @Override public Occurrence occurrence() { return object.at(); }
+        public RenderExecutor.Level level() { return object.level(); }
+        public Viewable target() { return level().target(); }
+        public String caption() { return level().caption(); }
+        public Occurrence captionAt() { return object.captionAt(); }
+        public Representation representation() { return object.representation(); }
+        public boolean expanded() { return object.expanded(); }
+    }
 
-    public record MockCollection(String at, String label, int size, boolean expanded,
-                                 List<Mock> members) implements Mock {}
+    public record MockCollection(RenderExecutor.Decision decision,
+                                 List<Mock> members) implements Mock {
+        public MockCollection { members = List.copyOf(members); }
+        @Override public Occurrence occurrence() { return decision.at(); }
+        public int size() { return decision.size(); }
+        public boolean expanded() { return decision.open(); }
+        public Representation representation() { return decision.representation(); }
+    }
 
-    public record MockNavigation(String at, String label, String caption) implements Mock {}
+    public record MockNavigation(RenderExecutor.Decision decision) implements Mock {
+        @Override public Occurrence occurrence() { return decision.at(); }
+        public Viewable target() { return decision.object().target(); }
+        public String caption() { return decision.object().caption(); }
+        public Occurrence captionAt() { return decision.object().captionAt(decision.at()); }
+        public Representation representation() { return decision.representation(); }
+    }
 
-    public record MockBackReference(String at, String label, String caption) implements Mock {}
+    public record MockBackReference(RenderExecutor.Decision decision) implements Mock {
+        @Override public Occurrence occurrence() { return decision.at(); }
+        public Viewable target() { return decision.object().target(); }
+        public String caption() { return decision.object().caption(); }
+        public Occurrence captionAt() { return decision.object().captionAt(decision.at()); }
+        public Representation representation() { return decision.representation(); }
+    }
 
-    /** A caption-less leaf: {@link Representation#TEXT}, {@code LINK} or {@code MEDIA}. */
-    public record MockLeaf(String at, String label, Representation representation,
-                           Object value) implements Mock {}
+    /** Leaves are distinct mock component types, not a string tagged after the fact. */
+    public sealed interface MockLeaf extends Mock permits MockText, MockLink, MockMedia {
+        RenderExecutor.Decision decision();
+        @Override default Occurrence occurrence() { return decision().at(); }
+        default Representation representation() { return decision().representation(); }
+        default Object value() { return decision().value(); }
+    }
+
+    public record MockText(RenderExecutor.Decision decision) implements MockLeaf {}
+    public record MockLink(RenderExecutor.Decision decision) implements MockLeaf {}
+    public record MockMedia(RenderExecutor.Decision decision) implements MockLeaf {}
+
+    public record MockSkip(RenderExecutor.Decision decision) implements Mock {
+        @Override public Occurrence occurrence() { return decision.at(); }
+        public SkipReason reason() { return decision.skip(); }
+    }
+
+    public record MockDeferred(Occurrence occurrence, DeferReason reason) implements Mock {}
+
+    private sealed interface Pending permits PendingObject, PendingCollection {}
+    private record PendingObject(ObjectOccurrence occurrence) implements Pending {}
+    private record PendingCollection(RenderExecutor.Decision decision) implements Pending {}
 
     private final List<String> trace = new ArrayList<>();
     private final Deque<List<Mock>> open = new ArrayDeque<>();
-    private final Deque<Object[]> pending = new ArrayDeque<>();
+    private final Deque<Pending> pending = new ArrayDeque<>();
     private Mock root;
     private int depth;
 
@@ -50,60 +101,71 @@ public final class MockSink implements RenderSink {
     /** The root mock component (the rendered top-level object). */
     public Mock root() { return root; }
 
-    @Override public void beginObject(Occurrence at, Viewable target, String caption,
-                                      boolean expanded) {
-        line("OBJECT", at.at().isEmpty() ? "<root>" : at.at(),
+    @Override public void beginObject(ObjectOccurrence object) {
+        String caption = object.level().caption();
+        line("OBJECT", displayAt(object.at()),
                 (caption == null ? "" : "caption=\"" + caption + "\" ")
-                        + (expanded ? "open" : "folded"));
+                        + (object.expanded() ? "open" : "folded"));
         depth++;
-        pending.push(new Object[]{at, caption, expanded});
+        pending.push(new PendingObject(object));
         open.push(new ArrayList<>());
     }
 
-    @Override public void endObject(Occurrence at) {
+    @Override public void endObject(ObjectOccurrence object) {
         depth--;
-        Object[] begun = pending.pop();
+        PendingObject begun = (PendingObject) pending.pop();
         List<Mock> children = open.pop();
-        add(new MockObject(at.at(), at.label(), (String) begun[1], (Boolean) begun[2],
-                List.copyOf(children)));
+        add(new MockObject(begun.occurrence(), children));
     }
 
-    @Override public void navigation(Occurrence at, Viewable target, String caption) {
-        line("LINK-TO", at.at(), caption == null ? "\"Open\"" : "\"" + caption + "\"");
-        add(new MockNavigation(at.at(), at.label(), caption));
+    @Override public void navigation(RenderExecutor.Decision decision) {
+        String caption = decision.object().caption();
+        line("LINK-TO", decision.at().at(),
+                caption == null ? "\"Open\"" : "\"" + caption + "\"");
+        add(new MockNavigation(decision));
     }
 
-    @Override public void backReference(Occurrence at, Viewable target, String caption) {
-        line("BACKREF", at.at(), caption == null ? "" : "\"" + caption + "\"");
-        add(new MockBackReference(at.at(), at.label(), caption));
+    @Override public void backReference(RenderExecutor.Decision decision) {
+        String caption = decision.object().caption();
+        line("BACKREF", decision.at().at(), caption == null ? "" : "\"" + caption + "\"");
+        add(new MockBackReference(decision));
     }
 
-    @Override public void beginCollection(Occurrence at, int size, boolean expanded) {
-        line("COLLECTION", at.at(), "(" + size + ") " + (expanded ? "open" : "folded"));
+    @Override public void beginCollection(RenderExecutor.Decision decision) {
+        line("COLLECTION", decision.at().at(),
+                "(" + decision.size() + ") " + (decision.open() ? "open" : "folded"));
         depth++;
-        pending.push(new Object[]{at, size, expanded});
+        pending.push(new PendingCollection(decision));
         open.push(new ArrayList<>());
     }
 
-    @Override public void endCollection(Occurrence at) {
+    @Override public void endCollection(RenderExecutor.Decision decision) {
         depth--;
-        Object[] begun = pending.pop();
+        PendingCollection begun = (PendingCollection) pending.pop();
         List<Mock> members = open.pop();
-        add(new MockCollection(at.at(), at.label(), (Integer) begun[1], (Boolean) begun[2],
-                List.copyOf(members)));
+        add(new MockCollection(begun.decision(), members));
     }
 
-    @Override public void leaf(Occurrence at, Representation representation, Object value) {
-        line(representation.name(), at.at(), "\"" + value + "\"");
-        add(new MockLeaf(at.at(), at.label(), representation, value));
+    @Override public void leaf(RenderExecutor.Decision decision) {
+        line(decision.representation().name(), decision.at().at(),
+                "\"" + decision.value() + "\"");
+        add(switch (decision.representation()) {
+            case TEXT -> new MockText(decision);
+            case LINK -> new MockLink(decision);
+            case MEDIA -> new MockMedia(decision);
+            default -> throw new IllegalArgumentException(
+                    "Leaf decision has non-leaf representation " + decision.representation());
+        });
     }
 
-    @Override public void skip(Occurrence at, SkipReason reason) {
-        line("SKIP", at.at(), reason.name());
+    @Override public void skip(RenderExecutor.Decision decision) {
+        line("SKIP", decision.at().at(), decision.skip().name());
+        add(new MockSkip(decision));
     }
 
     @Override public void defer(Occurrence at, DeferReason reason) {
-        line("DEFER", at.at().isEmpty() ? "<root>" : at.at(), reason.name());
+        line("DEFER", displayAt(at), reason.name());
+        add(new MockDeferred(at, reason));
     }
 
     private void add(Mock mock) {
@@ -111,7 +173,12 @@ public final class MockSink implements RenderSink {
         open.peek().add(mock);
     }
 
+    private static String displayAt(Occurrence at) {
+        return at.at().isEmpty() ? "<root>" : at.at();
+    }
+
     private void line(String kind, String at, String detail) {
-        trace.add("  ".repeat(depth) + kind + " " + at + (detail.isEmpty() ? "" : " " + detail));
+        trace.add("  ".repeat(depth) + kind + " " + at
+                + (detail.isEmpty() ? "" : " " + detail));
     }
 }
