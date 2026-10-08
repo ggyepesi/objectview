@@ -114,6 +114,25 @@ class InheritedSearchAndSortTest {
                 "the objects to open on the way to the hit");
     }
 
+    @Test void aNavigationOnlyScalarContributesItsCaptionButNothingBehindIt() {
+        Office head = new Office("Head");
+        Office middle = new Office("Middle");
+        Office tail = new Office("Tail");
+        head.predecessor = middle;
+        middle.predecessor = tail;
+        SearchAndSort search = new SearchAndSort();
+        search.setTopLevelPredicate(value -> value == middle || value == tail);
+        PathInfo name = inheritedName();
+
+        assertEquals(List.of(head), search.searchViewablesByPath(
+                List.of(head), List.of("middle"), List.of(name), false).get(name),
+                "the visible navigation caption remains searchable");
+        assertEquals(List.of(), search.searchViewablesByPath(
+                        List.of(head), List.of("tail"), List.of(name), false)
+                .getOrDefault(name, List.of()),
+                "fields behind the navigation link cannot become hidden hits on Head");
+    }
+
     @Test void aSelectionWithoutInheritanceReadsAlongItsPathsAsBefore() {
         ViewConfig root = ViewConfig.leaf();
         root.addField("name", ViewConfig.leaf());

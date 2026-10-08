@@ -605,12 +605,11 @@ public class Card extends JPanel implements RenderedInstanceHost {
      */
     private static ViewConfig literal(Viewable viewable, ViewConfig config,
                                       RenderContext context) {
-        if (config != null && ViewConfigDesugar.isLiteral(config)) return config;
         TypeShape shape = viewable == null ? null
                 : context == null ? TypeShape.of(viewable, null, null)
                 : context.shape(viewable);
         return config == null
-                ? ViewDefaults.newView(shape) : ViewConfigDesugar.literal(config, shape);
+                ? ViewDefaults.newView(shape) : ViewConfigDesugar.preparedView(config, shape);
     }
 
     // This occurrence's decisions come from the render context's one executor.

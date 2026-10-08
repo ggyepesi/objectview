@@ -1,5 +1,6 @@
 package objectview.viewconfig;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 
@@ -82,6 +83,7 @@ public class ViewConfigJsonIO {
         cfg.setAddListener(j.addListener);
         cfg.setThumb(j.thumb);
         cfg.setBlurImages(j.blurImages);
+        cfg.setFinitePaths(Boolean.TRUE.equals(j.finitePaths));
         if (j.answerType != null) {
             try {
                 cfg.setAnswerType(ViewConfig.AnswerType.valueOf(j.answerType));
@@ -124,6 +126,7 @@ public class ViewConfigJsonIO {
         j.addListener = cfg.isAddListener();
         j.thumb = cfg.isThumb();
         j.blurImages = cfg.isBlurImages();
+        j.finitePaths = cfg.isFinitePaths() ? Boolean.TRUE : null;
         j.answerType = cfg.getAnswerType() == null ? null : cfg.getAnswerType().name();
 
         ancestors.add(cfg);
@@ -146,6 +149,9 @@ public class ViewConfigJsonIO {
         public boolean addListener;
         public boolean thumb;
         public boolean blurImages;
+        /** Present only for a finite field selection; old/saved View configs omit it. */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        public Boolean finitePaths;
         public String answerType;
         public Map<String, JsonConfig> fields = new LinkedHashMap<>();
         public Map<String, JsonConfig> rememberedFields = new LinkedHashMap<>();

@@ -4,6 +4,7 @@ import objectview.Viewable;
 
 import java.util.List;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 /**
  * How a selected path that passes through an inherited level is read (#368). A search or
@@ -14,8 +15,17 @@ import java.util.function.Function;
  */
 public interface PathWalk {
 
-    /** Every occurrence of the path's value below {@code root}. */
-    List<Reached> read(Object root, Function<Viewable, FieldSchema> schemas);
+    /** Every occurrence of the path's value below {@code root}. With no presentation
+     * context, no reached value is treated as a separate top-level card. */
+    default List<Reached> read(Object root, Function<Viewable, FieldSchema> schemas) {
+        return read(root, schemas, ignored -> false);
+    }
+
+    /** Every visible occurrence of the path's value below {@code root}. A scalar
+     * reference to a {@code topLevel} object contributes only its caption and is not
+     * traversed, exactly as rendering treats that occurrence as navigation-only. */
+    List<Reached> read(Object root, Function<Viewable, FieldSchema> schemas,
+                       Predicate<Viewable> topLevel);
 
     /**
      * One occurrence: the field's value where it was read, the path it renders at on the

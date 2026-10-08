@@ -3,8 +3,11 @@ package objectview.plan;
 import objectview.Viewable;
 import objectview.field.FieldAccess;
 import objectview.field.FieldPath;
+import objectview.field.FieldRef;
 import objectview.field.FieldSchema;
+import objectview.field.FieldSet;
 import objectview.field.PathWalk;
+import objectview.field.FieldRole;
 import objectview.viewconfig.ViewConfig;
 
 import java.util.ArrayList;
@@ -15,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 /**
  * A search or sort selection read through the fields that inherit an ancestor's config
@@ -32,11 +36,14 @@ final class InheritedSelection {
     private final Map<ViewConfig, Boolean> reaching;
     private final ViewConfig leafLevel;
     private final String leafField;
+    private final boolean leafIsDisplay;
 
-    private InheritedSelection(ViewConfig root, ViewConfig leafLevel, String leafField) {
+    private InheritedSelection(ViewConfig root, ViewConfig leafLevel, String leafField,
+                               boolean leafIsDisplay) {
         this.root = root;
         this.leafLevel = leafLevel;
         this.leafField = leafField;
+        this.leafIsDisplay = leafIsDisplay;
         this.reaching = reaching(root, leafLevel);
     }
 
@@ -51,21 +58,25 @@ final class InheritedSelection {
     }
 
     /** The walk reading {@code field} of {@code level} below {@code root}. */
-    static PathWalk walk(ViewConfig root, ViewConfig level, String field) {
-        InheritedSelection selection = new InheritedSelection(root, level, field);
+    static PathWalk walk(ViewConfig root, ViewConfig level, String field, FieldRole role) {
+        InheritedSelection selection = new InheritedSelection(
+                root, level, field, role == FieldRole.DISPLAY);
         return selection::read;
     }
 
-    private List<PathWalk.Reached> read(Object start, Function<Viewable, FieldSchema> schemas) {
+    private List<PathWalk.Reached> read(Object start, Function<Viewable, FieldSchema> schemas,
+                                        Predicate<Viewable> topLevel) {
         List<PathWalk.Reached> out = new ArrayList<>();
         Map<Object, Set<ViewConfig>> entered = new IdentityHashMap<>();
-        visit(start, root, new ArrayList<>(), new ArrayList<>(), entered, schemas, out);
+        visit(start, root, new ArrayList<>(), new ArrayList<>(), entered, schemas,
+                topLevel == null ? ignored -> false : topLevel, out);
         return out;
     }
 
     private void visit(Object object, ViewConfig level, List<String> names,
                        List<Viewable> route, Map<Object, Set<ViewConfig>> entered,
-                       Function<Viewable, FieldSchema> schemas, List<PathWalk.Reached> out) {
+                       Function<Viewable, FieldSchema> schemas,
+                       Predicate<Viewable> topLevel, List<PathWalk.Reached> out) {
         if (object == null || !reaching.getOrDefault(level, false)) return;
         if (!entered.computeIfAbsent(object, ignored ->
                 Collections.newSetFromMap(new IdentityHashMap<>())).add(level)) return;
@@ -81,15 +92,43 @@ final class InheritedSelection {
             ViewConfig next = child.effective();
             if (next.getFields().isEmpty() || !reaching.getOrDefault(next, false)) continue;
             Object value = read(object, ticked.getKey(), schemas);
+            boolean collection = value instanceof Collection<?> || value instanceof Map<?, ?>
+                    || value != null && value.getClass().isArray();
+            boolean navigation = !collection && object instanceof Viewable owner
+                    && navigationReference(owner, ticked.getKey(), schemas);
             names.add(ticked.getKey());
             for (Object member : members(value)) {
                 if (!(member instanceof Viewable viewable)) continue;
                 route.add(viewable);
-                visit(viewable, next, names, route, entered, schemas, out);
+                if (navigation && topLevel.test(viewable)) {
+                    readNavigationCaption(viewable, next, names, route, schemas, out);
+                } else {
+                    visit(viewable, next, names, route, entered, schemas, topLevel, out);
+                }
                 route.remove(route.size() - 1);
             }
             names.remove(names.size() - 1);
         }
+    }
+
+    /** A navigation-only scalar reference paints the target's selected DISPLAY and
+     * nothing below it. Preserve that one searchable occurrence without walking into
+     * fields which the containing card cannot reveal. */
+    private void readNavigationCaption(Viewable target, ViewConfig level,
+                                       List<String> names, List<Viewable> route,
+                                       Function<Viewable, FieldSchema> schemas,
+                                       List<PathWalk.Reached> out) {
+        if (!leafIsDisplay || level != leafLevel) return;
+        Object value = read(target, leafField, schemas);
+        if (value != null) out.add(new PathWalk.Reached(
+                value, path(names, leafField), route));
+    }
+
+    private static boolean navigationReference(
+            Viewable owner, String fieldName, Function<Viewable, FieldSchema> schemas) {
+        FieldRef field = FieldSet.of(owner, schemas.apply(owner)).field(fieldName);
+        return field != null
+                && PlanResolver.representation(field) == Representation.REFERENCE;
     }
 
     private static Object read(Object object, String field,
@@ -106,6 +145,12 @@ final class InheritedSelection {
     private static Collection<?> members(Object value) {
         if (value instanceof Collection<?> collection) return collection;
         if (value instanceof Map<?, ?> map) return map.values();
+        if (value != null && value.getClass().isArray()) {
+            List<Object> out = new ArrayList<>();
+            int length = java.lang.reflect.Array.getLength(value);
+            for (int i = 0; i < length; i++) out.add(java.lang.reflect.Array.get(value, i));
+            return out;
+        }
         return value == null ? List.of() : List.of(value);
     }
 

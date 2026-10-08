@@ -5,7 +5,10 @@ import objectview.field.FieldRole;
 import objectview.field.ViewableContractFieldSet;
 import objectview.viewconfig.ViewConfig;
 
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The only reader of ViewConfig shorthand (directive 24). Rewrites {@code allFields},
@@ -39,18 +42,55 @@ public final class ViewConfigDesugar {
         return literal(config, shape, true);
     }
 
+    /**
+     * The literal View config consumed by a renderer. A config can already be literal
+     * (no shorthand flags) and still predate, or have bypassed, the recursion rule: its
+     * recursive field then carries an ordinary empty child instead of the ancestor it
+     * inherits. This is the one rendering boundary for that distinction. It preserves an
+     * already prepared config by identity and rewrites every other one through
+     * {@link #literal(ViewConfig, TypeShape)}.
+     */
+    public static ViewConfig preparedView(ViewConfig config, TypeShape shape) {
+        if (config != null && config.isFinitePaths()) {
+            return isLiteral(config) ? config : selection(config, shape);
+        }
+        return prepared(config, shape, null, null)
+                ? config : literal(config, shape);
+    }
+
     /** {@link #literal}, with {@code inherit} false for a View-form config whose ticks
      * under a recursive field are finite paths of their own: a field picker's. */
     public static ViewConfig literal(ViewConfig config, TypeShape shape, boolean inherit) {
-        return literal(config, shape, ViewDefaults::implicitObject, null, null, inherit);
+        ViewConfig out = literal(
+                config, shape, ViewDefaults::implicitObject, null, null, inherit);
+        if (!inherit) markFinite(out, Collections.newSetFromMap(new IdentityHashMap<>()));
+        return out;
     }
 
     /** The literal form of a field selection (search, sort, quiz key): an object the
      * shorthand includes has nothing ticked under it. A selection inherits only where
      * its editor wrote it; this never adds an inheritance. */
     public static ViewConfig selection(ViewConfig config, TypeShape shape) {
-        return literal(config, shape, (field, nested, parent) -> ViewConfig.leaf(),
-                null, null, false);
+        ViewConfig out = literal(config, shape,
+                (field, nested, parent) -> ViewConfig.leaf(), null, null, false);
+        markFinite(out, Collections.newSetFromMap(new IdentityHashMap<>()));
+        return out;
+    }
+
+    /** A finite field selection ready for projection and rendering. Literal editor
+     * output is retained by identity; every level is marked so a nested card cannot
+     * later reinterpret that finite path as a recursive View. */
+    public static ViewConfig preparedSelection(ViewConfig config, TypeShape shape) {
+        if (!isLiteral(config)) return selection(config, shape);
+        markFinite(config, Collections.newSetFromMap(new IdentityHashMap<>()));
+        return config;
+    }
+
+    private static void markFinite(ViewConfig config, Set<ViewConfig> seen) {
+        if (config == null || !seen.add(config)) return;
+        config.setFinitePaths(true);
+        if (config.inheritedFrom() != null) markFinite(config.inheritedFrom(), seen);
+        for (ViewConfig child : config.getFields().values()) markFinite(child, seen);
     }
 
     /**
@@ -112,6 +152,36 @@ public final class ViewConfigDesugar {
         if (config.isAllFields() || config.isAllMinorFields()) return false;
         for (Map.Entry<String, ViewConfig> entry : config.getFields().entrySet()) {
             if (!isLiteral(entry.getValue())) return false;
+        }
+        return true;
+    }
+
+    /** Whether {@code config} is literal and every recursive field already points at
+     * the nearest ancestor selected by {@link ConfigChain}. */
+    private static boolean prepared(ViewConfig config, TypeShape shape,
+                                    ConfigChain<ViewConfig> parent, FieldRef via) {
+        if (config == null || config.isAllFields() || config.isAllMinorFields()) return false;
+        ConfigChain<ViewConfig> chain = parent == null
+                ? ConfigChain.root(shape == null ? null : shape.typeName(), config)
+                : parent.push(via, config);
+        FieldRef display = shape == null ? null : shape.displayField();
+        for (Map.Entry<String, ViewConfig> entry : config.getFields().entrySet()) {
+            String name = entry.getKey();
+            if (ViewableContractFieldSet.DISPLAY_KEY.equals(name) && display != null
+                    && !ViewableContractFieldSet.DISPLAY_KEY.equals(display.name())) {
+                return false; // the alias still has to be rewritten to the real field
+            }
+            ViewConfig child = entry.getValue();
+            if (child == null) return false;
+            FieldRef field = shape == null ? null : field(shape, name);
+            ViewConfig ancestor = chain.inherited(field);
+            if (ancestor != null) {
+                if (child.inheritedFrom() != ancestor) return false;
+                continue;
+            }
+            if (child.inheritedFrom() != null) return false;
+            TypeShape nested = field == null || shape == null ? null : shape.nested(field);
+            if (!prepared(child, nested, chain, field)) return false;
         }
         return true;
     }

@@ -27,10 +27,16 @@ public class ViewConfig {
     // Render images with their answer text blurred out (quiz query panels).
     private boolean blurImages = false;
     private AnswerType answerType = AnswerType.AUTO;
+    // A field selection (quiz key / finite field picker) follows only the paths the
+    // user ticked. A View, search or sort config instead inherits recursive fields.
+    // This belongs to the config: a renderer cannot infer the distinction from an
+    // otherwise identical literal field tree.
+    private boolean finitePaths;
     // A field whose type is already on the config path has no config of its own: it
     // inherits the nearest ancestor's of that type (#368). The back-edge is kept out of
-    // the field map, so a walk over the ticks never loops; it is set where the config is
-    // made (the View editor, the View default) and never inferred by a reader.
+    // the field map, so a walk over the ticks never loops. The View editor/default write
+    // it; the shared rendering boundary repairs an old/raw View that predates the mark.
+    // A finite field selection records that different meaning explicitly above.
     private ViewConfig inheritedFrom;
 
     public static ViewConfig of(Class<? extends Viewable> cls) {
@@ -88,6 +94,7 @@ public class ViewConfig {
         c.thumb = this.thumb;
         c.blurImages = this.blurImages;
         c.answerType = this.answerType;
+        c.finitePaths = this.finitePaths;
 
         c.inheritedFrom = inheritedFrom == null ? null
                 : copies.getOrDefault(inheritedFrom, inheritedFrom);
@@ -213,12 +220,24 @@ public class ViewConfig {
         answerType = t;
     }
 
+    /** Whether recursive object fields stop at the explicitly stored child paths. */
+    public boolean isFinitePaths() {
+        return finitePaths;
+    }
+
+    /** Marks this level as a finite field selection rather than a recursive View. */
+    public ViewConfig setFinitePaths(boolean finite) {
+        finitePaths = finite;
+        return this;
+    }
+
     @Override
     public String toString() {
         return "Config{" + "cls=" + (cls == null ? "?" : cls.getSimpleName()) +
                 ", allFields=" + allFields + ", allMinorFields=" + allMinorFields +
                 ", addListener=" + addListener + ", thumb=" + thumb + ", type=" +
                 answerType + ", fields=" + fields.keySet()
+                + (finitePaths ? ", finitePaths" : "")
                 + (inheritedFrom == null ? "" : ", inherited") + '}';
     }
 

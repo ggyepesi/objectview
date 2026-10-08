@@ -241,6 +241,8 @@ public class SearchPanel extends JPanel
         this.renderContext = context;
         searchAndSort.setFieldSchemaResolver(
                 context == null ? null : context::fieldSchema);
+        searchAndSort.setTopLevelPredicate(
+                context == null ? null : context::isTopLevel);
         // The editors read their sample's type from the same schemas the cards use.
         if (context != null) {
             List<ViewConfigEditor> editors = new ArrayList<>(

@@ -4,6 +4,7 @@ import objectview.field.FieldKind;
 import objectview.field.FieldPath;
 import objectview.field.FieldRef;
 import objectview.field.FieldRole;
+import objectview.field.ViewableContractFieldSet;
 import objectview.field.ViewableFieldPaths.PathInfo;
 import objectview.viewconfig.ViewConfig;
 
@@ -63,12 +64,15 @@ public final class LiteralPaths {
             if (child != null && !child.getFields().isEmpty()) {
                 values(child, walked, nested, path, title, excludeMedia, out);
             } else if (nested == null && !objectField(field, child)) {
+                FieldRole role = field == null
+                        ? ViewableContractFieldSet.DISPLAY_KEY.equals(name)
+                                ? FieldRole.DISPLAY : FieldRole.NONE
+                        : field.role();
                 objectview.field.PathWalk walk = walked == null
-                        ? null : InheritedSelection.walk(walked, literal, name);
+                        ? null : InheritedSelection.walk(walked, literal, name, role);
                 out.add(field == null
                         ? new PathInfo(title, path, null, FieldKind.UNKNOWN,
-                                objectview.field.ViewableContractFieldSet.DISPLAY_KEY
-                                        .equals(name) ? FieldRole.DISPLAY : FieldRole.NONE,
+                                role,
                                 walk)
                         : new PathInfo(title, path, shape.javaField(field),
                                 field.valueKind(), field.role(), walk));

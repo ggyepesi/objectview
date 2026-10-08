@@ -14,6 +14,7 @@ import java.lang.reflect.Field;
 import java.util.*;
 import java.util.List;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 /**
  * Non-UI helper for SearchPanel.
@@ -50,12 +51,22 @@ public class SearchAndSort {
     private long viewableSearchIndexRevision;
     private Function<objectview.Viewable, objectview.field.FieldSchema>
             fieldSchemaResolver = ignored -> null;
+    private Predicate<objectview.Viewable> topLevel = ignored -> false;
 
     /** Installs the same schema source used by rendering. Changing it invalidates
      * every extracted value because nested path interpretation may have changed. */
     public void setFieldSchemaResolver(
             Function<objectview.Viewable, objectview.field.FieldSchema> resolver) {
         fieldSchemaResolver = resolver == null ? ignored -> null : resolver;
+        searchIndex.clear();
+        clearViewableSearchIndex();
+    }
+
+    /** Installs the same top-level membership used by rendering. A scalar reference
+     * to such an object is navigation-only, so inherited search/sort may read its
+     * caption but must not walk into fields absent from the containing card. */
+    public void setTopLevelPredicate(Predicate<objectview.Viewable> predicate) {
+        topLevel = predicate == null ? ignored -> false : predicate;
         searchIndex.clear();
         clearViewableSearchIndex();
     }
@@ -334,7 +345,7 @@ public class SearchAndSort {
             // Each value where the walk read it: its rendered path runs through the
             // inherited levels, and its route names the objects to open (#368).
             for (objectview.field.PathWalk.Reached reached
-                    : field.walk().read(root, batchSchemaResolver())) {
+                    : field.walk().read(root, batchSchemaResolver(), topLevel)) {
                 ViewableFieldPaths.PathInfo at = new ViewableFieldPaths.PathInfo(
                         field.title(), reached.rendered(), field.leafField(),
                         field.valueKind(), field.role());
@@ -387,7 +398,8 @@ public class SearchAndSort {
         List<SearchText> occurrences = new ArrayList<>();
         try {
             if (field.walk() != null) {
-                for (objectview.field.PathWalk.Reached reached : field.walk().read(root, schemas)) {
+                for (objectview.field.PathWalk.Reached reached
+                        : field.walk().read(root, schemas, topLevel)) {
                     addOccurrenceTexts(occurrences, field, reached.value());
                 }
             } else {
@@ -661,7 +673,8 @@ public class SearchAndSort {
         try {
             if (field.walk() != null) {
                 List<Object> values = new ArrayList<>();
-                for (objectview.field.PathWalk.Reached reached : field.walk().read(obj, schemas)) {
+                for (objectview.field.PathWalk.Reached reached
+                        : field.walk().read(obj, schemas, topLevel)) {
                     values.add(reached.value());
                 }
                 return values;

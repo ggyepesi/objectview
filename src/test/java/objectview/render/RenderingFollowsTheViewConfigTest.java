@@ -319,6 +319,7 @@ class RenderingFollowsTheViewConfigTest {
         ViewConfig root = config(Twin.class);
         root.addField("other", middle);
         RenderContext context = new RenderContext(List.of(first));
+        context.setExpanded(second, true);
 
         Card[] card = new Card[1];
         javax.swing.SwingUtilities.invokeAndWait(

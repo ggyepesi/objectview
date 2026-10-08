@@ -209,6 +209,62 @@ class RecursiveFieldsInheritTest {
                 "folded again: one level per expand");
     }
 
+    @Test void theCardPreparesALiteralConfigWhoseRecursiveFieldIsStillPlain()
+            throws Exception {
+        objectview.render.RenderContext context =
+                new objectview.render.RenderContext(List.of(president));
+        // This is literal in the old, syntactic sense, but predecessor still has its
+        // own empty child. Card is the rendering boundary and must apply the recursion
+        // rule itself rather than require every caller to remember another operation.
+        ViewConfig entered = nameCountryAndBoth();
+
+        javax.swing.JComponent folded = card(entered, context);
+        assertTrue(shows(folded, "emperor"));
+        assertTrue(!shows(folded, EMPEROR_COUNTRY, "empire"));
+
+        context.setExpanded(emperor, true);
+        javax.swing.JComponent opened = card(entered, context);
+        assertTrue(shows(opened, EMPEROR_COUNTRY, "empire"),
+                "a raw literal config must not reproduce expand-to-nothing");
+    }
+
+    @Test void preparationReusesAnAlreadyPreparedConfig() {
+        ViewConfig prepared = ViewConfigDesugar.literal(nameCountryAndBoth(), shape());
+
+        assertSame(prepared, ViewConfigDesugar.preparedView(prepared, shape()),
+                "rendering many instances of one type must not copy its config per card");
+        ViewConfig repaired = ViewConfigDesugar.preparedView(nameCountryAndBoth(), shape());
+        assertSame(repaired, repaired.getFieldConfig("predecessor").inheritedFrom(),
+                "a raw or old literal config is repaired at the shared rendering boundary");
+    }
+
+    @Test void aFiniteSelectionIsNotReinterpretedAsARecursiveView() {
+        ViewConfig finite = ViewConfigDesugar.preparedSelection(
+                nameCountryAndBoth(), shape());
+
+        assertSame(finite, ViewConfigDesugar.preparedView(finite, shape()));
+        assertNull(finite.getFieldConfig("predecessor").inheritedFrom());
+        assertTrue(finite.getFieldConfig("predecessor").isFinitePaths(),
+                "nested cards retain the same finite-path meaning");
+    }
+
+    @Test void aSavedFiniteSelectionKeepsItsMeaning() {
+        ViewConfig finite = ViewConfigDesugar.preparedSelection(
+                nameCountryAndBoth(), shape());
+        java.io.File file = new java.io.File(System.getProperty("java.io.tmpdir"),
+                "finite-path-selection-" + System.nanoTime() + ".json");
+        try {
+            ViewConfigJsonIO.save(file, finite);
+            ViewConfig loaded = ViewConfigJsonIO.fromJson(ViewConfigJsonIO.loadJson(file));
+
+            assertTrue(loaded.isFinitePaths());
+            assertTrue(loaded.getFieldConfig("predecessor").isFinitePaths());
+            assertNull(loaded.getFieldConfig("predecessor").inheritedFrom());
+        } finally {
+            file.delete();
+        }
+    }
+
     @Test void anInheritedObjectWithoutACaptionFoldsUnderItsFieldName() throws Exception {
         ViewConfig config = ViewConfig.leaf();
         config.addField("country", ViewConfig.leaf());
