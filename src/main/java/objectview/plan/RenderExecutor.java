@@ -178,7 +178,7 @@ public final class RenderExecutor {
                             value, object, false, 0, null);
                 }
                 boolean open = disclosure.isExpanded(target,
-                        Disclosure.initiallyOpen(field, target));
+                        Disclosure.initiallyOpen(field, target, member));
                 return new Decision(Kind.OBJECT, at, field, representation, value,
                         object, open, 0, null);
             }

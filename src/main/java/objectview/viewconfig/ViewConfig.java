@@ -27,6 +27,11 @@ public class ViewConfig {
     // Render images with their answer text blurred out (quiz query panels).
     private boolean blurImages = false;
     private AnswerType answerType = AnswerType.AUTO;
+    // A field whose type is already on the config path has no config of its own: it
+    // inherits the nearest ancestor's of that type (#368). The back-edge is kept out of
+    // the field map, so a walk over the ticks never loops; it is set where the config is
+    // made (the View editor, the View default) and never inferred by a reader.
+    private ViewConfig inheritedFrom;
 
     public static ViewConfig of(Class<? extends Viewable> cls) {
         ViewConfig c = new ViewConfig();
@@ -48,8 +53,32 @@ public class ViewConfig {
         return cfg;
     }
 
+    /** The config of a field that inherits {@code ancestor}'s: no ticks of its own. */
+    public static ViewConfig inheriting(ViewConfig ancestor) {
+        if (ancestor == null) throw new IllegalArgumentException("ancestor must not be null");
+        ViewConfig cfg = leaf();
+        cfg.inheritedFrom = ancestor;
+        return cfg;
+    }
+
+    /** The ancestor config this field inherits, or null when it has its own. */
+    public ViewConfig inheritedFrom() {
+        return inheritedFrom;
+    }
+
+    /** The config this field's value renders under: the inherited one, else its own. */
+    public ViewConfig effective() {
+        return inheritedFrom == null ? this : inheritedFrom;
+    }
+
     public ViewConfig copy() {
+        return copy(new IdentityHashMap<>());
+    }
+
+    /** A deep copy whose inherited back-edges point at the copied ancestors. */
+    private ViewConfig copy(Map<ViewConfig, ViewConfig> copies) {
         ViewConfig c = new ViewConfig();
+        copies.put(this, c);
 
         c.cls = this.cls;
         c.allFields = this.allFields;
@@ -60,11 +89,14 @@ public class ViewConfig {
         c.blurImages = this.blurImages;
         c.answerType = this.answerType;
 
+        c.inheritedFrom = inheritedFrom == null ? null
+                : copies.getOrDefault(inheritedFrom, inheritedFrom);
+
         for (Map.Entry<String, ViewConfig> e : fields.entrySet()) {
-            c.fields.put(e.getKey(), e.getValue().copy());
+            c.fields.put(e.getKey(), e.getValue().copy(copies));
         }
         for (Map.Entry<String, ViewConfig> e : rememberedFields.entrySet()) {
-            c.rememberedFields.put(e.getKey(), e.getValue().copy());
+            c.rememberedFields.put(e.getKey(), e.getValue().copy(copies));
         }
 
         return c;
@@ -73,10 +105,12 @@ public class ViewConfig {
     /** Adds explicitly selected fields from a subtype configuration while retaining
      * this configuration's base-field choices and display flags. */
     public ViewConfig withAdditionalFields(ViewConfig additional) {
-        ViewConfig merged = copy();
+        Map<ViewConfig, ViewConfig> copies = new IdentityHashMap<>();
+        ViewConfig merged = copy(copies);
         if (additional == null) return merged;
+        copies.put(additional, merged);
         for (Map.Entry<String, ViewConfig> entry : additional.fields.entrySet()) {
-            merged.fields.put(entry.getKey(), entry.getValue().copy());
+            merged.fields.put(entry.getKey(), entry.getValue().copy(copies));
         }
         return merged;
     }
@@ -184,7 +218,8 @@ public class ViewConfig {
         return "Config{" + "cls=" + (cls == null ? "?" : cls.getSimpleName()) +
                 ", allFields=" + allFields + ", allMinorFields=" + allMinorFields +
                 ", addListener=" + addListener + ", thumb=" + thumb + ", type=" +
-                answerType + ", fields=" + fields.keySet() + '}';
+                answerType + ", fields=" + fields.keySet()
+                + (inheritedFrom == null ? "" : ", inherited") + '}';
     }
 
     public enum AnswerType {

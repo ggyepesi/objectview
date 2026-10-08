@@ -16,8 +16,17 @@ public interface Disclosure {
     boolean isExpanded(Object key, boolean initiallyOpen);
 
     /** Rule 6: a nested object starts open; ordinary collections start folded;
-     * singleton media and {@code @Inline} content start open. */
+     * singleton media and {@code @Inline} content start open. A field that inherits an
+     * ancestor's config starts folded, so each expand opens one level and only the
+     * reader's clicks set the depth (#368). */
     static boolean initiallyOpen(ObjectPlan.FieldPlan field, Object value) {
+        return initiallyOpen(field, value, false);
+    }
+
+    /** {@link #initiallyOpen} for a {@code member} of an open collection: the members
+     * of an opened inherited collection are the level that opened, so they start open. */
+    static boolean initiallyOpen(ObjectPlan.FieldPlan field, Object value, boolean member) {
+        if (field != null && field.inherited() && !member) return false;
         if (!(value instanceof Collection<?> || value instanceof java.util.Map<?, ?>)) {
             return true;
         }

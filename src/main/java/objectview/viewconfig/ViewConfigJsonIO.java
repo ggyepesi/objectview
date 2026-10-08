@@ -51,9 +51,20 @@ public class ViewConfigJsonIO {
     }
 
     /** The {@link ViewConfig} a saved JSON config describes, or null for null. */
-    @SuppressWarnings("unchecked")
     public static ViewConfig fromJson(JsonConfig j) {
+        return fromJson(j, new java.util.ArrayDeque<>());
+    }
+
+    /** {@code ancestors} holds the configs above {@code j}, nearest first, so an
+     * inherited field re-links to the ancestor it names by distance. */
+    @SuppressWarnings("unchecked")
+    private static ViewConfig fromJson(JsonConfig j, java.util.Deque<ViewConfig> ancestors) {
         if (j == null) return null;
+        if (j.inheritsUp != null) {
+            ViewConfig ancestor = ancestors.stream().skip(j.inheritsUp - 1L)
+                    .findFirst().orElse(null);
+            if (ancestor != null) return ViewConfig.inheriting(ancestor);
+        }
         ViewConfig cfg = new ViewConfig();
         if (j.className != null) {
             try {
@@ -78,17 +89,33 @@ public class ViewConfigJsonIO {
                 // unknown answer type: keep the default
             }
         }
+        ancestors.push(cfg);
         if (j.fields != null) {
-            j.fields.forEach((name, child) -> cfg.addField(name, fromJson(child)));
+            j.fields.forEach((name, child) -> cfg.addField(name, fromJson(child, ancestors)));
         }
         if (j.rememberedFields != null) {
-            j.rememberedFields.forEach((name, child) -> cfg.rememberField(name, fromJson(child)));
+            j.rememberedFields.forEach((name, child) ->
+                    cfg.rememberField(name, fromJson(child, ancestors)));
         }
+        ancestors.pop();
         return cfg;
     }
 
     private static JsonConfig toJson(ViewConfig cfg) {
+        return toJson(cfg, new java.util.ArrayList<>());
+    }
+
+    /** {@code ancestors} holds the configs above {@code cfg}, outermost first. */
+    private static JsonConfig toJson(ViewConfig cfg, java.util.List<ViewConfig> ancestors) {
         JsonConfig j = new JsonConfig();
+        if (cfg.inheritedFrom() != null) {
+            for (int i = ancestors.size() - 1; i >= 0; i--) {
+                if (ancestors.get(i) == cfg.inheritedFrom()) {
+                    j.inheritsUp = ancestors.size() - i;
+                    return j;
+                }
+            }
+        }
 
         j.className = cfg.getCls() == null ? null : cfg.getCls().getName();
         j.allFields = cfg.isAllFields();
@@ -99,12 +126,14 @@ public class ViewConfigJsonIO {
         j.blurImages = cfg.isBlurImages();
         j.answerType = cfg.getAnswerType() == null ? null : cfg.getAnswerType().name();
 
+        ancestors.add(cfg);
         for (Map.Entry<String, ViewConfig> e : cfg.getFields().entrySet()) {
-            j.fields.put(e.getKey(), toJson(e.getValue()));
+            j.fields.put(e.getKey(), toJson(e.getValue(), ancestors));
         }
         for (Map.Entry<String, ViewConfig> e : cfg.getRememberedFields().entrySet()) {
-            j.rememberedFields.put(e.getKey(), toJson(e.getValue()));
+            j.rememberedFields.put(e.getKey(), toJson(e.getValue(), ancestors));
         }
+        ancestors.remove(ancestors.size() - 1);
 
         return j;
     }
@@ -120,5 +149,7 @@ public class ViewConfigJsonIO {
         public String answerType;
         public Map<String, JsonConfig> fields = new LinkedHashMap<>();
         public Map<String, JsonConfig> rememberedFields = new LinkedHashMap<>();
+        /** Set on a field that inherits an ancestor's config: how many levels up. */
+        public Integer inheritsUp;
     }
 }

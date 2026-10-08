@@ -537,6 +537,10 @@ public class SearchPanel extends JPanel
         viewEditor =
                 new ViewConfigEditor(initialView.copy(), false, sample,
                         FieldTableContributor.REORDERABLE);
+        // View, search and sort inherit recursion (#368); a quiz key does not.
+        viewEditor.setInheritsRecursion(true);
+        searchEditor.setInheritsRecursion(true);
+        sortEditor.setInheritsRecursion(true);
 
         // Do this BEFORE installClassBranches(): that method intentionally folds the
         // visible rows back into a concrete config, so those rows must already be the
@@ -812,6 +816,7 @@ public class SearchPanel extends JPanel
         ViewConfigEditor editor = new ViewConfigEditor(
                 retained == null ? fallback : retained,
                 selectionOnly, subtype.sample(), FieldTableContributor.REORDERABLE);
+        editor.setInheritsRecursion(true);
         editor.setFieldTypes(subtype.fieldTypes());
         applySchemas(editor);
         java.util.Set<String> hidden = new java.util.LinkedHashSet<>();

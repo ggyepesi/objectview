@@ -39,6 +39,10 @@ public interface TypeShape {
      * object field or its target is not described. */
     TypeShape nested(FieldRef field);
 
+    /** The logical type this shape describes, or null when unknown. It roots the
+     * {@link ConfigChain}: a field of this type below it recurses. */
+    default String typeName() { return null; }
+
     /** The declared Java field behind {@code field}, or null for a dynamic or
      * contract field. Sort reads a numeric Java type off it. */
     default Field javaField(FieldRef field) { return null; }
@@ -94,7 +98,12 @@ public interface TypeShape {
 
     /** A domain schema, as the field editors receive it. */
     static TypeShape of(FieldTypeSource source) {
-        return source == null ? null : new SchemaShape(source);
+        return of(source, null);
+    }
+
+    /** A domain schema of the logical type {@code typeName}. */
+    static TypeShape of(FieldTypeSource source, String typeName) {
+        return source == null ? null : new SchemaShape(source, typeName);
     }
 
     /** A reflected class: its declared fields plus the contract fields. */
@@ -114,7 +123,7 @@ public interface TypeShape {
         FieldSchema effective = schema != null ? schema : FieldSet.carriedSchema(value);
         return effective == null ? ofClass(value.getClass())
                 : new SchemaTypeShape(effective, value.getClass(),
-                        !FieldSet.declaresItsFields(value), byType);
+                        !FieldSet.declaresItsFields(value), byType, value.typeName());
     }
 
     /** The declared type {@code typeName}, from its schema (a domain's, else a runtime
@@ -123,10 +132,11 @@ public interface TypeShape {
         if (typeName == null) return null;
         FieldSchema schema = byType == null ? null : byType.apply(typeName);
         if (schema == null) schema = RecordTypes.schema(typeName);
-        return schema == null ? null : new SchemaTypeShape(schema, null, false, byType);
+        return schema == null ? null
+                : new SchemaTypeShape(schema, null, false, byType, typeName);
     }
 
-    record SchemaShape(FieldTypeSource source) implements TypeShape {
+    record SchemaShape(FieldTypeSource source, String typeName) implements TypeShape {
         @Override public List<FieldRef> fields() {
             List<FieldRef> out = new ArrayList<>();
             for (String name : source.fieldNames()) {
@@ -150,11 +160,15 @@ public interface TypeShape {
 
         @Override public TypeShape nested(FieldRef field) {
             FieldTypeSource.FieldTypeInfo info = field == null ? null : source.field(field.name());
-            return info == null ? null : TypeShape.of(info.nested());
+            return info == null ? null : TypeShape.of(info.nested(), info.nestedClassName());
         }
     }
 
     record ClassShape(Class<? extends Viewable> type) implements TypeShape {
+        @Override public String typeName() {
+            return type.getSimpleName();
+        }
+
         @Override public List<FieldRef> fields() {
             List<FieldRef> out = new ArrayList<>();
             boolean hasDisplay = false;
@@ -203,7 +217,8 @@ public interface TypeShape {
      * schema; a field only the class declares nests through the class.
      */
     record SchemaTypeShape(FieldSchema schema, Class<?> declaring, boolean dynamic,
-                           Function<String, FieldSchema> byType) implements TypeShape {
+                           Function<String, FieldSchema> byType, String typeName)
+            implements TypeShape {
         @Override public List<FieldRef> fields() {
             List<FieldRef> out = new ArrayList<>(schema.fields());
             if (declaring != null && Viewable.class.isAssignableFrom(declaring)) {

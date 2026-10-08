@@ -6,7 +6,6 @@ import objectview.field.ViewableContractFieldSet;
 import objectview.viewconfig.ViewConfig;
 
 import java.util.Map;
-import java.util.function.BiFunction;
 
 /**
  * The only reader of ViewConfig shorthand (directive 24). Rewrites {@code allFields},
@@ -25,25 +24,58 @@ public final class ViewConfigDesugar {
 
     private ViewConfigDesugar() {}
 
+    /** The child config of an object the shorthand includes, given the type path above
+     * it ({@code parent}, ending at the level that holds {@code field}). */
+    @FunctionalInterface
+    interface Implicit {
+        ViewConfig child(FieldRef field, TypeShape nested, ConfigChain<ViewConfig> parent);
+    }
+
     /** The literal form of the View config {@code config} against {@code shape}. A null
      * shape keeps only the explicitly ticked fields, since there is nothing to expand
-     * against. */
+     * against. A field whose type is already on the path inherits that ancestor's config
+     * ({@link ConfigChain}); its own ticks, if any were stored, are not the config. */
     public static ViewConfig literal(ViewConfig config, TypeShape shape) {
-        return literal(config, shape, ViewDefaults::implicitObject);
+        return literal(config, shape, true);
+    }
+
+    /** {@link #literal}, with {@code inherit} false for a View-form config whose ticks
+     * under a recursive field are finite paths of their own: a field picker's. */
+    public static ViewConfig literal(ViewConfig config, TypeShape shape, boolean inherit) {
+        return literal(config, shape, ViewDefaults::implicitObject, null, null, inherit);
     }
 
     /** The literal form of a field selection (search, sort, quiz key): an object the
-     * shorthand includes has nothing ticked under it. */
+     * shorthand includes has nothing ticked under it. A selection inherits only where
+     * its editor wrote it; this never adds an inheritance. */
     public static ViewConfig selection(ViewConfig config, TypeShape shape) {
-        return literal(config, shape, (field, nested) -> ViewConfig.leaf());
+        return literal(config, shape, (field, nested, parent) -> ViewConfig.leaf(),
+                null, null, false);
     }
 
-    /** The literal form with {@code implicit} deciding the child of an object the
-     * shorthand includes. */
-    static ViewConfig literal(ViewConfig config, TypeShape shape,
-                              BiFunction<FieldRef, TypeShape, ViewConfig> implicit) {
+    /**
+     * The literal form with {@code implicit} deciding the child of an object the
+     * shorthand includes. {@code parent} is the type path above this level and
+     * {@code via} the field reaching it (both null at the root); {@code inherit} says
+     * whether a recursive field is made to inherit here (the View form) — an inheritance
+     * already written into {@code config} is kept either way.
+     */
+    static ViewConfig literal(ViewConfig config, TypeShape shape, Implicit implicit,
+                              ConfigChain<ViewConfig> parent, FieldRef via,
+                              boolean inherit) {
+        return literal(config, shape, implicit, parent, via, inherit,
+                new java.util.IdentityHashMap<>());
+    }
+
+    private static ViewConfig literal(ViewConfig config, TypeShape shape, Implicit implicit,
+                                      ConfigChain<ViewConfig> parent, FieldRef via,
+                                      boolean inherit, Map<ViewConfig, ViewConfig> outs) {
         ViewConfig out = header(config);
         if (config == null) return out;
+        outs.put(config, out);
+        ConfigChain<ViewConfig> chain = parent == null
+                ? ConfigChain.root(shape == null ? null : shape.typeName(), out)
+                : parent.push(via, out);
 
         FieldRef display = shape == null ? null : shape.displayField();
         // Explicit ticks first, in the order the user arranged them.
@@ -54,13 +86,15 @@ public final class ViewConfigDesugar {
             }
             if (out.hasField(name)) continue;
             FieldRef field = shape == null ? null : field(shape, name);
-            out.addField(name, child(entry.getValue(), field, shape, implicit));
+            out.addField(name, child(entry.getValue(), field, shape, implicit, chain,
+                    inherit, outs));
         }
         // Then what the shorthand includes, in schema order.
         if (shape != null && (config.isAllFields() || config.isAllMinorFields())) {
             for (FieldRef field : shape.fields()) {
                 if (out.hasField(field.name()) || !includedByShorthand(config, field)) continue;
-                out.addField(field.name(), child(null, field, shape, implicit));
+                out.addField(field.name(), child(null, field, shape, implicit, chain,
+                        inherit, outs));
             }
         }
         for (Map.Entry<String, ViewConfig> remembered
@@ -90,10 +124,17 @@ public final class ViewConfigDesugar {
     }
 
     private static ViewConfig child(ViewConfig explicit, FieldRef field, TypeShape shape,
-                                    BiFunction<FieldRef, TypeShape, ViewConfig> implicit) {
+                                    Implicit implicit, ConfigChain<ViewConfig> chain,
+                                    boolean inherit, Map<ViewConfig, ViewConfig> outs) {
+        ViewConfig ancestor = inherit ? chain.inherited(field) : null;
+        if (ancestor != null) return ViewConfig.inheriting(ancestor);
+        if (explicit != null && explicit.inheritedFrom() != null) {
+            ViewConfig mapped = outs.get(explicit.inheritedFrom());
+            return ViewConfig.inheriting(mapped != null ? mapped : explicit.inheritedFrom());
+        }
         TypeShape nested = field == null || shape == null ? null : shape.nested(field);
-        if (explicit == null) return implicit.apply(field, nested);
-        return literal(explicit, nested, implicit);
+        if (explicit == null) return implicit.child(field, nested, chain);
+        return literal(explicit, nested, implicit, chain, field, inherit, outs);
     }
 
     private static FieldRef field(TypeShape shape, String name) {

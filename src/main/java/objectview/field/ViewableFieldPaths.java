@@ -24,8 +24,17 @@ public final class ViewableFieldPaths {
      *  the leaf's value kind (ORDERED / TEXT / …) — carried so consumers like sort know a
      *  field is numeric from the schema (a persisted {@code @Numeric}), not only from a
      *  reflection {@link Field} that a dynamic/snapshot path lacks. */
+    /**
+     * One selected value path. {@code walk} is set when the path passes through a field
+     * that inherits an ancestor's config: its values are then read by that walk, at every
+     * level the inheritance reaches, instead of along {@code path} alone (#368).
+     */
     public record PathInfo(String title, FieldPath path, Field leafField,
-                           FieldKind valueKind, FieldRole role) {
+                           FieldKind valueKind, FieldRole role, PathWalk walk) {
+        public PathInfo(String title, FieldPath path, Field leafField,
+                        FieldKind valueKind, FieldRole role) {
+            this(title, path, leafField, valueKind, role, null);
+        }
         /** Derives {@code valueKind} from the leaf reflection field (UNKNOWN when none). */
         public PathInfo(String title, FieldPath path, Field leafField) {
             this(title, path, leafField, leafField == null

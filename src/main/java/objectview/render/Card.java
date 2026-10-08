@@ -1038,7 +1038,11 @@ public class Card extends JPanel implements RenderedInstanceHost {
                     target, decorate);
         }
 
-        if (object.caption() == null) {
+        // An inherited object folds even without a caption (#368): its field name is
+        // then the chip that opens it, since a body shown at once would open the next
+        // inherited level with it, and the next.
+        boolean inherited = decision.field() != null && decision.field().inherited();
+        if (object.caption() == null && !inherited) {
             JComponent body = nestedCard(object, fieldPath, ancestors);
             if (body == null) {
                 return label == null || label.isBlank()
@@ -1048,10 +1052,13 @@ public class Card extends JPanel implements RenderedInstanceHost {
         }
 
         boolean open = decision.open();
+        boolean named = object.caption() == null;
+        String chipText = !named ? object.caption()
+                : label == null || label.isBlank() ? ReferenceRow.NAVIGATION_LABEL : label;
         ReferenceRow chip = new ReferenceRow(
-                label, fieldPath, target, renderContext, object.config(),
+                named ? "" : label, fieldPath, target, renderContext, object.config(),
                 objectPathTitle(target), open, false,
-                object.caption(), object.captionField());
+                chipText, object.captionField());
         if (!open) {
             return maybeDecoratedReference(chip, target, decorate);
         }

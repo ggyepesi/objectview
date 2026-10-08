@@ -57,6 +57,11 @@ public class ViewConfigEditor extends JPanel {
     // The whole discovered tree; `rows` is the currently VISIBLE subset of it.
     private final List<RowState> allRows = new ArrayList<>();
     private static final int MAX_TREE_DEPTH = 6;
+    // A field whose type is already on the path inherits that ancestor's config (#368):
+    // the root is an ancestor too, and the config this editor emits says so. On for the
+    // View, search and sort editors; off, a recursive field is only a cut in the tree and
+    // what is ticked under it is a finite path (the quiz key editor, the field pickers).
+    private boolean inheritsRecursion;
 
     private final List<RowState> rows = new ArrayList<>();
     private final RowTableModel tableModel = new RowTableModel();
@@ -332,7 +337,7 @@ public class ViewConfigEditor extends JPanel {
         // includes; the View editor's default ticks each object's DISPLAY.
         ViewConfig literal = nestedDefaultNameOnly
                 ? objectview.plan.ViewConfigDesugar.selection(plain, shape)
-                : objectview.plan.ViewConfigDesugar.literal(plain, shape);
+                : objectview.plan.ViewConfigDesugar.literal(plain, shape, inheritsRecursion);
         branches.forEach(literal::addField);
         return literal;
     }
@@ -530,7 +535,8 @@ public class ViewConfigEditor extends JPanel {
 
         if (treeMode) {
             allRows.clear();
-            buildTree(FieldPath.ROOT, 0, rowContext(), new java.util.HashSet<>());
+            buildTree(FieldPath.ROOT, 0, rowContext(), objectview.plan.ConfigChain.root(
+                    inheritsRecursion ? rootTypeName() : null, FieldPath.ROOT));
             for (RowState state : allRows) {
                 RowSnapshot snapshot = old.get(state.row.path());
                 if (snapshot != null) {
@@ -576,13 +582,13 @@ public class ViewConfigEditor extends JPanel {
     /** Discovers the whole tree into {@link #allRows}: top-level rows from the source,
      *  then each reference's children (re-pathed under it) recursively, bounded by a
      *  depth cap and a cycle guard (a nested type already on the chain stops). */
-    private void buildTree(FieldPath parentPath, int depth,
-                           FieldRowContext context, Set<String> chain) {
+    private void buildTree(FieldPath parentPath, int depth, FieldRowContext context,
+                           objectview.plan.ConfigChain<FieldPath> chain) {
         buildTree(parentPath, depth, context, chain, false);
     }
 
-    private void buildTree(FieldPath parentPath, int depth,
-                           FieldRowContext context, Set<String> chain,
+    private void buildTree(FieldPath parentPath, int depth, FieldRowContext context,
+                           objectview.plan.ConfigChain<FieldPath> chain,
                            boolean minorBranch) {
         for (FieldRow raw : rowSource.rows(context)) {
             if (raw.isMinorBlock()) {
@@ -618,19 +624,22 @@ public class ViewConfigEditor extends JPanel {
             NestedFieldSource nested = placed.nested();
             if (nested != null) {
                 String cycleKey = nestedCycleKey(nested);
-                if (chain.contains(cycleKey)) {
-                    // Same type already on this path — refer back instead of re-expanding,
-                    // exactly as the instance card does when a nested value reappears.
-                    state.cutNote = "↩ shown above";
+                // A subtype branch is the level it sits in, specialised, not a field that
+                // leads to an object: it never recurses.
+                FieldPath ancestor = placed.isClassBranch() ? null : chain.inherited(cycleKey);
+                if (ancestor != null) {
+                    // Same type already on this path — refer back instead of re-expanding.
+                    // Inheriting, the field has no config of its own: it renders under
+                    // the ancestor's, which is configured above.
+                    state.cutNote = inheritsRecursion ? "↩ as configured above" : "↩ shown above";
+                    if (inheritsRecursion) state.inheritsFrom = ancestor;
                 } else if (depth >= MAX_TREE_DEPTH) {
                     state.cutNote = "… max depth";
                 } else {
-                    Set<String> next = new java.util.HashSet<>(chain);
-                    next.add(cycleKey);
                     buildTree(full, depth + 1,
                             childContext(nested, full, placed.isClassBranch(),
-                                    placed.isClassBranch() || state.use), next,
-                            minorBranch);
+                                    placed.isClassBranch() || state.use),
+                            chain.push(cycleKey, full), minorBranch);
                 }
             }
         }
@@ -646,15 +655,35 @@ public class ViewConfigEditor extends JPanel {
      * world (schema shell) cut the chain at the same depth.
      */
     private static String nestedCycleKey(NestedFieldSource nested) {
+        // The declared target type first, as ConfigChain compares a field's target type:
+        // the class of a sample value could be a subtype the field merely holds.
+        if (nested.displayName() != null && !nested.displayName().isBlank()) {
+            return nested.displayName();
+        }
         if (nested.sample() != null) {
             return nested.sample().typeName();
         }
-        if (nested.fieldTypes() != null
-                && nested.displayName() != null
-                && !nested.displayName().isBlank()) {
-            return nested.displayName();
-        }
         return nested.type().getSimpleName();
+    }
+
+    /** The logical type the root rows describe, the first ancestor on every path. */
+    private String rootTypeName() {
+        if (sample != null) return sample.typeName();
+        ViewConfig config = enteredConfig != null ? enteredConfig : sourceConfig;
+        return config == null || config.getCls() == null
+                ? null : config.getCls().getSimpleName();
+    }
+
+    /** Makes a field whose type is already on the path inherit that ancestor's config,
+     * the root included, and emit it so (#368). For the View, search and sort editors;
+     * a quiz key selects only the paths ticked one by one. */
+    public void setInheritsRecursion(boolean inherits) {
+        if (inheritsRecursion == inherits) return;
+        inheritsRecursion = inherits;
+        // The entered config reads differently: a recursive field's ticks are its own
+        // paths, or its config is the ancestor's.
+        sourceConfig = literal(enteredConfig == null ? sourceConfig : enteredConfig);
+        rebuildRows(false);
     }
 
     /** Whether this level's field is selected in the effective config passed to its
@@ -1136,6 +1165,9 @@ public class ViewConfigEditor extends JPanel {
         // parents[d] = the config that a depth-d field attaches to (pre-order fills it).
         ViewConfig[] parents = new ViewConfig[maxDepth + 2];
         parents[0] = result;
+        // Each reference's emitted config by its row, for a field inheriting it.
+        Map<FieldPath, ViewConfig> configAt = new java.util.HashMap<>();
+        configAt.put(FieldPath.ROOT, result);
 
         List<RefEntry> refs = new ArrayList<>();
         for (RowState state : allRows) {
@@ -1164,6 +1196,7 @@ public class ViewConfigEditor extends JPanel {
                 cfg.setCls(row.nested().type());
                 cfg.setAllFields(false);
                 parents[depth + 1] = cfg;
+                configAt.put(row.path(), cfg);
                 refs.add(new RefEntry(
                         parents[depth], name, cfg, state.use, row.nested().type(),
                         row.path(), state, explicit, row.isClassBranch()));
@@ -1190,7 +1223,12 @@ public class ViewConfigEditor extends JPanel {
                 continue;
             }
             ViewConfig attach;
-            if (hasChild) {
+            ViewConfig inherited = ref.state.inheritsFrom == null
+                    ? null : configAt.get(ref.state.inheritsFrom);
+            if (inherited != null) {
+                // No config of its own: ticks stored under it are not shown, so not kept.
+                attach = ViewConfig.inheriting(inherited);
+            } else if (hasChild) {
                 attach = ref.cfg;   // header (from explicit) + inline-checked children
             } else if (ref.classBranch) {
                 attach = ref.explicit == null ? ref.cfg : ref.explicit;
@@ -1205,6 +1243,11 @@ public class ViewConfigEditor extends JPanel {
                 // name alone (rule 3). Falling back to the saved config here turned the
                 // reader's last untick back into the old ticks.
                 attach = ref.cfg;
+            }
+            if (inherited == null && attach.inheritedFrom() != null) {
+                // An inheritance read from the entered config points into that config,
+                // not this one; where this editor does not inherit, the field is plain.
+                attach = ViewConfig.leaf();
             }
             ref.parent.addField(ref.name, attach);
         }
@@ -2115,6 +2158,9 @@ public class ViewConfigEditor extends JPanel {
         // path (cycle) or hits the depth cap — surfaced as an explanatory UI tag so the
         // truncation is never silent.
         String cutNote;
+        // The ancestor row whose config this field inherits (ROOT for the root), when
+        // the editor inherits recursion; null for a field with a config of its own.
+        FieldPath inheritsFrom;
         // A minor field is displayed under the synthetic Minor fields disclosure,
         // while its ViewConfig path remains the real top-level field path.
         boolean minorBranch;

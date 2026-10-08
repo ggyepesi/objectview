@@ -49,6 +49,7 @@ public class ViewConfigEditorFrame extends JFrame {
 
     private ViewConfigEditor createEditor(ViewConfig config) {
         ViewConfigEditor e = new ViewConfigEditor(config);
+        e.setInheritsRecursion(true);   // a View config (#368)
         e.setChangeListener(this::refreshPreview);
         return e;
     }

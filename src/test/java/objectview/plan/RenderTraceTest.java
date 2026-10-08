@@ -119,15 +119,36 @@ class RenderTraceTest {
     }
 
     @Test void aScalarReferenceToACardIsALinkCaptionedOnlyByItsTickedDisplay() {
-        Predicate<Viewable> wigmundHasACard = value -> value == h.wigmund;
+        Predicate<Viewable> kingshipHasACard = value -> value == h.kingOfMercia;
 
-        String plain = render(person(offices(field("source", ViewConfig.leaf()))),
-                opened(), wigmundHasACard);
-        String captioned = render(person(offices(field("source", ticks("name")))),
-                opened(), wigmundHasACard);
+        String plain = render(person(offices(field("position", ViewConfig.leaf()))),
+                opened(), kingshipHasACard);
+        String captioned = render(person(offices(field("position", ticks("name")))),
+                opened(), kingshipHasACard);
 
-        assertTrue(plain.contains("LINK-TO offices[0].source \"Open\""), plain);
-        assertTrue(captioned.contains("LINK-TO offices[0].source \"Wigmund of Mercia\""), captioned);
+        assertTrue(plain.contains("LINK-TO offices[0].position \"Open\""), plain);
+        assertTrue(captioned.contains("LINK-TO offices[0].position \"King of Mercia\""),
+                captioned);
+    }
+
+    /** The reported shape (#368): offices → position with its Display and its
+     *  superClasses ticked. superClasses is a list of Position under a Position, so its
+     *  members render by the position's config; they used to follow their own empty
+     *  ticks, and the opened list showed nothing. */
+    @Test void aListOfTheTypeAboveItOpensToItsMembersByThatTypesConfig() {
+        ViewConfig position = ticks("@view:display");
+        position.addField("superClasses", ViewConfig.leaf());
+        ViewConfig config = person(offices(field("position", position)));
+        MockDisclosure disclosure = opened()
+                .expand(h.kingOfMercia.dynamicFieldValues().get("superClasses"));
+
+        String trace = render(config, disclosure, notTopLevel());
+
+        assertTrue(trace.contains(String.join("\n",
+                "        COLLECTION offices[0].position.superClasses (1) open",
+                "          OBJECT offices[0].position.superClasses[0] caption=\"monarch\" open",
+                "            COLLECTION offices[0].position.superClasses[0].superClasses (0) folded")),
+                trace);
     }
 
     @Test void anObjectAlreadyOnThePathIsABackReference() {

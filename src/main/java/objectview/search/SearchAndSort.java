@@ -82,7 +82,7 @@ public class SearchAndSort {
 
             for (ViewableFieldPaths.PathInfo fp : paths) {
                 Object value =
-                        extractValue(qp.getViewable(), fp.path(), schemas);
+                        extractValue(qp.getViewable(), fp, schemas);
 
                 fieldTextByPath.put(
                         fp,
@@ -156,7 +156,7 @@ public class SearchAndSort {
 
             for (objectview.Viewable q : viewables) {
                 Object value =
-                        extractValue(q, fp.path(), schemas);
+                        extractValue(q, fp, schemas);
 
                 if (matches(searchText(fp, value), queryTokens, exact)) {
 
@@ -329,9 +329,22 @@ public class SearchAndSort {
             boolean exact) {
         if (root == null || field == null || queryTokens == null
                 || queryTokens.isEmpty()) return List.of();
+        List<ValueMatch> result = new ArrayList<>();
+        if (field.walk() != null) {
+            // Each value where the walk read it: its rendered path runs through the
+            // inherited levels, and its route names the objects to open (#368).
+            for (objectview.field.PathWalk.Reached reached
+                    : field.walk().read(root, batchSchemaResolver())) {
+                ViewableFieldPaths.PathInfo at = new ViewableFieldPaths.PathInfo(
+                        field.title(), reached.rendered(), field.leafField(),
+                        field.valueKind(), field.role());
+                addMatchingValues(result, at, reached.value(), reached.route(),
+                        queryTokens, exact);
+            }
+            return List.copyOf(result);
+        }
         ResolvedFieldPath resolved = ResolvedFieldPath.resolve(
                 root, field.path(), batchSchemaResolver());
-        List<ValueMatch> result = new ArrayList<>();
         for (ResolvedFieldPath.Occurrence occurrence : resolved.occurrences()) {
             addMatchingValues(result, field, occurrence.value(),
                     occurrence.collectionMembers(), queryTokens, exact);
@@ -373,10 +386,16 @@ public class SearchAndSort {
             Function<objectview.Viewable, objectview.field.FieldSchema> schemas) {
         List<SearchText> occurrences = new ArrayList<>();
         try {
-            ResolvedFieldPath resolved = ResolvedFieldPath.resolve(
-                    root, field.path(), schemas);
-            for (ResolvedFieldPath.Occurrence occurrence : resolved.occurrences()) {
-                addOccurrenceTexts(occurrences, field, occurrence.value());
+            if (field.walk() != null) {
+                for (objectview.field.PathWalk.Reached reached : field.walk().read(root, schemas)) {
+                    addOccurrenceTexts(occurrences, field, reached.value());
+                }
+            } else {
+                ResolvedFieldPath resolved = ResolvedFieldPath.resolve(
+                        root, field.path(), schemas);
+                for (ResolvedFieldPath.Occurrence occurrence : resolved.occurrences()) {
+                    addOccurrenceTexts(occurrences, field, occurrence.value());
+                }
             }
         } catch (ConcurrentModificationException movedUnderneath) {
             throw movedUnderneath;
@@ -592,7 +611,7 @@ public class SearchAndSort {
 
         for (ViewableFieldPaths.PathInfo f : paths) {
             Object value =
-                    extractValue(panel.getViewable(), f.path(), schemas);
+                    extractValue(panel.getViewable(), f, schemas);
 
             // A @Numeric leaf field sorts by its leading number ("1538 K" ->
             // 1538), not lexically — driven by the annotation, not the value type.
@@ -626,19 +645,28 @@ public class SearchAndSort {
 
         StringBuilder sb = new StringBuilder();
         for (ViewableFieldPaths.PathInfo f : paths) {
-            Object value = extractValue(viewable, f.path(), schemas);
+            Object value = extractValue(viewable, f, schemas);
             sb.append(sortKey(f, value)).append((char) 0);
         }
         sb.append(sortableString(viewable));
         return sb.toString();
     }
 
+    /** The value of {@code field} on {@code obj}: read along its path, or — for a path
+     *  through an inherited level (#368) — every value its walk reaches, in walk order. */
     private Object extractValue(
             Object obj,
-            FieldPath path,
+            ViewableFieldPaths.PathInfo field,
             Function<objectview.Viewable, objectview.field.FieldSchema> schemas) {
         try {
-            return objectview.field.FieldAccess.getPathValues(obj, path, schemas);
+            if (field.walk() != null) {
+                List<Object> values = new ArrayList<>();
+                for (objectview.field.PathWalk.Reached reached : field.walk().read(obj, schemas)) {
+                    values.add(reached.value());
+                }
+                return values;
+            }
+            return objectview.field.FieldAccess.getPathValues(obj, field.path(), schemas);
         } catch (ConcurrentModificationException movedUnderneath) {
             throw movedUnderneath;
         } catch (RuntimeException ignored) {
@@ -747,39 +775,40 @@ public class SearchAndSort {
                 || Number.class.isAssignableFrom(type);
     }
 
-    // The numeric value of the field, as a fixed-width offset key so lexicographic order
-    // == numeric order (for |x| < 1e12). Uses the ONE shared numeric reading
-    // (NumericValues) so a scaled/ranged string sorts the same way it orders and filters.
+    // A path's values are compared one by one, in the order the path reads them: the
+    // first value decides, the next breaks a tie, and a path whose values run out first
+    // sorts first (#368). One key string does it: values joined by VALUE_SEPARATOR, the
+    // path ended by '\u0000' in buildSortKey, both below every character a value holds.
+    private static final char VALUE_SEPARATOR = '\u0001';
+
+    // Each number as a fixed-width offset key so lexicographic order == numeric order (for
+    // |x| < 1e12). Uses the ONE shared numeric reading (NumericValues) so a scaled/ranged
+    // string sorts the same way it orders and filters.
     private String numericSortKey(Object value) {
-        Double n = leadingNumber(value);
-        return n == null ? "" : String.format("%026.6f", n + 1e12);
+        List<String> keys = new ArrayList<>();
+        numbers(value, keys);
+        return String.join(String.valueOf(VALUE_SEPARATOR), keys);
     }
 
-    private Double leadingNumber(Object value) {
+    private void numbers(Object value, List<String> out) {
         if (value instanceof Collection<?> c) {
-            for (Object o : c) {
-                Double d = leadingNumber(o);
-                if (d != null) {
-                    return d;
-                }
-            }
-            return null;
+            for (Object o : c) numbers(o, out);
+            return;
         }
         java.util.OptionalDouble n = objectview.field.NumericValues.parse(value);
-        return n.isPresent() ? n.getAsDouble() : null;
+        if (n.isPresent()) out.add(String.format("%026.6f", n.getAsDouble() + 1e12));
     }
 
-    /** What the value is IDENTIFIED by, ordered: the same traversal as the search
-     *  haystack, stopped at depth 0 so a nested object reads as its name — a row orders
-     *  by the chip it displays, not by text hidden inside the object it points at. A
-     *  many-valued field orders by its first value. */
+    /** What the value is IDENTIFIED by: the same traversal as the search haystack,
+     *  stopped at depth 0 so a nested object reads as its name — a row orders by the
+     *  chip it displays, not by text hidden inside the object it points at. A field with
+     *  many values orders by all of them, in their order. */
     private String sortableString(Object value) {
         return ValueText.identity(value).stream()
                 .map(this::normalize)
                 .filter(s -> !s.isBlank())
-                .sorted(String.CASE_INSENSITIVE_ORDER)
-                .findFirst()
-                .orElse("");
+                .collect(java.util.stream.Collectors.joining(
+                        String.valueOf(VALUE_SEPARATOR)));
     }
 
     private String normalize(String s) {

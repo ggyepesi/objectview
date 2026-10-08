@@ -35,16 +35,19 @@ public final class LiteralPaths {
                                            boolean excludeMedia) {
         List<PathInfo> out = new ArrayList<>();
         if (config == null) return out;
-        values(ViewConfigDesugar.isLiteral(config)
-                        ? config : ViewConfigDesugar.selection(config, shape),
+        ViewConfig literal = ViewConfigDesugar.isLiteral(config)
+                ? config : ViewConfigDesugar.selection(config, shape);
+        // A selection that inherits somewhere is read by walking it (#368); each of its
+        // paths then carries the walk, every other selection reads along its paths.
+        values(literal, InheritedSelection.inherits(literal) ? literal : null,
                 shape, FieldPath.ROOT, "", excludeMedia, out);
         java.util.LinkedHashMap<FieldPath, PathInfo> unique = new java.util.LinkedHashMap<>();
         for (PathInfo path : out) unique.putIfAbsent(path.path(), path);
         return List.copyOf(unique.values());
     }
 
-    private static void values(ViewConfig literal, TypeShape shape, FieldPath prefix,
-                               String titlePrefix, boolean excludeMedia,
+    private static void values(ViewConfig literal, ViewConfig walked, TypeShape shape,
+                               FieldPath prefix, String titlePrefix, boolean excludeMedia,
                                List<PathInfo> out) {
         for (Map.Entry<String, ViewConfig> ticked : literal.getFields().entrySet()) {
             String name = ticked.getKey();
@@ -58,14 +61,17 @@ public final class LiteralPaths {
             String title = titlePrefix.isEmpty() ? label : titlePrefix + "." + label;
             ViewConfig child = ticked.getValue();
             if (child != null && !child.getFields().isEmpty()) {
-                values(child, nested, path, title, excludeMedia, out);
+                values(child, walked, nested, path, title, excludeMedia, out);
             } else if (nested == null && !objectField(field, child)) {
+                objectview.field.PathWalk walk = walked == null
+                        ? null : InheritedSelection.walk(walked, literal, name);
                 out.add(field == null
                         ? new PathInfo(title, path, null, FieldKind.UNKNOWN,
                                 objectview.field.ViewableContractFieldSet.DISPLAY_KEY
-                                        .equals(name) ? FieldRole.DISPLAY : FieldRole.NONE)
+                                        .equals(name) ? FieldRole.DISPLAY : FieldRole.NONE,
+                                walk)
                         : new PathInfo(title, path, shape.javaField(field),
-                                field.valueKind(), field.role()));
+                                field.valueKind(), field.role(), walk));
             }
         }
     }

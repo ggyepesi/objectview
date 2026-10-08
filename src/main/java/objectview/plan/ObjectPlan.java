@@ -12,8 +12,15 @@ import java.util.List;
 public record ObjectPlan(String logicalType, FieldPlan caption,
                          List<FieldPlan> body, List<FieldRef> unticked) {
 
-    /** One ticked field: its representation and the exact literal config of its value. */
-    public record FieldPlan(FieldRef field, Representation representation, ViewConfig child) {
+    /** One ticked field: its representation and the exact literal config of its value.
+     * {@code child} is the config its value renders under; for a field whose type is
+     * already on the path it is the ancestor's, and {@code inherited} says so (#368). */
+    public record FieldPlan(FieldRef field, Representation representation, ViewConfig child,
+                            boolean inherited) {
+        public FieldPlan(FieldRef field, Representation representation, ViewConfig child) {
+            this(field, representation, child == null ? null : child.effective(),
+                    child != null && child.inheritedFrom() != null);
+        }
         public String name() { return field.name(); }
         public String label() { return field.label(); }
     }
