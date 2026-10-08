@@ -62,6 +62,12 @@ public class ViewConfigEditor extends JPanel {
     // View, search and sort editors; off, a recursive field is only a cut in the tree and
     // what is ticked under it is a finite path (the quiz key editor, the field pickers).
     private boolean inheritsRecursion;
+    // View, search and sort select connected field trees. A nested/object row is a
+    // branch switch, never a value on its own: it is active only while some nested
+    // choice is remembered. Switching it off suppresses (and persists) those choices;
+    // it does not erase them. Finite pickers such as quiz-key editors keep their own
+    // independent endpoint semantics.
+    private boolean connectedFieldSelection;
 
     private final List<RowState> rows = new ArrayList<>();
     private final RowTableModel tableModel = new RowTableModel();
@@ -338,6 +344,9 @@ public class ViewConfigEditor extends JPanel {
         ViewConfig literal = nestedDefaultNameOnly
                 ? objectview.plan.ViewConfigDesugar.selection(plain, shape)
                 : objectview.plan.ViewConfigDesugar.literal(plain, shape, inheritsRecursion);
+        // A View, search or sort editor admits no object without a nested choice; the
+        // one conversion of an older config that ticked one alone.
+        if (connectedFieldSelection) objectview.plan.ViewConfigDesugar.connected(literal, shape);
         branches.forEach(literal::addField);
         return literal;
     }
@@ -543,6 +552,7 @@ public class ViewConfigEditor extends JPanel {
                     state.use = snapshot.use;
                     state.childEditor = snapshot.childEditor;
                     state.customConfigured = snapshot.customConfigured;
+                    state.nestedCleared = snapshot.nestedCleared;
                 }
             }
             if (!preserveState) {
@@ -569,6 +579,7 @@ public class ViewConfigEditor extends JPanel {
                 state.childEditor = snapshot.childEditor;
                 state.customConfigured =
                         snapshot.customConfigured;
+                state.nestedCleared = snapshot.nestedCleared;
             }
 
             rows.add(state);
@@ -682,6 +693,23 @@ public class ViewConfigEditor extends JPanel {
         inheritsRecursion = inherits;
         // The entered config reads differently: a recursive field's ticks are its own
         // paths, or its config is the ancestor's.
+        sourceConfig = literal(enteredConfig == null ? sourceConfig : enteredConfig);
+        rebuildRows(false);
+    }
+
+    /**
+     * Makes this a View/Search/Sort field-tree editor. Every selected nested value has
+     * an active path to the root; object rows retain their selected descendants when
+     * switched off, and those suppressed descendants cannot be edited until the owner
+     * is restored. This is independent of recursive-type inheritance: one decides which
+     * paths are active, the other what a recursive occurrence means.
+     */
+    public void setConnectedFieldSelection(boolean connected) {
+        if (connectedFieldSelection == connected) return;
+        connectedFieldSelection = connected;
+        cols = buildColumns();
+        tableModel.fireTableStructureChanged();
+        installColumns();
         sourceConfig = literal(enteredConfig == null ? sourceConfig : enteredConfig);
         rebuildRows(false);
     }
@@ -872,7 +900,8 @@ public class ViewConfigEditor extends JPanel {
                     new RowSnapshot(
                             state.use,
                             state.childEditor,
-                            state.customConfigured));
+                            state.customConfigured,
+                            state.nestedCleared));
         }
 
         return result;
@@ -982,8 +1011,9 @@ public class ViewConfigEditor extends JPanel {
     }
 
     /** Unticks exactly the field at {@code path}, as the reader unticking its box
-     * would. Parent object fields remain selected when their last child is unticked;
-     * that state deliberately renders the object-field caption alone. */
+     * would. In a connected View/Search/Sort editor, an object keeps its descendants
+     * when the object itself is unticked; removing the last descendant instead prunes
+     * the now-empty owner path. */
     public boolean uncheckFieldPath(FieldPath path) {
         if (path == null || path.isRoot()) return false;
         boolean changed = treeMode ? uncheckInTree(path) : uncheckInRows(path);
@@ -994,10 +1024,44 @@ public class ViewConfigEditor extends JPanel {
         return changed;
     }
 
+    /** Checks exactly the field at {@code path}, as the reader ticking its box would.
+     * In a connected View/Search/Sort editor, selecting a terminal field activates its
+     * complete owner path, while restoring a suppressed object reuses its remembered
+     * descendants. An empty object branch cannot be selected without a nested value. */
+    public boolean checkFieldPath(FieldPath path) {
+        if (path == null || path.isRoot()) return false;
+        boolean changed = treeMode ? checkInTree(path) : checkInRows(path);
+        if (changed) {
+            tableModel.fireTableDataChanged();
+            fireConfigChanged();
+        }
+        return changed;
+    }
+
+    private boolean checkInTree(FieldPath path) {
+        RowState target = treeState(path);
+        if (target == null || target.use || !useCellEnabled(target)) return false;
+        changeUse(target, true);
+        return target.use;
+    }
+
     private boolean uncheckInTree(FieldPath path) {
         RowState target = treeState(path);
         if (target == null || !target.use) return false;
-        target.use = false;
+        changeUse(target, false);
+        return true;
+    }
+
+    /** Forgets an object's remembered nested choices. Suppression is deliberately not
+     * clearing; this explicit operation is the only one that removes the whole branch. */
+    public boolean clearNestedSelection(FieldPath path) {
+        if (!treeMode || path == null || path.isRoot()) return false;
+        RowState owner = treeState(path);
+        if (owner == null || owner.row.nested() == null
+                || !hasConfiguredNestedChoice(owner)) return false;
+        clearNestedSelection(owner);
+        tableModel.fireTableDataChanged();
+        fireConfigChanged();
         return true;
     }
 
@@ -1006,6 +1070,123 @@ public class ViewConfigEditor extends JPanel {
             if (state.row.isField() && state.row.path().equals(path)) return state;
         }
         return null;
+    }
+
+    private void changeUse(RowState state, boolean selected) {
+        if (!connectedFieldSelection || !treeMode) {
+            state.use = selected;
+            return;
+        }
+        if (selected) {
+            if (state.row.nested() != null && !hasConfiguredNestedChoice(state)) {
+                return; // configure a nested value first; the branch follows it on
+            }
+            state.use = true;
+            state.nestedCleared = false;
+            activateAncestors(state.row.path());
+            return;
+        }
+
+        state.use = false;
+        // Unticking an owner suppresses its checked descendants. Unticking a terminal
+        // value genuinely removes that choice and may leave empty owners above it.
+        if (state.row.nested() == null) {
+            pruneEmptyAncestors(state.row.path().parent());
+        }
+    }
+
+    private void activateAncestors(FieldPath path) {
+        FieldPath ancestor = path.parent();
+        while (!ancestor.isRoot()) {
+            RowState parent = treeState(ancestor);
+            if (parent != null && parent.row.nested() != null) {
+                parent.use = true;
+                parent.nestedCleared = false;
+            }
+            ancestor = ancestor.parent();
+        }
+    }
+
+    private void pruneEmptyAncestors(FieldPath path) {
+        FieldPath ancestor = path;
+        while (ancestor != null && !ancestor.isRoot()) {
+            RowState parent = treeState(ancestor);
+            if (parent != null && parent.row.nested() != null
+                    && !hasConfiguredNestedChoice(parent)) {
+                parent.use = false;
+                parent.nestedCleared = true;
+            }
+            ancestor = ancestor.parent();
+        }
+    }
+
+    private void clearNestedSelection(RowState owner) {
+        for (RowState state : allRows) {
+            if (isUnder(state.row.path(), owner.row.path())) {
+                state.use = false;
+                state.nestedCleared = state.row.nested() != null;
+                state.childEditor = null;
+                state.customConfigured = false;
+            }
+        }
+        owner.use = false;
+        owner.nestedCleared = true;
+        pruneEmptyAncestors(owner.row.path().parent());
+    }
+
+    private boolean hasConfiguredNestedChoice(RowState owner) {
+        if (owner == null || owner.row.nested() == null) return false;
+        for (RowState state : allRows) {
+            if (state.row.isField() && state.use
+                    && isUnder(state.row.path(), owner.row.path())) return true;
+        }
+        // A recursive back-edge or a depth/cycle cut has no descendant rows of its
+        // own, but still names the already configured nested projection.
+        if (owner.inheritsFrom != null) return true;
+        if (!hasChildRows(owner.row.path()) && !owner.nestedCleared) {
+            ViewConfig explicit = sourceConfigAt(owner.row.path());
+            return hasNestedContent(explicit);
+        }
+        return false;
+    }
+
+    private int configuredNestedChoiceCount(RowState owner) {
+        int count = 0;
+        for (RowState state : allRows) {
+            if (state.row.isField() && state.use
+                    && isUnder(state.row.path(), owner.row.path())) count++;
+        }
+        if (count == 0 && hasConfiguredNestedChoice(owner)) return 1;
+        return count;
+    }
+
+    private boolean suppressedByAncestor(RowState state) {
+        return suppressedOwner(state) != null;
+    }
+
+    private RowState suppressedOwner(RowState state) {
+        if (!connectedFieldSelection || !treeMode) return null;
+        FieldPath ancestor = state.row.path().parent();
+        while (!ancestor.isRoot()) {
+            RowState parent = treeState(ancestor);
+            if (parent != null && parent.row.nested() != null && !parent.use
+                    && hasConfiguredNestedChoice(parent)) return parent;
+            ancestor = ancestor.parent();
+        }
+        return null;
+    }
+
+    private boolean useCellEnabled(RowState state) {
+        if (!connectedFieldSelection || !treeMode) return true;
+        if (suppressedByAncestor(state)) return false;
+        return state.row.nested() == null || state.use
+                || hasConfiguredNestedChoice(state);
+    }
+
+    private static boolean hasNestedContent(ViewConfig config) {
+        return config != null && (config.inheritedFrom() != null
+                || !config.getFields().isEmpty()
+                || !config.getRememberedFields().isEmpty());
     }
 
     private boolean uncheckInRows(FieldPath path) {
@@ -1019,6 +1200,22 @@ public class ViewConfigEditor extends JPanel {
             if (state.childEditor == null) return false;
             FieldPath rest = new FieldPath(path.segments().subList(1, path.size()));
             return state.childEditor.uncheckFieldPath(rest);
+        }
+        return false;
+    }
+
+    private boolean checkInRows(FieldPath path) {
+        for (RowState state : rows) {
+            if (!state.row.isField()
+                    || !state.row.path().leaf().equals(path.first())) continue;
+            if (path.size() == 1) {
+                if (state.use) return false;
+                state.use = true;
+                return true;
+            }
+            if (state.childEditor == null) return false;
+            FieldPath rest = new FieldPath(path.segments().subList(1, path.size()));
+            return state.childEditor.checkFieldPath(rest);
         }
         return false;
     }
@@ -1147,8 +1344,8 @@ public class ViewConfigEditor extends JPanel {
     /** Folds the checked rows of the inline tree ({@link #allRows}) into a nested
      *  {@link ViewConfig}: leaves add a leaf field to their parent; a reference is
      *  included when it is checked OR any descendant is, carrying exactly its checked
-     *  children. A checked reference with no children remains an explicitly empty
-     *  child config: the object field is shown by its caption alone. References attach
+     *  children. A finite picker may still emit a checked reference with no children;
+     *  connected View/Search/Sort editors prevent that state. References attach
      *  deepest-first so a parent sees its already-attached descendants. */
     private ViewConfig buildTreeConfig() {
         ViewConfig result = copyHeader(sourceConfig);
@@ -1213,13 +1410,15 @@ public class ViewConfigEditor extends JPanel {
         for (int i = refs.size() - 1; i >= 0; i--) {
             RefEntry ref = refs.get(i);
             boolean hasChild = !ref.cfg.getFields().isEmpty();
+            boolean hasNestedContent = hasNestedContent(ref.cfg);
             // Descendant checks are remembered while the reference is off, but an
             // unchecked parent suppresses the whole subtree in the effective config.
             // Rechecking it reactivates those unchanged descendant choices.
             if (!ref.use && !ref.classBranch) {
-                ViewConfig remembered = hasChild ? ref.cfg
-                        : ref.explicit != null ? ref.explicit : ref.cfg;
-                ref.parent.rememberField(ref.name, remembered);
+                ViewConfig remembered = hasNestedContent ? ref.cfg
+                        : !ref.state.nestedCleared && hasNestedContent(ref.explicit)
+                                ? ref.explicit : null;
+                if (remembered != null) ref.parent.rememberField(ref.name, remembered);
                 continue;
             }
             ViewConfig attach;
@@ -1239,9 +1438,9 @@ public class ViewConfigEditor extends JPanel {
                 // record of what is ticked below it.
                 attach = ref.explicit;
             } else {
-                // A ticked reference whose children are all unticked shows its field
-                // name alone (rule 3). Falling back to the saved config here turned the
-                // reader's last untick back into the old ticks.
+                // A finite picker may select an object endpoint of its own. Falling
+                // back to the saved config here would turn its last untick back into
+                // the old ticks; a connected editor never reaches this branch active.
                 attach = ref.cfg;
             }
             if (inherited == null && attach.inheritedFrom() != null) {
@@ -1354,7 +1553,7 @@ public class ViewConfigEditor extends JPanel {
     // ---- columns -----------------------------------------------------------
 
     private enum ColKind {
-        TREE, FIELD, TYPE, EXTRA, USE, MOVE_BEFORE, MOVE_AFTER, ACTION, EXPAND
+        TREE, FIELD, TYPE, EXTRA, USE, MOVE_BEFORE, MOVE_AFTER, ACTION, CLEAR, EXPAND
     }
 
     private static final class Col {
@@ -1387,6 +1586,7 @@ public class ViewConfigEditor extends JPanel {
                     || kind == ColKind.MOVE_BEFORE
                     || kind == ColKind.MOVE_AFTER
                     || kind == ColKind.ACTION
+                    || kind == ColKind.CLEAR
                     || kind == ColKind.EXPAND;
         }
 
@@ -1427,6 +1627,12 @@ public class ViewConfigEditor extends JPanel {
                     ColKind.USE,
                     "Use",
                     48));
+        }
+
+        if (treeMode && connectedFieldSelection
+                && contributor.selectionMode()
+                == FieldTableContributor.SelectionMode.MULTI_CHECK) {
+            result.add(new Col(ColKind.CLEAR, "", 82));
         }
 
         if (contributor.showReorder()) {
@@ -1750,6 +1956,10 @@ public class ViewConfigEditor extends JPanel {
             case ACTION ->
                     row.isField()
                             && col.action.enabled(row);
+            case CLEAR ->
+                    row.isField() && row.nested() != null
+                            && hasConfiguredNestedChoice(state)
+                            && !suppressedByAncestor(state);
             case EXPAND ->
                     row.isMinorBlock()
                             || row.nested() != null;
@@ -1808,9 +2018,7 @@ public class ViewConfigEditor extends JPanel {
                                 ? "▾"
                                 : "▸";
                 case FIELD -> row.indentedLabel();
-                case TYPE -> row.isClassBranch() ? "" : state.cutNote == null
-                        ? row.typeLabel()
-                        : row.typeLabel() + "   " + state.cutNote;
+                case TYPE -> row.isClassBranch() ? "" : typeAndState(state);
                 case EXTRA -> row.isContainer() || row.isClassBranch()
                         ? null
                         : col.extra.value(row);
@@ -1820,6 +2028,8 @@ public class ViewConfigEditor extends JPanel {
                 case ACTION -> row.isContainer() || row.isClassBranch()
                         ? ""
                         : col.action.label(row);
+                case CLEAR -> row.isField() && row.nested() != null
+                        && hasConfiguredNestedChoice(state) ? "Clear fields" : "";
                 case EXPAND -> row.isClassBranch() || row.nested() == null
                         ? ""
                         : state.childEditor == null
@@ -1847,12 +2057,15 @@ public class ViewConfigEditor extends JPanel {
                 case TREE ->
                         row.nested() != null;
                 case USE ->
-                        row.isField() && !row.isClassBranch();
+                        row.isField() && !row.isClassBranch() && useCellEnabled(state);
                 case MOVE_BEFORE, MOVE_AFTER ->
                         isReorderTarget(state);
                 case ACTION ->
                         row.isField()
                                 && col.action.enabled(row);
+                case CLEAR -> row.isField() && row.nested() != null
+                        && hasConfiguredNestedChoice(state)
+                        && !suppressedByAncestor(state);
                 case EXPAND ->
                         row.nested() != null;
                 default ->
@@ -1883,9 +2096,10 @@ public class ViewConfigEditor extends JPanel {
                 return;
             }
 
-            state.use = Boolean.TRUE.equals(value);
+            changeUse(state, Boolean.TRUE.equals(value));
 
-            fireTableRowsUpdated(rowIndex, rowIndex);
+            if (connectedFieldSelection) tableModel.fireTableDataChanged();
+            else fireTableRowsUpdated(rowIndex, rowIndex);
             fireConfigChanged();
         }
 
@@ -1921,6 +2135,20 @@ public class ViewConfigEditor extends JPanel {
             ancestor = ancestor.parent();
         }
         return true;
+    }
+
+    private String typeAndState(RowState state) {
+        String type = state.cutNote == null ? state.row.typeLabel()
+                : state.row.typeLabel() + "   " + state.cutNote;
+        if (connectedFieldSelection && state.row.nested() != null && !state.use) {
+            int remembered = configuredNestedChoiceCount(state);
+            if (remembered > 0) {
+                type += (type.isBlank() ? "" : "   ") + remembered
+                        + (remembered == 1 ? " nested field remembered"
+                        : " nested fields remembered");
+            }
+        }
+        return type;
     }
 
     private RowState stateAt(FieldPath path) {
@@ -1996,7 +2224,23 @@ public class ViewConfigEditor extends JPanel {
                             viewRow,
                             viewColumn);
 
-            if (row.isContainer() && !isSelected) {
+            RowState suppressedOwner = suppressedOwner(state);
+            boolean disabled = suppressedOwner != null
+                    || kind == ColKind.USE && !useCellEnabled(state);
+            component.setEnabled(!disabled);
+            if (component instanceof JComponent jComponent) {
+                if (suppressedOwner != null) {
+                    jComponent.setToolTipText("Restore "
+                            + suppressedOwner.row.label()
+                            + " to edit this remembered field.");
+                } else if (kind == ColKind.USE && state.row.nested() != null
+                        && !useCellEnabled(state)) {
+                    jComponent.setToolTipText("Select a nested field first.");
+                } else {
+                    jComponent.setToolTipText(null);
+                }
+            }
+            if ((row.isContainer() || disabled) && !isSelected) {
                 component.setForeground(Color.GRAY);
             }
 
@@ -2098,6 +2342,7 @@ public class ViewConfigEditor extends JPanel {
                             col.action.run(row);
                         }
                     }
+                    case CLEAR -> clearNestedSelection(state.row.path());
                     case EXPAND -> {
                         opening = true;
                         SwingUtilities.invokeLater(() -> {
@@ -2153,6 +2398,9 @@ public class ViewConfigEditor extends JPanel {
         final FieldRow row;
         boolean use;
         boolean customConfigured;
+        // An explicit Clear must win over the entered config while this editor is open;
+        // otherwise serialization would restore the just-cleared saved subtree.
+        boolean nestedCleared;
         ViewConfigEditor childEditor;
         // Set when a reference is NOT expanded because it revisits a type already on the
         // path (cycle) or hits the depth cap — surfaced as an explanatory UI tag so the
@@ -2173,6 +2421,7 @@ public class ViewConfigEditor extends JPanel {
     private record RowSnapshot(
             boolean use,
             ViewConfigEditor childEditor,
-            boolean customConfigured) {
+            boolean customConfigured,
+            boolean nestedCleared) {
     }
 }

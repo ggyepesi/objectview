@@ -30,7 +30,9 @@ class RepresentationTraceTest {
     }
 
     @Test void aSingleImageAndInlineContentStartOpenWhileOtherCollectionsFold() {
-        String trace = render(ticks("gallery", "steps"));
+        ViewConfig config = ticks("gallery");
+        config.addField("steps", ticks("text"));
+        String trace = render(config);
 
         assertEquals("""
                 OBJECT <root> open
@@ -38,10 +40,10 @@ class RepresentationTraceTest {
                     MEDIA gallery[0] "only"
                   COLLECTION steps (2) open
                     OBJECT steps[0] open
-                      SKIP steps[0].text OFF
+                      TEXT steps[0].text "a"
                       SKIP steps[0].@view:display OFF
                     OBJECT steps[1] open
-                      SKIP steps[1].text OFF
+                      TEXT steps[1].text "b"
                       SKIP steps[1].@view:display OFF
                   SKIP title OFF
                   SKIP area OFF

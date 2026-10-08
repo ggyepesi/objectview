@@ -63,8 +63,36 @@ public final class ViewConfigDesugar {
     public static ViewConfig literal(ViewConfig config, TypeShape shape, boolean inherit) {
         ViewConfig out = literal(
                 config, shape, ViewDefaults::implicitObject, null, null, inherit);
-        if (!inherit) markFinite(out, Collections.newSetFromMap(new IdentityHashMap<>()));
+        if (inherit) connected(out, shape);
+        else markFinite(out, Collections.newSetFromMap(new IdentityHashMap<>()));
         return out;
+    }
+
+    /**
+     * Removes, in place, every object or object-collection field of {@code literal}
+     * with nothing selected below it. In a View, search or sort config an object is a
+     * branch, never a value of its own: it is in the config only while a nested field
+     * (or an inheritance) is. An older config that ticked an object alone, for its
+     * caption or its size, is converted here where it enters, so a config only shown
+     * renders as the editor would show it. Deepest first, so a branch emptied below
+     * goes with it. A quiz key never passes through here: there an object alone is
+     * its caption.
+     */
+    public static ViewConfig connected(ViewConfig literal, TypeShape shape) {
+        if (literal == null || shape == null) return literal;
+        java.util.Iterator<Map.Entry<String, ViewConfig>> entries =
+                literal.getFields().entrySet().iterator();
+        while (entries.hasNext()) {
+            Map.Entry<String, ViewConfig> entry = entries.next();
+            ViewConfig child = entry.getValue();
+            if (child == null || child.inheritedFrom() != null) continue;
+            FieldRef field = field(shape, entry.getKey());
+            TypeShape nested = field == null ? null : shape.nested(field);
+            if (nested == null) continue;
+            connected(child, nested);
+            if (child.getFields().isEmpty()) entries.remove();
+        }
+        return literal;
     }
 
     /** The literal form of a field selection (search, sort, quiz key): an object the
@@ -181,6 +209,7 @@ public final class ViewConfigDesugar {
             }
             if (child.inheritedFrom() != null) return false;
             TypeShape nested = field == null || shape == null ? null : shape.nested(field);
+            if (nested != null && child.getFields().isEmpty()) return false; // see connected
             if (!prepared(child, nested, chain, field)) return false;
         }
         return true;

@@ -137,7 +137,7 @@ class SearchableTableViewTest {
                 "a null nested value leaves the configured leaf cell empty");
     }
 
-    @Test void aSelectedObjectWithNoSelectedChildrenStillOwnsAColumn() {
+    @Test void anObjectWithNoSelectedChildrenIsNotAnEffectiveViewChoice() {
         Nested nested = new Nested("Budapest");
         Parent parent = new Parent("Hungary", nested);
         ViewConfig objectOnly = ViewConfig.leaf();
@@ -152,12 +152,12 @@ class SearchableTableViewTest {
                 .configState(new SearchPanel.ConfigState(null, null, view))
                 .build().table();
 
-        assertEquals(List.of("nested"), dottedColumns(table));
+        assertEquals(List.of(), dottedColumns(table));
         assertFalse(values(table.row(parent)).contains("Budapest"),
-                "DISPLAY is not selected; the column header is the field-name-only view");
+                "an object branch enters View only through a selected nested field");
     }
 
-    @Test void anObjectCollectionWithNoSelectedChildrenShowsItsSizeInTheCell() {
+    @Test void anObjectCollectionNeedsASelectedMemberField() {
         List<Nested> children = List.of(new Nested("one"), new Nested("two"));
         InlineCollectionItem item = new InlineCollectionItem("owner", children);
         ViewConfig childOnly = ViewConfig.leaf();
@@ -174,9 +174,9 @@ class SearchableTableViewTest {
         JComponent row = table.row(item);
         CollectionHeader header = find(row, CollectionHeader.class);
 
-        assertEquals(List.of("children"), dottedColumns(table));
-        assertNotNull(header);
-        assertTrue(header.getToolTipText().contains("2 items"));
+        assertEquals(List.of(), dottedColumns(table));
+        assertNull(header,
+                "count-only is not an accidental empty member projection");
         assertFalse(values(row).contains("one"));
     }
 

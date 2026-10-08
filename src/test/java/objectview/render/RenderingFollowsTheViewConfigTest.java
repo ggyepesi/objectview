@@ -24,12 +24,15 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * A field's value is shown if and only if the field is ticked in the ViewConfig.
- * Ticking an object field shows the object (a collection keeps its "field (N)"
- * header); its own fields are shown exactly when they are ticked. DISPLAY is one
+ * An object field is a branch: it is shown (a collection with its "field (N)"
+ * header) while something under it is ticked, and its own fields are shown exactly
+ * when they are ticked; ticked alone it is not a View state and is dropped where the
+ * config enters. DISPLAY is one
  * of those fields: ticking it paints the object's caption once and changes nothing else.
  *
  * <p>The fixture is History's shape — a ruler's plain list of office holdings,
@@ -75,10 +78,10 @@ class RenderingFollowsTheViewConfigTest {
                                         member.addField(display(Office.class), ViewConfig.leaf());
                                     }
                                     if (sourceSelected) {
-                                        member.addField("source", config(Holder.class));
+                                        member.addField("source", holderHouse());
                                     }
                                     if (positionSelected) {
-                                        member.addField("position", config(Seat.class));
+                                        member.addField("position", seatCountry());
                                     }
 
                                     ViewConfig root = config(Ruler.class);
@@ -95,9 +98,14 @@ class RenderingFollowsTheViewConfigTest {
                                     }
 
                                     Card card = render(root, context);
-                                    boolean memberBodyVisible = collectionSelected && expanded;
+                                    // A collection with nothing ticked under it is no
+                                    // View state: it is dropped, not shown as a count.
+                                    boolean collectionShown = collectionSelected
+                                            && (memberDisplay || sourceSelected
+                                                    || positionSelected);
+                                    boolean memberBodyVisible = collectionShown && expanded;
 
-                                    assertEquals(collectionSelected,
+                                    assertEquals(collectionShown,
                                             hasFieldRow(card, "offices"), name);
                                     assertEquals(memberBodyVisible && memberDisplay,
                                             paints(card, "Wigmund's kingship"), name);
@@ -135,7 +143,7 @@ class RenderingFollowsTheViewConfigTest {
                                     display(Ruler.class), ViewConfig.leaf());
                         }
                         if (childSelected) {
-                            nestedRuler.addField("offices", offices());
+                            nestedRuler.addField("offices", labelledOffices());
                         }
                         ViewConfig ownerConfig = config(Crowned.class);
                         ownerConfig.addField("ruler", nestedRuler);
@@ -148,7 +156,9 @@ class RenderingFollowsTheViewConfigTest {
                         assertEquals(childSelected && !targetTopLevel,
                                 hasFieldRow(card, "offices"), name);
                         ReferenceRow occurrence = findReference(card, WIGMUND);
-                        assertEquals(targetTopLevel,
+                        // With nothing ticked under it the reference is no View
+                        // state and is not shown at all.
+                        assertEquals(targetTopLevel && (targetDisplay || childSelected),
                                 occurrence != null && occurrence.navigatesToTopLevel(), name);
                         assertEquals(targetDisplay,
                                 paints(card, "Wigmund of Mercia"), name);
@@ -159,17 +169,13 @@ class RenderingFollowsTheViewConfigTest {
         return cases.stream();
     }
 
-    @Test void anObjectListWithNothingTickedUnderItShowsItsCountAndNoMember() throws Exception {
-        Card card = render(ruler(offices()));
+    @Test void anObjectListWithNothingTickedUnderItIsNotShown() throws Exception {
+        Card card = renderOpen(ruler(offices()));
 
-        CollectionHeader header = find(card, CollectionHeader.class);
-        assertNotNull(header, "the ticked list is shown as a list, not a bare caption");
-        assertTrue(header.getToolTipText().contains("(3 items)"), header.getToolTipText());
-        RenderContext opened = new RenderContext(List.of(WIGMUND));
-        opened.setCollectionExpanded(WIGMUND.offices, true);
-        Card open = render(ruler(offices()), opened);
-        assertFalse(paints(open, "Wigmund's kingship"), "office DISPLAY is not ticked");
-        assertFalse(paints(open, "King of Mercia"), "position is not ticked");
+        assertNull(find(card, CollectionHeader.class),
+                "a count alone is not a View state; an older config ticking one is converted");
+        assertFalse(hasFieldRow(card, "offices"));
+        assertFalse(paints(card, "Wigmund's kingship"), "office DISPLAY is not ticked");
     }
 
     @Test void tickingTheMembersDisplayPaintsOneConfiguredCaption()
@@ -226,13 +232,15 @@ class RenderingFollowsTheViewConfigTest {
         assertTrue(paints(renderOpen(ruler(offices)), "King of Mercia"));
     }
 
-    @Test void aTickedObjectWithNothingTickedUnderItShowsOnlyItsFieldName() throws Exception {
-        ViewConfig offices = offices();
+    @Test void aTickedObjectWithNothingTickedUnderItIsNotShown() throws Exception {
+        ViewConfig offices = labelledOffices();
         offices.addField("position", config(Seat.class));
 
         Card card = renderOpen(ruler(offices));
 
-        assertTrue(hasFieldRow(card, "position"));
+        assertTrue(paints(card, "Wigmund's kingship"), "its ticked sibling still shows");
+        assertFalse(hasFieldRow(card, "position"),
+                "a field-name caption alone is not a View state");
         assertFalse(paints(card, "King of Mercia"), "position DISPLAY is not ticked");
         assertFalse(paints(card, "Mercia"), "country is not ticked");
     }
@@ -240,8 +248,8 @@ class RenderingFollowsTheViewConfigTest {
     @Test void anUntickedMemberDisplayDoesNotDisableItsSelectedObjectFields()
             throws Exception {
         ViewConfig offices = offices();
-        offices.addField("source", config(Holder.class));
-        offices.addField("position", config(Seat.class));
+        offices.addField("source", holderHouse());
+        offices.addField("position", seatCountry());
 
         RenderContext context = new RenderContext();
         context.addTopLevel(WIGMUND);
@@ -286,7 +294,7 @@ class RenderingFollowsTheViewConfigTest {
             throws Exception {
         Office office = WIGMUND.offices.get(0);
         ViewConfig offices = offices();
-        offices.addField("source", config(Holder.class));
+        offices.addField("source", holderHouse());
         RenderContext context = new RenderContext(List.of(WIGMUND));
         context.addTopLevel(office.source);
         context.setCollectionExpanded(WIGMUND.offices, true);
@@ -376,7 +384,7 @@ class RenderingFollowsTheViewConfigTest {
 
     @Test void anEmptyTickedCollectionStillShowsItsZeroSize() throws Exception {
         Ruler nobody = new Ruler("Nobody", List.of());
-        ViewConfig config = ruler(offices());
+        ViewConfig config = ruler(labelledOffices());
         config.addField("epithet", ViewConfig.leaf());
 
         Card card = new Card(nobody, config, new RenderContext(List.of(nobody)), false);
@@ -394,7 +402,7 @@ class RenderingFollowsTheViewConfigTest {
         Crowned owner = new Crowned(nobody);
         ViewConfig ruler = config(Ruler.class);
         ruler.addField(display(Ruler.class), ViewConfig.leaf());
-        ruler.addField("offices", offices());
+        ruler.addField("offices", labelledOffices());
         ViewConfig ownerConfig = config(Crowned.class);
         ownerConfig.addField("ruler", ruler);
 
@@ -438,6 +446,27 @@ class RenderingFollowsTheViewConfigTest {
 
     private static ViewConfig offices() {
         return config(Office.class);
+    }
+
+    /** Offices with their DISPLAY ticked: a collection with something under it. */
+    private static ViewConfig labelledOffices() {
+        ViewConfig offices = offices();
+        offices.addField(display(Office.class), ViewConfig.leaf());
+        return offices;
+    }
+
+    /** A source with a non-DISPLAY field ticked, so it is shown without its caption. */
+    private static ViewConfig holderHouse() {
+        ViewConfig holder = config(Holder.class);
+        holder.addField("house", ViewConfig.leaf());
+        return holder;
+    }
+
+    /** A position with a non-DISPLAY field ticked, so it is shown without its caption. */
+    private static ViewConfig seatCountry() {
+        ViewConfig seat = config(Seat.class);
+        seat.addField("country", ViewConfig.leaf());
+        return seat;
     }
 
     private static ViewConfig ruler(ViewConfig offices) {
@@ -619,6 +648,7 @@ class RenderingFollowsTheViewConfigTest {
 
     private static final class Holder extends ViewableAdapter {
         @DisplayField private final String name;
+        private final String house = "Iclingas";
 
         private Holder(String name) { this.name = name; }
 

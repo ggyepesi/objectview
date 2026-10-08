@@ -70,7 +70,9 @@ class ContentlessReferenceTest {
         assertEquals(1, renderedCount(card, "Terry Gilliam"));
     }
 
-    @Test void aSelectedObjectFieldWithNoChildrenShowsOnlyItsFieldName() throws Exception {
+    /** A field-name caption alone is not a View state: an older config ticking one is
+     *  converted where it enters. */
+    @Test void aSelectedObjectFieldWithNoChildrenIsNotShown() throws Exception {
         Film film = new Film("12 Monkeys", new Person("Terry Gilliam"));
         ViewConfig config = ViewConfig.of(Film.class);
         config.setAllFields(false);
@@ -78,7 +80,7 @@ class ContentlessReferenceTest {
 
         Card card = cardFor(film, config);
 
-        assertNotNull(findByFieldName(card, "director"));
+        assertNull(findByFieldName(card, "director"));
         assertFalse(renders(card, "Terry Gilliam"),
                 "selecting the object field must not select DISPLAY implicitly");
     }

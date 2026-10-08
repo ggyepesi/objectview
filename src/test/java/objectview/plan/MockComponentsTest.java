@@ -4,10 +4,13 @@ import objectview.ViewableAdapter;
 import objectview.annotations.DisplayField;
 import objectview.annotations.Link;
 import objectview.annotations.Reference;
+import objectview.field.FieldPath;
 import objectview.media.MediaValue;
 import objectview.viewconfig.ViewConfig;
+import objectview.viewconfig.ViewConfigEditor;
 import org.junit.jupiter.api.Test;
 
+import javax.swing.SwingUtilities;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -91,6 +94,76 @@ class MockComponentsTest {
         assertSame(ada, member.target());
         assertSame(ada, sameMember.target());
         assertEquals(member.caption(), sameMember.caption());
+    }
+
+    @Test void connectedConfigSuppressionAndRestorationDriveTheMockComponents()
+            throws Exception {
+        Child ada = new Child("Ada");
+        Parent parent = new Parent(ada);
+        ViewConfig configured = ViewConfig.of(Parent.class);
+        configured.setAllFields(false);
+        configured.addField("members", ticks("name"));
+
+        ViewConfigEditor[] editor = new ViewConfigEditor[1];
+        ViewConfig[] suppressedConfig = new ViewConfig[1];
+        SwingUtilities.invokeAndWait(() -> {
+            editor[0] = new ViewConfigEditor(configured, parent);
+            editor[0].setConnectedFieldSelection(true);
+            assertTrue(editor[0].uncheckFieldPath(FieldPath.of("members")));
+            suppressedConfig[0] = editor[0].getConfig();
+        });
+
+        MockSink.MockSkip suppressed = assertInstanceOf(MockSink.MockSkip.class,
+                child(render(parent, suppressedConfig[0], Disclosure.INITIAL), "members"));
+        assertEquals(RenderSink.SkipReason.OFF, suppressed.reason(),
+                "suppressed checked descendants must not leak into rendering");
+
+        ViewConfig[] restoredConfig = new ViewConfig[1];
+        SwingUtilities.invokeAndWait(() -> {
+            assertTrue(editor[0].checkFieldPath(FieldPath.of("members")));
+            restoredConfig[0] = editor[0].getConfig();
+        });
+        MockDisclosure disclosure = new MockDisclosure();
+        disclosure.expand(parent.members);
+        MockSink.MockCollection restored = assertInstanceOf(MockSink.MockCollection.class,
+                child(render(parent, restoredConfig[0], disclosure), "members"));
+        MockSink.MockObject member = assertInstanceOf(
+                MockSink.MockObject.class, restored.members().get(0));
+        assertSame(ada, member.target());
+        assertEquals("Ada", member.caption());
+    }
+
+    @Test void connectedConfigAddsAncestorsAndClearRemovesTheRenderedBranch()
+            throws Exception {
+        Child ada = new Child("Ada");
+        Parent parent = new Parent(ada);
+        ViewConfig empty = ViewConfig.of(Parent.class);
+        empty.setAllFields(false);
+
+        ViewConfigEditor[] editor = new ViewConfigEditor[1];
+        ViewConfig[] selectedConfig = new ViewConfig[1];
+        SwingUtilities.invokeAndWait(() -> {
+            editor[0] = new ViewConfigEditor(empty, parent);
+            editor[0].setConnectedFieldSelection(true);
+            assertTrue(editor[0].checkFieldPath(FieldPath.of("members", "name")));
+            selectedConfig[0] = editor[0].getConfig();
+        });
+
+        MockDisclosure disclosure = new MockDisclosure();
+        disclosure.expand(parent.members);
+        assertInstanceOf(MockSink.MockCollection.class,
+                child(render(parent, selectedConfig[0], disclosure), "members"));
+
+        ViewConfig[] clearedConfig = new ViewConfig[1];
+        SwingUtilities.invokeAndWait(() -> {
+            assertTrue(editor[0].clearNestedSelection(FieldPath.of("members")));
+            assertFalse(editor[0].checkFieldPath(FieldPath.of("members")),
+                    "an object branch cannot render without a nested value");
+            clearedConfig[0] = editor[0].getConfig();
+        });
+        MockSink.MockSkip cleared = assertInstanceOf(MockSink.MockSkip.class,
+                child(render(parent, clearedConfig[0], disclosure), "members"));
+        assertEquals(RenderSink.SkipReason.OFF, cleared.reason());
     }
 
     private static MockSink.MockCollection collection(MockSink.MockObject root) {

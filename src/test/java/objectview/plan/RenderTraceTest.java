@@ -96,14 +96,15 @@ class RenderTraceTest {
                 "only the office's DISPLAY is read: " + h.reads);
     }
 
-    @Test void aTickedObjectWithNothingTickedUnderItIsItsFieldNameOnly() {
-        ViewConfig config = person(offices(field("position", ViewConfig.leaf())));
+    @Test void aTickedObjectWithNothingTickedUnderItIsNotRendered() {
+        ViewConfig office = ticks("startDate");
+        office.addField("position", ViewConfig.leaf());
 
-        String trace = render(config, opened(), notTopLevel());
+        String trace = render(person(offices(office)), opened(), notTopLevel());
 
-        assertTrue(trace.contains("OBJECT offices[0].position open\n"
-                        + "        SKIP offices[0].position.name OFF"),
-                "no caption and nothing under it:\n" + trace);
+        assertTrue(trace.contains("SKIP offices[0].position OFF"),
+                "a field-name caption alone is not a View state:\n" + trace);
+        assertTrue(trace.contains("TEXT offices[0].startDate"), trace);
     }
 
     @Test void displayChangesOnlyTheCaption() {
@@ -121,7 +122,7 @@ class RenderTraceTest {
     @Test void aScalarReferenceToACardIsALinkCaptionedOnlyByItsTickedDisplay() {
         Predicate<Viewable> kingshipHasACard = value -> value == h.kingOfMercia;
 
-        String plain = render(person(offices(field("position", ViewConfig.leaf()))),
+        String plain = render(person(offices(field("position", ticks("country")))),
                 opened(), kingshipHasACard);
         String captioned = render(person(offices(field("position", ticks("name")))),
                 opened(), kingshipHasACard);

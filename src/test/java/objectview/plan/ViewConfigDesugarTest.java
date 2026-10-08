@@ -108,17 +108,21 @@ class ViewConfigDesugarTest {
                 inline, inline, false, "", false);
     }
 
+    /** Ticking an object by hand never ticks its children. In a View an object is a
+     *  branch, so one ticked alone is dropped where the config enters; a quiz key keeps
+     *  it, as its caption. */
     @Test void anObjectTickedByHandTicksNothingUnderIt() {
         ViewConfig config = ViewConfig.leaf();
         config.addField("offices", ViewConfig.leaf());
 
-        assertTrue(ViewConfigDesugar.literal(config, person)
+        assertFalse(ViewConfigDesugar.literal(config, person).hasField("offices"));
+        assertTrue(ViewConfigDesugar.selection(config, person)
                 .getFieldConfig("offices").getFields().isEmpty());
     }
 
     @Test void explicitTicksKeepTheirOrderAndTheDisplayAliasBecomesTheRealField() {
         ViewConfig config = ViewConfig.leaf();
-        config.addField("offices", ViewConfig.leaf());
+        config.addField("offices", labels());
         config.addField("@view:display", ViewConfig.leaf());
 
         ViewConfig literal = ViewConfigDesugar.literal(config, person);
@@ -132,7 +136,7 @@ class ViewConfigDesugarTest {
         ViewConfig config = ViewConfig.leaf();
         config.setAllFields(true);
         config.addField("epithet", ViewConfig.leaf());
-        config.addField("offices", ViewConfig.leaf());
+        config.addField("offices", labels());
 
         ViewConfig literal = ViewConfigDesugar.literal(config, person);
 
@@ -208,5 +212,12 @@ class ViewConfigDesugarTest {
             @Override public List<FieldRef> fields() { return List.of(fields); }
             @Override public TypeShape nested(FieldRef field) { return null; }
         };
+    }
+
+    /** An office's DISPLAY: something ticked under offices, so it is a View branch. */
+    private static ViewConfig labels() {
+        ViewConfig offices = ViewConfig.leaf();
+        offices.addField("label", ViewConfig.leaf());
+        return offices;
     }
 }
