@@ -132,7 +132,8 @@ public class RenderContext {
                     (key, initiallyOpen) ->
                             key instanceof Collection<?> || key instanceof Map<?, ?>
                                     ? isCollectionExpanded(key, initiallyOpen)
-                                    : isExpanded(key, initiallyOpen));
+                                    : isExpanded(key, initiallyOpen),
+                    this::valueLink);
         }
         return executor;
     }

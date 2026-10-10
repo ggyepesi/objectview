@@ -267,6 +267,25 @@ class RenderingFollowsTheViewConfigTest {
                 "unticked position DISPLAY must not leak as a caption");
     }
 
+    @Test void aReferenceCollectionMemberKeepsItsProjectionAndNavigatesToItsCard()
+            throws Exception {
+        Office office = WIGMUND.offices.get(0);
+        ViewConfig offices = labelledOffices();
+        offices.addField("startDate", ViewConfig.leaf());
+        RenderContext context = new RenderContext(List.of(WIGMUND));
+        WIGMUND.offices.forEach(context::addTopLevel);
+        context.setCollectionExpanded(WIGMUND.offices, true);
+
+        Card card = render(ruler(offices), context);
+        ReferenceRow member = findReference(card, office);
+
+        assertNotNull(member);
+        assertTrue(member.navigatesToTopLevel(),
+                "a reference remains a reference when it occurs inside a collection");
+        assertTrue(paints(card, "840"),
+                "navigation must not replace the member's configured projection");
+    }
+
     @Test void theSameNestedConfigRendersDisplayInPositionAndSuperclasses()
             throws Exception {
         Seat king = WIGMUND.offices.get(0).position;

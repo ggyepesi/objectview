@@ -43,6 +43,10 @@ public class ReferenceRow extends TextRow {
     // than expanding in place (avoids the per-target expand flag being shared
     // between the card and a chip for the same object).
     private final boolean navigate;
+    // A member of a reference collection is both things at once: its selected fields
+    // remain an inline projection, while its caption still refers to the target's
+    // top-level card.  The triangle owns disclosure; the caption owns navigation.
+    private final boolean expandable;
     private final String displayFieldName;
 
     /** The caption of a navigation link whose target has no selected DISPLAY. It names
@@ -90,6 +94,22 @@ public class ReferenceRow extends TextRow {
                         boolean navigate,
                         String caption,
                         String displayFieldName) {
+        this(fieldName, fieldPath, target, renderContext, openConfig, openTitle,
+                expanded, navigate, false, caption, displayFieldName);
+    }
+
+    /** A reference that may keep an inline projection while its caption navigates. */
+    public ReferenceRow(String fieldName,
+                        FieldPath fieldPath,
+                        Viewable target,
+                        RenderContext renderContext,
+                        ViewConfig openConfig,
+                        String openTitle,
+                        boolean expanded,
+                        boolean navigate,
+                        boolean expandable,
+                        String caption,
+                        String displayFieldName) {
         super(fieldName,
                 fieldPath == null ? FieldPath.ROOT : fieldPath,
                 List.of(caption == null ? "" : caption));
@@ -101,10 +121,14 @@ public class ReferenceRow extends TextRow {
         this.openTitle = openTitle;
         this.expanded = expanded;
         this.navigate = navigate;
+        this.expandable = expandable;
         this.displayFieldName = displayFieldName;
 
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        setToolTipText(navigate
+        setToolTipText(navigate && expandable
+                ? "Click the name to jump to its card · click the triangle to "
+                        + (expanded ? "collapse" : "expand") + " · right-click for more"
+                : navigate
                 ? "Click to jump to its card · right-click for more"
                 : expanded
                 ? "Click to collapse · right-click for more"
@@ -141,7 +165,7 @@ public class ReferenceRow extends TextRow {
     protected void paintLeadingGlyph(Graphics2D g2, int x, int baseline, int ascent) {
         int triMid = baseline - ascent / 2;
         g2.setColor(TRI_COLOR);
-        if (navigate) {
+        if (navigate && !expandable) {
             g2.drawString("→", x, baseline);   // →
         } else if (expanded) {
             g2.fillPolygon(
@@ -165,7 +189,18 @@ public class ReferenceRow extends TextRow {
                     + " target='" + (target == null ? "null" : target.getDisplayName())
                     + "'");
         }
-        if (navigate) {
+        if (navigate && !expandable) {
+            openOrFocus();
+        } else {
+            toggleExpansion();
+        }
+    }
+
+    /** A combined collection reference keeps two explicit hit targets: its painted
+     * caption navigates and its disclosure glyph/padding changes only disclosure. */
+    @Override
+    protected void valueClickedAt(Point point) {
+        if (navigate && (!expandable || isPointOverValue(point))) {
             openOrFocus();
         } else {
             toggleExpansion();

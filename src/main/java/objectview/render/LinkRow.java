@@ -20,6 +20,11 @@ public class LinkRow extends TextRow {
     private final String url;
     private final String label;
 
+    /** The destination this row opens. */
+    public String url() {
+        return url;
+    }
+
     public LinkRow(
             String fieldName,
             FieldPath fieldPath,

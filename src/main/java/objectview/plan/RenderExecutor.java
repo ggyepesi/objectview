@@ -27,6 +27,7 @@ public final class RenderExecutor {
     private final Function<Viewable, FieldSchema> schemas;
     private final Predicate<Viewable> topLevel;
     private final Disclosure disclosure;
+    private final Function<Object, String> valueLinker;
 
     /**
      * @param schemas    the authoritative schema of an object, or null for none
@@ -37,15 +38,29 @@ public final class RenderExecutor {
                           Function<Viewable, FieldSchema> schemas,
                           Predicate<Viewable> topLevel,
                           Disclosure disclosure) {
+        this(resolver, schemas, topLevel, disclosure, ignored -> null);
+    }
+
+    /**
+     * @param valueLinker turns a selected value into its external destination, or null.
+     *                    It applies equally when that value is painted as an ordinary
+     *                    leaf and when a DISPLAY field supplies an object's caption.
+     */
+    public RenderExecutor(PlanResolver resolver,
+                          Function<Viewable, FieldSchema> schemas,
+                          Predicate<Viewable> topLevel,
+                          Disclosure disclosure,
+                          Function<Object, String> valueLinker) {
         this.resolver = resolver;
         this.schemas = schemas == null ? value -> null : schemas;
         this.topLevel = topLevel == null ? value -> false : topLevel;
         this.disclosure = disclosure == null ? Disclosure.INITIAL : disclosure;
+        this.valueLinker = valueLinker == null ? ignored -> null : valueLinker;
     }
 
     /** One object under its literal config: its fields, plan and ticked caption. */
     public record Level(Viewable target, ViewConfig config, FieldSet fields,
-                        ObjectPlan plan, String caption) {
+                        ObjectPlan plan, String caption, String captionUrl) {
         /** Whether a ticked field other than the caption has something to show. A blank
          * or absent value renders nothing, so it cannot justify an expander; a collection
          * always shows its size. Reads ticked fields only, stopping at the first present
@@ -95,11 +110,15 @@ public final class RenderExecutor {
         FieldSet fields = FieldSet.of(target, schema);
         ObjectPlan plan = resolver.resolve(literal, fields, target.typeName(), schema != null);
         String caption = null;
+        String captionUrl = null;
         if (plan.caption() != null) {
             Object value = fields.read(plan.caption().name());
-            if (value != null && !String.valueOf(value).isBlank()) caption = String.valueOf(value);
+            if (value != null && !String.valueOf(value).isBlank()) {
+                caption = String.valueOf(value);
+                captionUrl = valueLinker.apply(value);
+            }
         }
-        return new Level(target, literal, fields, plan, caption);
+        return new Level(target, literal, fields, plan, caption, captionUrl);
     }
 
     /** Whether a root occurrence starts open. */

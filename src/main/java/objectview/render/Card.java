@@ -1025,11 +1025,31 @@ public class Card extends JPanel implements RenderedInstanceHost {
         Viewable target = object.target();
         FieldPath fieldPath = decision.at().path();
         boolean decorate = decision.representation() == Representation.REFERENCE;
+        boolean navigate = decorate && renderContext.isTopLevel(target);
 
         if (!object.hasBody()) {
             if (object.caption() == null) {
+                if (navigate) {
+                    return maybeDecoratedReference(new ReferenceRow(
+                            label, fieldPath, target, renderContext, object.config(),
+                            objectPathTitle(target), false, true,
+                            ReferenceRow.NAVIGATION_LABEL, object.captionField()),
+                            target, true);
+                }
                 return label == null || label.isBlank()
                         ? null : new TextRow(label, fieldPath, List.of());
+            }
+            if (navigate) {
+                return maybeDecoratedReference(new ReferenceRow(
+                        label, fieldPath, target, renderContext, object.config(),
+                        objectPathTitle(target), false, true,
+                        object.caption(), object.captionField()), target, true);
+            }
+            if (object.captionUrl() != null && !object.captionUrl().isBlank()) {
+                return maybeDecoratedReference(
+                        new LinkRow(label, fieldPath.append(object.captionField()),
+                                object.caption() + "|" + object.captionUrl(), ""),
+                        target, decorate);
             }
             return maybeDecoratedReference(
                     new TextRow(label, fieldPath.append(object.captionField()),
@@ -1041,7 +1061,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
         // then the chip that opens it, since a body shown at once would open the next
         // inherited level with it, and the next.
         boolean inherited = decision.field() != null && decision.field().inherited();
-        if (object.caption() == null && !inherited) {
+        if (object.caption() == null && !inherited && !navigate) {
             JComponent body = nestedCard(object, fieldPath, ancestors);
             if (body == null) {
                 return label == null || label.isBlank()
@@ -1056,7 +1076,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
                 : label == null || label.isBlank() ? ReferenceRow.NAVIGATION_LABEL : label;
         ReferenceRow chip = new ReferenceRow(
                 named ? "" : label, fieldPath, target, renderContext, object.config(),
-                objectPathTitle(target), open, false,
+                objectPathTitle(target), open, navigate, navigate,
                 chipText, object.captionField());
         if (!open) {
             return maybeDecoratedReference(chip, target, decorate);
