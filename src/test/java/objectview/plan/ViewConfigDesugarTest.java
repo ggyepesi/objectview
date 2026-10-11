@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** Shorthand is rewritten into plain ticks once, where a config enters (directive 24). */
+/** Shorthand is rewritten into plain ticks once, where a config enters (directive 25). */
 class ViewConfigDesugarTest {
 
     private final HistoryShape history = new HistoryShape();

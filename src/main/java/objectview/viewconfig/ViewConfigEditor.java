@@ -324,7 +324,7 @@ public class ViewConfigEditor extends JPanel {
     }
 
     /**
-     * Directive 24 at the editor's boundary: a config entering the editor is rewritten
+     * Directive 25 at the editor's boundary: a config entering the editor is rewritten
      * into plain ticks against the shape the editor shows, so a row is ticked exactly
      * when the config ticks its path, and the config the editor emits is literal.
      * Subtype-branch entries are this editor's own synthetic keys and are kept as given.

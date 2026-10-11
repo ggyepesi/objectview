@@ -886,7 +886,7 @@ public class SearchPanel extends JPanel
     /** Complete subtype-aware path projection used by the active presentation. */
     public List<ViewableFieldPaths.PathInfo> viewPaths() {
         // Read straight off the literal ticks, base type and each subtype branch, so the
-        // table's columns and the cards agree on what is ticked (directive 24: the view
+        // table's columns and the cards agree on what is ticked (directive 25: the view
         // config's shorthand is rewritten once, here, where the table receives it).
         List<ViewableFieldPaths.PathInfo> paths = new ArrayList<>();
         if (rootFieldTypes != null) {

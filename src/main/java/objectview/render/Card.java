@@ -598,7 +598,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
     }
 
     /**
-     * Directive 24 at the card boundary, until the editor emits literal configs (plan
+     * Directive 25 at the card boundary, until the editor emits literal configs (plan
      * phase 6): shorthand is rewritten here once against this object's shape, and every
      * nested card receives an already literal child config. A missing config is the one
      * default.

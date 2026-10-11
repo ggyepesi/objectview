@@ -11,7 +11,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * The only reader of ViewConfig shorthand (directive 24). Rewrites {@code allFields},
+ * The only reader of ViewConfig shorthand (directive 25). Rewrites {@code allFields},
  * {@code allMinorFields}, absent child configs and the DISPLAY alias into plain ticks,
  * once, where a config enters. Everything downstream sees a literal config.
  *

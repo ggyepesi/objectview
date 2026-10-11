@@ -278,7 +278,7 @@ public final class ViewableColumnsView
     }
 
     // A row's config, rewritten into plain ticks once per (config, logical type): the
-    // table's boundary for directive 24, as a card's is for cards. Cells then read only
+    // table's boundary for directive 25, as a card's is for cards. Cells then read only
     // the literal ticks.
     private final java.util.Map<ViewConfig, java.util.Map<String, ViewConfig>> literalConfigs =
             new java.util.IdentityHashMap<>();

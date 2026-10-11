@@ -26,6 +26,13 @@ public class RenderContext {
     private final Set<Object> topLevel =
             Collections.newSetFromMap(new IdentityHashMap<>());
 
+    // A reference value need not be the same Java object as the top-level instance
+    // produced for it. Resolve only by Viewable's complete identity: the identifier
+    // alone is ambiguous when several logical types deliberately share a QID.
+    private record ViewableIdentity(String type, String identifier) { }
+    private final Map<ViewableIdentity, Object> topLevelByIdentity =
+            new LinkedHashMap<>();
+
     private final Map<Object, JComponent> topLevelComponents =
             new IdentityHashMap<>();
 
@@ -35,7 +42,10 @@ public class RenderContext {
     private final Map<Object, Runnable> topLevelRevealers = new IdentityHashMap<>();
 
     public void registerTopLevelRevealer(Object object, Runnable revealer) {
-        if (object != null && revealer != null) topLevelRevealers.putIfAbsent(object, revealer);
+        if (object != null && revealer != null) {
+            Object target = canonicalTopLevel(object);
+            topLevelRevealers.putIfAbsent(target == null ? object : target, revealer);
+        }
     }
 
     // When the view is virtualized, a top-level target may not have a live card
@@ -388,25 +398,25 @@ public class RenderContext {
     }
 
     public RenderContext(Collection<? extends Viewable> viewables) {
-        if (viewables != null) {
-            topLevel.addAll(viewables);
-        }
+        addTopLevels(viewables);
     }
 
     public void addTopLevel(Object object) {
         if (object != null) {
             topLevel.add(object);
+            ViewableIdentity identity = identityOf(object);
+            if (identity != null) topLevelByIdentity.putIfAbsent(identity, object);
         }
     }
 
     public void addTopLevels(Collection<? extends Viewable> viewables) {
         if (viewables != null) {
-            topLevel.addAll(viewables);
+            viewables.forEach(this::addTopLevel);
         }
     }
 
     public boolean isTopLevel(Object object) {
-        return object != null && topLevel.contains(object);
+        return canonicalTopLevel(object) != null;
     }
 
     public void registerTopLevel(Object object, JComponent component) {
@@ -414,16 +424,34 @@ public class RenderContext {
             return;
         }
 
-        topLevel.add(object);
+        addTopLevel(object);
         topLevelComponents.put(object, component);
+    }
+
+    private Object canonicalTopLevel(Object object) {
+        if (object == null) return null;
+        if (topLevel.contains(object)) return object;
+        ViewableIdentity identity = identityOf(object);
+        return identity == null ? null : topLevelByIdentity.get(identity);
+    }
+
+    private static ViewableIdentity identityOf(Object object) {
+        if (!(object instanceof Viewable viewable)) return null;
+        String type = viewable.identityTypeName();
+        String identifier = viewable.getIdentifier();
+        if (type == null || type.isBlank()
+                || identifier == null || identifier.isBlank()) return null;
+        return new ViewableIdentity(type, identifier);
     }
 
     private static final boolean NAV_DEBUG = Boolean.getBoolean("quiz.nav.debug");
 
     public boolean focusTopLevel(Object object) {
-        Runnable revealer = topLevelRevealers.get(object);
+        Object target = canonicalTopLevel(object);
+        if (target == null) target = object;
+        Runnable revealer = topLevelRevealers.get(target);
         if (revealer != null) revealer.run();
-        JComponent fromMap = topLevelComponents.get(object);
+        JComponent fromMap = topLevelComponents.get(target);
         JComponent component = fromMap;
 
         // A cached top-level component can be STALE: virtualization recycles
@@ -438,12 +466,12 @@ public class RenderContext {
         // Virtualized view: the target card isn't built (off-screen) — build +
         // position it on demand so we can scroll to it.
         if (component == null) {
-            component = resolveTopLevel(object);
+            component = resolveTopLevel(target);
         }
 
         if (NAV_DEBUG) {
             log.debug("[nav] focusTopLevel object='"
-                    + (object instanceof Viewable q ? q.getDisplayName() : object)
+                    + (target instanceof Viewable q ? q.getDisplayName() : target)
                     + "' fromMap=" + (fromMap != null)
                     + " resolved=" + (component != null)
                     + " parent=" + (component == null || component.getParent() == null
@@ -465,7 +493,7 @@ public class RenderContext {
         Container parent = component.getParent();
 
         if (parent instanceof VirtualizedCardList vcl
-                && object instanceof Viewable q) {
+                && target instanceof Viewable q) {
             // Variable-height virtualization: the card's absolute offset shifts as
             // scrolling measures its neighbours, so delegate to a stabilizing scroll
             // (a plain setViewPosition lands a few cards off, intermittently).
