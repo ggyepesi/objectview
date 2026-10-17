@@ -121,9 +121,13 @@ public final class RenderExecutor {
         return new Level(target, literal, fields, plan, caption, captionUrl);
     }
 
-    /** Whether a root occurrence starts open. */
-    public boolean rootOpen(Viewable root) {
-        return disclosure.isExpanded(root, true);
+    /** Whether a root occurrence is open: the card is an occurrence like any other
+     *  (#398). A view that does not fold its roots never folds them; one that does folds
+     *  each under its caption until the reader opens it, and a root with no caption has
+     *  nothing to fold under, so it shows itself. */
+    public boolean rootOpen(Level level) {
+        return !disclosure.rootsStartFolded() || level.caption() == null
+                || disclosure.isExpanded(level.target(), false);
     }
 
     /** The decisions for {@code level}'s fields: ticked ones in config order, then the
@@ -216,6 +220,53 @@ public final class RenderExecutor {
         return new Decision(Kind.SKIP, at, field, null, null, null, false, 0, reason);
     }
 
+    /**
+     * Every occurrence below {@code level} that can be opened — nested objects with
+     * something under their caption, non-empty collections and their object members —
+     * whether or not it is open now, at most {@code limit} of them. "Expand all below"
+     * and "Collapse all below" act on exactly these (#398). Navigation to another card
+     * and an object already on the path are not below: the walk stops there, as the
+     * renderers do.
+     */
+    public List<Object> openableBelow(Level level, int limit) {
+        List<Object> out = new ArrayList<>();
+        Set<Viewable> ancestors = Collections.newSetFromMap(new IdentityHashMap<>());
+        ancestors.add(level.target());
+        collectOpenable(level, RenderSink.Occurrence.root(), ancestors, out, limit);
+        return out;
+    }
+
+    private void collectOpenable(Level level, RenderSink.Occurrence owner,
+                                 Set<Viewable> ancestors, List<Object> out, int limit) {
+        for (Decision decision : fields(level, owner, ancestors)) {
+            if (out.size() >= limit) return;
+            if (decision.kind() == Kind.OBJECT) {
+                openableObject(decision, ancestors, out, limit);
+            } else if (decision.kind() == Kind.COLLECTION && decision.size() > 0) {
+                out.add(decision.value());
+                int index = 0;
+                for (Object item : members(decision.value())) {
+                    if (out.size() >= limit) return;
+                    Decision member = member(decision.field(), item,
+                            decision.at().member(index++), ancestors);
+                    if (member.kind() == Kind.OBJECT) {
+                        openableObject(member, ancestors, out, limit);
+                    }
+                }
+            }
+        }
+    }
+
+    private void openableObject(Decision decision, Set<Viewable> ancestors,
+                                List<Object> out, int limit) {
+        Level object = decision.object();
+        if (!object.hasBody()) return;
+        out.add(object.target());
+        ancestors.add(object.target());
+        collectOpenable(object, decision.at(), ancestors, out, limit);
+        ancestors.remove(object.target());
+    }
+
     // --- the walk over these decisions, for sinks without their own component tree ---
 
     /** Renders {@code root} as a top-level card under its literal {@code config}. */
@@ -223,7 +274,7 @@ public final class RenderExecutor {
         Set<Viewable> ancestors = Collections.newSetFromMap(new IdentityHashMap<>());
         RenderSink.Occurrence at = RenderSink.Occurrence.root();
         Level level = level(root, config);
-        boolean open = rootOpen(root);
+        boolean open = rootOpen(level);
         RenderSink.ObjectOccurrence occurrence = objectOccurrence(
                 at, null, Representation.OBJECT, level, open);
         sink.beginObject(occurrence);

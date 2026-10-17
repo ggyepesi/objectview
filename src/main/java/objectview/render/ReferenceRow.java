@@ -216,6 +216,12 @@ public class ReferenceRow extends TextRow {
         JMenuItem open = new JMenuItem("Open in window");
         open.addActionListener(e -> openFullObject());
         menu.add(open);
+        // Only an occurrence that opens in place has anything below it here; a link
+        // to another card opens that card instead.
+        if (expandable || !navigate) {
+            DisclosureCommands.addTo(menu, this, renderContext, target, openConfig,
+                    this::refreshRootCard);
+        }
     }
 
     /** Collapses this reference. The expanded body's own collapse strip runs this, so

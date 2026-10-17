@@ -149,6 +149,10 @@ public class RenderContext {
                         @Override public boolean opensWithOwner(FieldPath path) {
                             return opensWithOwner.contains(path);
                         }
+
+                        @Override public boolean rootsStartFolded() {
+                            return collapsibleCards;
+                        }
                     },
                     this::valueLink);
         }
@@ -251,8 +255,7 @@ public class RenderContext {
         if (v != null) {
             return v;
         }
-        Boolean bulk = bulkState(true);   // references follow the bulk only when recursive
-        return bulk != null ? bulk : defaultExpanded;
+        return defaultExpanded;
     }
 
     // Collection/map collapse state, keyed by the collection's identity. Unlike
@@ -270,8 +273,7 @@ public class RenderContext {
         if (v != null) {
             return v;
         }
-        Boolean bulk = bulkState(true);   // collections follow the bulk only when recursive
-        return bulk != null ? bulk : defaultExpanded;
+        return defaultExpanded;
     }
 
     /** Flips a collection's expand state (seeding from {@code defaultExpanded}
@@ -560,7 +562,6 @@ public class RenderContext {
     // toggle flips the state and asks the view (via a handler) to rebuild that
     // one card FRESH at its new size — never grown in place.
     private boolean collapsibleCards = false;
-    private final Map<Object, Boolean> cardExpanded = new IdentityHashMap<>();
     private final java.util.List<java.util.function.Consumer<Viewable>> cardToggleHandlers =
             new java.util.ArrayList<>();
     private final java.util.List<java.util.function.Consumer<Viewable>> cardResizeHandlers =
@@ -574,32 +575,16 @@ public class RenderContext {
         this.collapsibleCards = collapsibleCards;
     }
 
-    public boolean isCardExpanded(Object key, boolean defaultExpanded) {
-        if (key == null) {
-            return defaultExpanded;
-        }
-        Boolean v = cardExpanded.get(key);
-        if (v != null) {
-            return v;
-        }
-        Boolean bulk = bulkState(false);   // cards are the "this level" scope
-        return bulk != null ? bulk : defaultExpanded;
-    }
-
-    public void toggleCardExpanded(Object key, boolean defaultExpanded) {
-        if (key != null) {
-            cardExpanded.put(key, !isCardExpanded(key, defaultExpanded));
-        }
-    }
-
-    /** Cards default to collapsed (birdseye), so these one-arg forms are the
-     *  common case. */
+    /** Whether {@code key}'s root card is open: the reader's choice, kept in the same
+     *  store as every other occurrence's, over the view's start state. A captioned root
+     *  is assumed; one without a caption is always shown open
+     *  ({@link objectview.plan.RenderExecutor#rootOpen}). */
     public boolean isCardExpanded(Object key) {
-        return isCardExpanded(key, false);
+        return key != null && (!collapsibleCards || isExpanded(key, false));
     }
 
     public void toggleCardExpanded(Object key) {
-        toggleCardExpanded(key, false);
+        if (key != null) setExpanded(key, !isCardExpanded(key));
     }
 
     /** Registers a handler (the view) that rebuilds a single card after its
@@ -654,43 +639,50 @@ public class RenderContext {
         if (key == null) return;
         referenceExpanded.remove(key);
         collectionExpanded.remove(key);
-        cardExpanded.remove(key);
     }
 
-    /** Forces a root card's open state — the card counterpart of {@link #setExpanded}.
-     *  Returns true if it changed. */
-    public boolean setCardExpanded(Object key, boolean expanded) {
-        if (key == null) return false;
-        Boolean previous = cardExpanded.put(key, expanded);
-        return previous == null || previous != expanded;
+    // -------- Expand all below / Collapse all below (#398) --------
+    // Explicit, verb-labelled commands on one node (directive 10). They write the same
+    // per-occurrence choices a click writes, so a later click still opens or folds one
+    // level, and nothing else (no panel-wide mode) decides what is open.
+
+    /** The most occurrences one "Expand all below" opens. A broad graph reached through
+     *  object fields could otherwise open thousands of nested cards from one click. */
+    public static final int EXPAND_ALL_LIMIT = 2000;
+
+    /** What one command did: how many occurrences it changed, and whether it stopped at
+     *  {@link #EXPAND_ALL_LIMIT} with more still below. */
+    public record DisclosureCommandResult(int occurrences, boolean limited) {}
+
+    /** Opens {@code target} and every openable occurrence below it under {@code config}. */
+    public DisclosureCommandResult expandAllBelow(Viewable target, ViewConfig config) {
+        if (target == null) return new DisclosureCommandResult(0, false);
+        java.util.List<Object> below = executor().openableBelow(
+                executor().level(target, config), EXPAND_ALL_LIMIT + 1);
+        boolean limited = below.size() > EXPAND_ALL_LIMIT;
+        if (limited) below = below.subList(0, EXPAND_ALL_LIMIT);
+        setExpanded(target, true);
+        for (Object key : below) open(key);
+        return new DisclosureCommandResult(below.size() + 1, limited);
     }
 
-    // -------- Bulk (panel-level) expand / collapse --------
-    // A panel's "expand all / collapse all" sets a bulk mode that seeds the default
-    // for every card (THIS level) and, when recursive, every reference/collection too
-    // (ALL levels). Setting it clears the per-item overrides so the bulk applies
-    // uniformly; an individual toggle afterwards writes an explicit state that still
-    // wins over the bulk (and a card scrolled in later follows the bulk).
-    public enum BulkExpand { NONE, EXPAND, COLLAPSE }
-
-    private BulkExpand bulkExpand = BulkExpand.NONE;
-    private boolean bulkRecursive = false;
-
-    public void setBulkExpand(BulkExpand mode, boolean recursive) {
-        this.bulkExpand = mode == null ? BulkExpand.NONE : mode;
-        this.bulkRecursive = recursive;
-        cardExpanded.clear();
-        referenceExpanded.clear();
-        collectionExpanded.clear();
+    /** Folds {@code target} and forgets every choice below it, so reopening it opens
+     *  one level again. */
+    public DisclosureCommandResult collapseAllBelow(Viewable target, ViewConfig config) {
+        if (target == null) return new DisclosureCommandResult(0, false);
+        java.util.List<Object> below = executor().openableBelow(
+                executor().level(target, config), Integer.MAX_VALUE);
+        for (Object key : below) clearChoice(key);
+        setExpanded(target, false);
+        return new DisclosureCommandResult(below.size() + 1, false);
     }
 
-    // The bulk-implied state for a given scope, or null when the bulk doesn't apply
-    // (mode NONE, or a recursive-only scope while the bulk is this-level only).
-    private Boolean bulkState(boolean recursiveScope) {
-        if (bulkExpand == BulkExpand.NONE || (recursiveScope && !bulkRecursive)) {
-            return null;
+    private void open(Object key) {
+        if (key instanceof Collection<?> || key instanceof Map<?, ?>) {
+            setCollectionExpanded(key, true);
+        } else {
+            setExpanded(key, true);
         }
-        return bulkExpand == BulkExpand.EXPAND;
     }
 
     // -------- Card selection --------

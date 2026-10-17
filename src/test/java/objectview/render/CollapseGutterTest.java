@@ -97,7 +97,7 @@ class CollapseGutterTest {
         // cannot serve because it has been scrolled out of view.
         CollapseGutter.INSTANCE.mousePressed(pressAt(card, 3));
 
-        assertFalse(context.isCardExpanded(root, false),
+        assertFalse(context.isCardExpanded(root),
                     "a press on the strip must collapse the card");
     }
 
@@ -109,7 +109,7 @@ class CollapseGutterTest {
 
         CollapseGutter.INSTANCE.mousePressed(pressAt(card, CollapseGutter.WIDTH + 1));
 
-        assertTrue(context.isCardExpanded(root, false),
+        assertTrue(context.isCardExpanded(root),
                    "past the strip is content — selecting or copying a row there "
                            + "must not collapse the card under the pointer");
     }
@@ -196,7 +196,7 @@ class CollapseGutterTest {
                 CollapseGutter.INSTANCE.mousePressed(pressAt(body, 3)));
 
         assertFalse(context.isExpanded(nested, false), "the nested entry collapses");
-        assertTrue(context.isCardExpanded(root, false),
+        assertTrue(context.isCardExpanded(root),
                    "the log entry around it stays open");
     }
 
@@ -220,7 +220,7 @@ class CollapseGutterTest {
         Entry root = entryWithBody();
         Card card = cardFor(context, root);
 
-        assertFalse(context.isCardExpanded(root, false), "starts collapsed");
+        assertFalse(context.isCardExpanded(root), "starts collapsed");
         assertFalse(armed(card), "a collapsed card must not arm the strip");
     }
 

@@ -2,7 +2,6 @@ package objectview.demo;
 
 import objectview.ViewableAdapter;
 import objectview.render.CardListView;
-import objectview.render.ExpandToolbar;
 import objectview.render.RenderContext;
 import objectview.view.SearchableView;
 
@@ -15,19 +14,13 @@ import java.util.List;
 
 /**
  * Demonstrates {@link SearchableView} — live search, sort, field highlight, and a
- * Cards/Table rendering-mode combo (in the View Configuration dialog) — alongside the
- * bulk expand/collapse {@link ExpandToolbar}. Switch the mode to Table to see the same
- * films laid out as rows.
+ * Cards/Table rendering-mode combo (in the View Configuration dialog). Switch the mode
+ * to Table to see the same films laid out as rows.
  *
  * <p>A small set of cross-referenced films: each card shows its director as a
  * chip and its cast as a collapsible list of chips. Cards start as birdseye
- * summaries, so:
- * <ul>
- *   <li><b>Expand all</b> opens every card to its full fields,</li>
- *   <li><b>Expand all + Recursive</b> also drills into the director and cast
- *       references in place,</li>
- *   <li><b>Collapse all</b> returns to birdseye.</li>
- * </ul>
+ * summaries and each click opens one level; right-click a card title or a chip for
+ * <b>Expand all below</b> / <b>Collapse all below</b>.
  * Type in the search box (try {@code "space"} or {@code "1994"}) and toggle
  * "Highlight Fields" to see matches lit up, including inside the long synopsis.
  */
@@ -149,20 +142,12 @@ public class SearchDemo {
         // items — SearchableView registers the combo, which a raw SearchPanel does not.
         SearchableView view = SearchableView.builder(films)
                 .renderContext(context)
-                .collapsible(true)          // birdseye cards → "expand all" opens them
+                .collapsible(true)          // birdseye cards; right-click a title to expand all below
                 .build();
-
-        // Bulk expand/collapse acts on the shared context; refresh the built cards when in
-        // card mode (table rows re-measure themselves).
-        ExpandToolbar expand = new ExpandToolbar(context, () -> {
-            if (view.cardList() != null) view.cardList().refreshBuiltCards();
-        });
-        expand.setBorder(BorderFactory.createTitledBorder("Bulk expand / collapse"));
 
         JFrame frame = new JFrame("objectview — SearchDemo");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setLayout(new BorderLayout());
-        frame.add(expand, BorderLayout.NORTH);
         frame.add(view, BorderLayout.CENTER);
         frame.setSize(820, 760);
         frame.setLocationRelativeTo(null);

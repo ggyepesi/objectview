@@ -42,6 +42,13 @@ public interface Disclosure {
         return false;
     }
 
+    /** A view's own setting: whether it shows its root cards folded to their caption
+     *  (a birdseye list) until the reader opens one. A view that does not fold its roots
+     *  never folds them. */
+    default boolean rootsStartFolded() {
+        return false;
+    }
+
     /** No reader choices: every occurrence takes its initial state. */
     Disclosure INITIAL = (key, initiallyOpen) -> initiallyOpen;
 }

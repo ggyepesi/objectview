@@ -154,8 +154,8 @@ public class CardListView {
         // expands so a hit on a hidden field becomes visible. State lives in the
         // context, so it stays expanded on scroll-away-and-back.
         virtualList.setNavigateRevealHandler(q -> {
-            if (context.collapsibleCards() && !context.isCardExpanded(q, false)) {
-                context.toggleCardExpanded(q, false);
+            if (!context.isCardExpanded(q)) {
+                context.toggleCardExpanded(q);
                 virtualList.invalidateCard(q);
             }
         });
@@ -207,7 +207,7 @@ public class CardListView {
             // past the old bottom and the scroll can't reach it until something else
             // relayouts (e.g. a new entry). Collapse needs no reveal.
             if (renderContext.collapsibleCards()
-                    && renderContext.isCardExpanded(q, false)) {
+                    && renderContext.isCardExpanded(q)) {
                 SwingUtilities.invokeLater(() -> list.ensureVisible(q));
             }
         };
@@ -274,7 +274,7 @@ public class CardListView {
     }
 
     /** Re-render every currently-built card in place, so a change to shared
-     *  render state (e.g. {@link RenderContext} bulk expand/collapse) shows
+     *  render state (e.g. a {@link RenderContext} disclosure choice) shows
      *  immediately. Cards not yet built pick the state up when built on scroll. */
     public void refreshBuiltCards() {
         if (virtualList == null) {

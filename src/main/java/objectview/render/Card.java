@@ -284,7 +284,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
      *  does — the gutter is a second place to reach the same action, not a second
      *  implementation of it. */
     void toggleCollapsed() {
-        renderContext.toggleCardExpanded(viewable, false);
+        renderContext.toggleCardExpanded(viewable);
         renderContext.notifyCardToggled(viewable);
     }
 
@@ -627,8 +627,9 @@ public class Card extends JPanel implements RenderedInstanceHost {
         level = renderContext.executor().level(viewable, config);
         visited.add(viewable);
         ancestors.add(viewable);
-        // A collapsed card needs a caption; with DISPLAY unticked there is none, so the
-        // selected fields show directly instead of an invented header.
+        // Whether a root is open is the executor's decision (#398); a view that folds
+        // its roots paints the folding header, and a root with no caption — nothing to
+        // fold under — shows its fields directly instead of an invented header.
         if (rootRender && renderContext.collapsibleCards() && level.caption() != null) {
             buildCollapsibleRoot();
         } else {
@@ -690,7 +691,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
     // rebuild THIS card fresh (factory-driven), so its new size is re-measured
     // rather than grown in place. Selection (name click) coexists with the toggle.
     private void buildCollapsibleRoot() {
-        boolean expanded = renderContext.isCardExpanded(viewable, false);
+        boolean expanded = renderContext.executor().rootOpen(level);
 
         // An expanded card gets a clickable left edge, so it can be collapsed from
         // wherever the reader has scrolled to instead of only from its header.
@@ -748,6 +749,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
             addOpenListener(titleLabel, viewable);
         }
 
+        addDisclosureMenu(titleLabel);
+
         JPanel header = new JPanel(new BorderLayout());
         header.setOpaque(false);
         header.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Color.LIGHT_GRAY));
@@ -774,6 +777,27 @@ public class Card extends JPanel implements RenderedInstanceHost {
         return createTitleHeader(q, false);
     }
 
+    /** Right-click on a root card's title offers "Expand all below" / "Collapse all
+     *  below" for the card (#398), the same commands a reference chip offers. */
+    private void addDisclosureMenu(JComponent title) {
+        if (!rootRender || renderContext == null) return;
+        title.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mousePressed(java.awt.event.MouseEvent e) { show(e); }
+            @Override public void mouseReleased(java.awt.event.MouseEvent e) { show(e); }
+
+            private void show(java.awt.event.MouseEvent e) {
+                if (!e.isPopupTrigger()) return;
+                javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+                DisclosureCommands.addTo(menu, Card.this, renderContext, viewable, config,
+                        () -> {
+                            // A virtualized list rebuilds and re-measures the one card.
+                            if (!renderContext.notifyCardToggled(viewable)) refresh();
+                        });
+                menu.show(e.getComponent(), e.getX(), e.getY());
+            }
+        });
+    }
+
     private JComponent createTitleHeader(Viewable q, boolean focusTopLevel) {
         String title = getTitle();
 
@@ -788,6 +812,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
                 : hostActivation
                         ? "Double-click to activate"
                         : "Double-click to open full view");
+
+        addDisclosureMenu(titleLabel);
 
         titleLabel.putClientProperty(FieldProperties.FIELD_NAME_PROPERTY,
                 captionKey());
