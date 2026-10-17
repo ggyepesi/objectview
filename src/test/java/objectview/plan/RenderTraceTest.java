@@ -108,8 +108,11 @@ class RenderTraceTest {
     }
 
     @Test void displayChangesOnlyTheCaption() {
-        String without = render(person(offices(ticks("startDate"))), opened(), notTopLevel());
-        String with = render(person(offices(ticks("label", "startDate"))), opened(), notTopLevel());
+        // A captioned member starts folded (#398); open both so the bodies compare.
+        String without = render(person(offices(ticks("startDate"))), openedMembers(),
+                notTopLevel());
+        String with = render(person(offices(ticks("label", "startDate"))), openedMembers(),
+                notTopLevel());
 
         assertEquals(without
                         .replace("OBJECT offices[0] open", "OBJECT offices[0] caption=\"Wigmund of Mercia\" open")
@@ -140,8 +143,12 @@ class RenderTraceTest {
         ViewConfig position = ticks("@view:display");
         position.addField("superClasses", ViewConfig.leaf());
         ViewConfig config = person(offices(field("position", position)));
+        Object superClasses = h.kingOfMercia.dynamicFieldValues().get("superClasses");
+        // Each level is one click (#398): the position, its list, then the member.
         MockDisclosure disclosure = opened()
-                .expand(h.kingOfMercia.dynamicFieldValues().get("superClasses"));
+                .expand(h.kingOfMercia)
+                .expand(superClasses)
+                .expand(((java.util.List<?>) superClasses).get(0));
 
         String trace = render(config, disclosure, notTopLevel());
 
@@ -256,6 +263,15 @@ class RenderTraceTest {
 
     private MockDisclosure opened() {
         return new MockDisclosure().expand(h.wigmund.dynamicFieldValues().get("offices"));
+    }
+
+    /** {@link #opened}, with each office opened as well. */
+    private MockDisclosure openedMembers() {
+        MockDisclosure disclosure = opened();
+        for (Object office : (java.util.List<?>) h.wigmund.dynamicFieldValues().get("offices")) {
+            disclosure.expand(office);
+        }
+        return disclosure;
     }
 
     private static Predicate<Viewable> notTopLevel() { return value -> false; }

@@ -10,8 +10,12 @@ import java.lang.annotation.Target;
  *
  * By default a nested Viewable that lives inside a collection or map is
  * rendered compactly as a clickable reference chip (which opens a detail
- * window). Annotate the field with @Inline to instead expand each
- * nested Viewable fully, in place, within the parent card.
+ * window). Annotate the field with @Inline to instead render each nested
+ * Viewable in place, within the parent card.
+ *
+ * <p>@Inline decides placement only, never whether the content starts open:
+ * like every occurrence it opens one level per click (see
+ * {@link objectview.plan.Disclosure#initiallyOpen}).
  *
  * Use only where the nested structure is small and bounded (e.g. a log
  * tree of workflow -> steps). Do NOT use it on broad or cyclic graphs such

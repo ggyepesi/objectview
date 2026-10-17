@@ -96,7 +96,12 @@ class ContentlessReferenceTest {
         config.setAllFields(false);
         config.addField("director", person);
 
-        Card card = cardFor(film, config);
+        // With DISPLAY unticked the director folds under its field name (#398).
+        RenderContext context = new RenderContext();
+        context.setExpanded(director, true);
+        Card[] opened = new Card[1];
+        SwingUtilities.invokeAndWait(() -> opened[0] = new Card(film, config, context, false));
+        Card card = opened[0];
 
         assertNotNull(find(card, TextBlock.class),
                 "the explicitly selected nationality is rendered");
@@ -139,9 +144,17 @@ class ContentlessReferenceTest {
         SwingUtilities.invokeAndWait(() -> rendered[0] =
                 new Card(film, config, context, false));
 
-        assertTrue(renders(rendered[0], "President"));
+        // The caption-less wrapper folds under its field name (#398) — never blank.
         assertNull(findReference(rendered[0], ""),
                 "the blank intermediate wrapper must not become an empty chip");
+        assertFalse(renders(rendered[0], "President"));
+
+        context.setExpanded(projection, true);
+        SwingUtilities.invokeAndWait(() -> rendered[0] =
+                new Card(film, config, context, false));
+        assertTrue(renders(rendered[0], "President"));
+        assertNull(findReference(rendered[0], ""),
+                "opened, it still has no empty chip");
     }
 
     private static Card cardFor(Film film) throws Exception {

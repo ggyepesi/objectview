@@ -29,10 +29,30 @@ class RepresentationTraceTest {
                   SKIP steps OFF""", render(ticks("title", "area", "chart", "flag")));
     }
 
-    @Test void aSingleImageAndInlineContentStartOpenWhileOtherCollectionsFold() {
+    /** {@code @Inline} decides placement, never the start state (#398): the inline
+     *  steps fold like any other list. A single image is content and stays open. */
+    @Test void aSingleImageStartsOpenWhileInlineContentFoldsLikeAnyCollection() {
         ViewConfig config = ticks("gallery");
         config.addField("steps", ticks("text"));
-        String trace = render(config);
+
+        assertEquals("""
+                OBJECT <root> open
+                  COLLECTION gallery (1) open
+                    MEDIA gallery[0] "only"
+                  COLLECTION steps (2) folded
+                    DEFER steps COLLAPSED
+                  SKIP title OFF
+                  SKIP area OFF
+                  SKIP chart OFF
+                  SKIP flag OFF""", render(config));
+    }
+
+    /** Opening a list shows one level. A member with no caption has nothing to fold
+     *  under, so it shows itself. */
+    @Test void anOpenedListShowsItsCaptionlessMembersInPlace() {
+        Constellation andromeda = new Constellation();
+        ViewConfig config = ticks("gallery");
+        config.addField("steps", ticks("text"));
 
         assertEquals("""
                 OBJECT <root> open
@@ -48,7 +68,8 @@ class RepresentationTraceTest {
                   SKIP title OFF
                   SKIP area OFF
                   SKIP chart OFF
-                  SKIP flag OFF""", trace);
+                  SKIP flag OFF""",
+                render(andromeda, config, new MockDisclosure().expand(andromeda.steps)));
     }
 
     @Test void aSecondImageFoldsTheGallery() {
@@ -71,10 +92,15 @@ class RepresentationTraceTest {
     }
 
     private static String render(Constellation value, ViewConfig config) {
+        return render(value, config, Disclosure.INITIAL);
+    }
+
+    private static String render(Constellation value, ViewConfig config,
+                                 Disclosure disclosure) {
         ViewConfig literal = ViewConfigDesugar.literal(
                 config, TypeShape.ofClass(Constellation.class));
         MockSink sink = new MockSink();
-        new RenderExecutor(new PlanResolver(), v -> null, v -> false, Disclosure.INITIAL)
+        new RenderExecutor(new PlanResolver(), v -> null, v -> false, disclosure)
                 .render(value, literal, sink);
         return sink.traceText();
     }

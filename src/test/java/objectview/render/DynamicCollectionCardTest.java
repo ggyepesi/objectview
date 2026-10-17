@@ -281,14 +281,20 @@ class DynamicCollectionCardTest {
         ViewConfig config = ViewConfig.of(DynamicThing.class);
         config.setAllFields(false);
         config.addField("child", childConfig);
+        RenderContext context = new RenderContext();
         javax.swing.SwingUtilities.invokeAndWait(() ->
-                card[0] = new Card(
-                        parent, config, false));
+                card[0] = new Card(parent, config, context, false));
 
         assertNotNull(find(card[0], ReferenceRow.class),
                 "the ticked DISPLAY names the reference");
+        assertEquals(1, count(card[0], Card.class),
+                "a captioned reference starts folded under its caption (#398)");
+
+        context.setExpanded(child, true);
+        javax.swing.SwingUtilities.invokeAndWait(() ->
+                card[0] = new Card(parent, config, context, false));
         assertEquals(2, count(card[0], Card.class),
-                "the ticked detail shows without a click, as it does with DISPLAY unticked");
+                "opened, it shows its ticked detail like a declared reference");
     }
 
     @Test

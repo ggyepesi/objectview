@@ -1057,11 +1057,11 @@ public class Card extends JPanel implements RenderedInstanceHost {
                     target, decorate);
         }
 
-        // An inherited object folds even without a caption (#368): its field name is
-        // then the chip that opens it, since a body shown at once would open the next
-        // inherited level with it, and the next.
-        boolean inherited = decision.field() != null && decision.field().inherited();
-        if (object.caption() == null && !inherited && !navigate) {
+        // An object without a caption folds under its field name, which is then the
+        // chip that opens it (#368, #398). Only a collection member has no field name
+        // of its own to fold under; the executor opens those, and they paint in place.
+        boolean unnamed = label == null || label.isBlank();
+        if (object.caption() == null && unnamed && !navigate) {
             JComponent body = nestedCard(object, fieldPath, ancestors);
             if (body == null) {
                 return label == null || label.isBlank()
@@ -1133,7 +1133,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
         path.addAll(ancestors);
         return CollapsibleFieldRenderer.create(
                 label, decision.at().path(), value, value, decision.size(),
-                decision.open(), Disclosure.initiallyOpen(decision.field(), value),
+                decision.open(), Disclosure.initiallyOpen(value),
                 renderContext, () -> collectionBody(decision, path));
     }
 

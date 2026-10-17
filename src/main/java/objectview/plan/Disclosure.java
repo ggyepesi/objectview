@@ -15,27 +15,31 @@ public interface Disclosure {
      * {@code initiallyOpen}. */
     boolean isExpanded(Object key, boolean initiallyOpen);
 
-    /** Rule 6: a nested object starts open; ordinary collections start folded;
-     * singleton media and {@code @Inline} content start open. A field that inherits an
-     * ancestor's config starts folded, so each expand opens one level and only the
-     * reader's clicks set the depth (#368). */
-    static boolean initiallyOpen(ObjectPlan.FieldPlan field, Object value) {
-        return initiallyOpen(field, value, false);
+    /** Rule 6 (#398): each expand opens exactly one level. Below an open object its
+     * plain values show, and every nested object and collection starts folded under its
+     * caption or field name. Opening a collection shows its members folded under their
+     * captions; a member with no caption has nothing to say while folded, so it starts
+     * open. Singleton media starts open: it is content, not structure. {@code @Inline}
+     * decides placement (in place rather than a reference chip), never this. */
+    static boolean initiallyOpen(Object value) {
+        return initiallyOpen(value, false, true);
     }
 
-    /** {@link #initiallyOpen} for a {@code member} of an open collection: the members
-     * of an opened inherited collection are the level that opened, so they start open. */
-    static boolean initiallyOpen(ObjectPlan.FieldPlan field, Object value, boolean member) {
-        // Explicit inline presentation remains inline even when the recursive field
-        // inherits its ancestor's selection. Inheritance decides what is selected;
-        // @Inline independently decides that this occurrence starts visible.
-        if (field != null && field.field().embedded()) return true;
-        if (field != null && field.inherited() && !member) return false;
-        if (!(value instanceof Collection<?> || value instanceof java.util.Map<?, ?>)) {
-            return true;
+    /** {@link #initiallyOpen} for an object occurrence: a {@code member} of an open
+     * collection, and whether it has a caption to be folded under. */
+    static boolean initiallyOpen(Object value, boolean member, boolean captioned) {
+        if (value instanceof Collection<?> || value instanceof java.util.Map<?, ?>) {
+            Collection<?> members = ValueShape.members(value);
+            return members.size() == 1 && members.iterator().next() instanceof MediaValue;
         }
-        Collection<?> members = ValueShape.members(value);
-        return members.size() == 1 && members.iterator().next() instanceof MediaValue;
+        return member && !captioned;
+    }
+
+    /** A view's own setting (#398): an occurrence at {@code path} opens together with
+     *  its owner — e.g. the query log opens a run's step list with the run. An input to
+     *  {@link #initiallyOpen}, never an exception inside it. */
+    default boolean opensWithOwner(objectview.field.FieldPath path) {
+        return false;
     }
 
     /** No reader choices: every occurrence takes its initial state. */

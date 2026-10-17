@@ -139,10 +139,17 @@ public class RenderContext {
                     new objectview.plan.PlanResolver(),
                     this::fieldSchema,
                     this::isTopLevel,
-                    (key, initiallyOpen) ->
-                            key instanceof Collection<?> || key instanceof Map<?, ?>
+                    new objectview.plan.Disclosure() {
+                        @Override public boolean isExpanded(Object key, boolean initiallyOpen) {
+                            return key instanceof Collection<?> || key instanceof Map<?, ?>
                                     ? isCollectionExpanded(key, initiallyOpen)
-                                    : isExpanded(key, initiallyOpen),
+                                    : RenderContext.this.isExpanded(key, initiallyOpen);
+                        }
+
+                        @Override public boolean opensWithOwner(FieldPath path) {
+                            return opensWithOwner.contains(path);
+                        }
+                    },
                     this::valueLink);
         }
         return executor;
@@ -630,6 +637,32 @@ public class RenderContext {
         for (java.util.function.Consumer<Viewable> handler : cardResizeHandlers) {
             handler.accept(value);
         }
+    }
+
+    // Field paths this view opens together with their owner (Disclosure.opensWithOwner).
+    private final java.util.Set<FieldPath> opensWithOwner = new java.util.HashSet<>();
+
+    /** The view's setting: occurrences at these config paths open with their owner. */
+    public void setOpensWithOwner(java.util.Collection<FieldPath> paths) {
+        opensWithOwner.clear();
+        if (paths != null) opensWithOwner.addAll(paths);
+    }
+
+    /** Forgets the reader's (or a follower's) choice for {@code key}, so the occurrence
+     *  takes the rule's initial state again. */
+    public void clearChoice(Object key) {
+        if (key == null) return;
+        referenceExpanded.remove(key);
+        collectionExpanded.remove(key);
+        cardExpanded.remove(key);
+    }
+
+    /** Forces a root card's open state — the card counterpart of {@link #setExpanded}.
+     *  Returns true if it changed. */
+    public boolean setCardExpanded(Object key, boolean expanded) {
+        if (key == null) return false;
+        Boolean previous = cardExpanded.put(key, expanded);
+        return previous == null || previous != expanded;
     }
 
     // -------- Bulk (panel-level) expand / collapse --------

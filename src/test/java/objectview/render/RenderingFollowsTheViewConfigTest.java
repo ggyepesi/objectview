@@ -66,8 +66,10 @@ class RenderingFollowsTheViewConfigTest {
                     for (boolean sourceSelected : List.of(false, true)) {
                         for (boolean positionSelected : List.of(false, true)) {
                             for (boolean membersTopLevel : List.of(false, true)) {
+                            for (boolean membersOpened : List.of(false, true)) {
                                 String name = "collection=" + collectionSelected
                                         + ", expanded=" + expanded
+                                        + ", membersOpened=" + membersOpened
                                         + ", display=" + memberDisplay
                                         + ", source=" + sourceSelected
                                         + ", position=" + positionSelected
@@ -96,6 +98,9 @@ class RenderingFollowsTheViewConfigTest {
                                     if (expanded) {
                                         context.setCollectionExpanded(WIGMUND.offices, true);
                                     }
+                                    if (membersOpened) {
+                                        WIGMUND.offices.forEach(o -> context.setExpanded(o, true));
+                                    }
 
                                     Card card = render(root, context);
                                     // A collection with nothing ticked under it is no
@@ -103,11 +108,16 @@ class RenderingFollowsTheViewConfigTest {
                                     boolean collectionShown = collectionSelected
                                             && (memberDisplay || sourceSelected
                                                     || positionSelected);
-                                    boolean memberBodyVisible = collectionShown && expanded;
+                                    // Opening the list is one level (#398): a captioned
+                                    // member folds under its caption until it is opened;
+                                    // one with no caption has nothing to fold under.
+                                    boolean membersShown = collectionShown && expanded;
+                                    boolean memberBodyVisible = membersShown
+                                            && (!memberDisplay || membersOpened);
 
                                     assertEquals(collectionShown,
                                             hasFieldRow(card, "offices"), name);
-                                    assertEquals(memberBodyVisible && memberDisplay,
+                                    assertEquals(membersShown && memberDisplay,
                                             paints(card, "Wigmund's kingship"), name);
                                     assertEquals(memberBodyVisible && sourceSelected,
                                             hasFieldRow(card, "source"), name);
@@ -116,6 +126,7 @@ class RenderingFollowsTheViewConfigTest {
                                     assertFalse(paints(card, "King of Mercia"),
                                             "position DISPLAY is unticked: " + name);
                                 }));
+                            }
                             }
                         }
                     }
@@ -132,9 +143,11 @@ class RenderingFollowsTheViewConfigTest {
         for (boolean targetTopLevel : List.of(false, true)) {
             for (boolean targetDisplay : List.of(false, true)) {
                 for (boolean childSelected : List.of(false, true)) {
+                for (boolean opened : List.of(false, true)) {
                     String name = "targetTopLevel=" + targetTopLevel
                             + ", display=" + targetDisplay
-                            + ", child=" + childSelected;
+                            + ", child=" + childSelected
+                            + ", opened=" + opened;
                     cases.add(DynamicTest.dynamicTest(name, () -> {
                         Crowned owner = new Crowned(WIGMUND);
                         ViewConfig nestedRuler = config(Ruler.class);
@@ -150,10 +163,13 @@ class RenderingFollowsTheViewConfigTest {
                         RenderContext context = new RenderContext();
                         context.addTopLevel(owner);
                         if (targetTopLevel) context.addTopLevel(WIGMUND);
+                        if (opened) context.setExpanded(WIGMUND, true);
 
                         Card card = new Card(owner, ownerConfig, context, false);
 
-                        assertEquals(childSelected && !targetTopLevel,
+                        // A nested object folds under its caption or field name and
+                        // shows its ticked fields once opened (#398).
+                        assertEquals(childSelected && !targetTopLevel && opened,
                                 hasFieldRow(card, "offices"), name);
                         ReferenceRow occurrence = findReference(card, WIGMUND);
                         // With nothing ticked under it the reference is no View
@@ -163,6 +179,7 @@ class RenderingFollowsTheViewConfigTest {
                         assertEquals(targetDisplay,
                                 paints(card, "Wigmund of Mercia"), name);
                     }));
+                }
                 }
             }
         }
@@ -197,7 +214,10 @@ class RenderingFollowsTheViewConfigTest {
         assertFalse(paints(card, "840"), "startDate is not ticked");
     }
 
-    @Test void tickedNestedFieldsShowWithoutAClickWhetherOrNotDisplayIsTicked() throws Exception {
+    /** Each owner on the path is one click (#398); once opened, a ticked nested field
+     *  shows whether or not the owner's DISPLAY is ticked. */
+    @Test void tickedNestedFieldsShowOnceTheirOwnerIsOpenedWhetherOrNotDisplayIsTicked()
+            throws Exception {
         for (boolean officeDisplay : new boolean[] {false, true}) {
             ViewConfig seat = config(Seat.class);
             seat.addField(display(Seat.class), ViewConfig.leaf());
@@ -206,7 +226,15 @@ class RenderingFollowsTheViewConfigTest {
             if (officeDisplay) offices.addField(display(Office.class), ViewConfig.leaf());
             offices.addField("position", seat);
 
-            Card card = renderOpen(ruler(offices));
+            RenderContext context = new RenderContext(List.of(WIGMUND));
+            context.setCollectionExpanded(WIGMUND.offices, true);
+            WIGMUND.offices.forEach(office -> context.setExpanded(office, true));
+            Card folded = render(ruler(offices), context);
+            assertFalse(paints(folded, "Mercia"),
+                    "the position folds under its caption, office DISPLAY ticked=" + officeDisplay);
+
+            WIGMUND.offices.forEach(office -> context.setExpanded(office.position, true));
+            Card card = render(ruler(offices), context);
 
             assertTrue(paints(card, "King of Mercia"),
                     "position's ticked DISPLAY, office DISPLAY ticked=" + officeDisplay);
@@ -276,6 +304,11 @@ class RenderingFollowsTheViewConfigTest {
         WIGMUND.offices.forEach(context::addTopLevel);
         context.setCollectionExpanded(WIGMUND.offices, true);
 
+        Card folded = render(ruler(offices), context);
+        assertFalse(paints(folded, "840"),
+                "the captioned member starts folded under its caption (#398)");
+
+        context.setExpanded(office, true);
         Card card = render(ruler(offices), context);
         ReferenceRow member = findReference(card, office);
 
@@ -300,6 +333,7 @@ class RenderingFollowsTheViewConfigTest {
         RenderContext context = new RenderContext(List.of(WIGMUND));
         context.setCollectionExpanded(WIGMUND.offices, true);
         context.setCollectionExpanded(king.superClasses, true);
+        context.setExpanded(king, true);
         Card card = render(ruler(offices), context);
 
         assertTrue(hasTextField(card,
@@ -425,11 +459,12 @@ class RenderingFollowsTheViewConfigTest {
         ViewConfig ownerConfig = config(Crowned.class);
         ownerConfig.addField("ruler", ruler);
 
-        Card card = new Card(
-                owner, ownerConfig, new RenderContext(List.of(owner)), false);
+        RenderContext context = new RenderContext(List.of(owner));
+        context.setExpanded(nobody, true);
+        Card card = new Card(owner, ownerConfig, context, false);
 
         CollectionHeader header = find(card, CollectionHeader.class);
-        assertNotNull(header, "the reference body contains the selected empty list");
+        assertNotNull(header, "the opened reference body contains the selected empty list");
         assertEquals("0 items", header.getToolTipText());
     }
 

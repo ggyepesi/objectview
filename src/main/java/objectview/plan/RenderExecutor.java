@@ -172,8 +172,8 @@ public final class RenderExecutor {
         switch (representation) {
             case COLLECTION -> {
                 int size = ValueShape.members(value).size();
-                boolean open = size > 0
-                        && disclosure.isExpanded(value, Disclosure.initiallyOpen(field, value));
+                boolean open = size > 0 && disclosure.isExpanded(value,
+                        Disclosure.initiallyOpen(value) || disclosure.opensWithOwner(at.path()));
                 return new Decision(Kind.COLLECTION, at, field, representation, value,
                         null, open, size, null);
             }
@@ -196,8 +196,11 @@ public final class RenderExecutor {
                     return new Decision(Kind.BACK_REFERENCE, at, field, representation,
                             value, object, false, 0, null);
                 }
-                boolean open = disclosure.isExpanded(target,
-                        Disclosure.initiallyOpen(field, target, member));
+                // An object with nothing ticked below its caption is a value: there is
+                // nothing to fold, so it is not a disclosure question.
+                boolean open = !object.hasBody() || disclosure.isExpanded(target,
+                        Disclosure.initiallyOpen(target, member, object.caption() != null)
+                                || !member && disclosure.opensWithOwner(at.path()));
                 return new Decision(Kind.OBJECT, at, field, representation, value,
                         object, open, 0, null);
             }

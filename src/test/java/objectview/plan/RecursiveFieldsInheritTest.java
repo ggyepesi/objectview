@@ -118,8 +118,14 @@ class RecursiveFieldsInheritTest {
     }
 
     @Test void anOpenedInheritedCollectionShowsItsMembersUnderTheAncestorsConfig() {
-        MockDisclosure disclosure = new MockDisclosure().expand(president.replaces);
+        MockDisclosure listOnly = new MockDisclosure().expand(president.replaces);
+        // Opening the list is one level: its captioned member starts folded (#398).
+        assertTrue(render(listOnly).contains(String.join("\n",
+                "  COLLECTION replaces (1) open",
+                "    OBJECT replaces[0] caption=\"Emperor\" folded")), render(listOnly));
 
+        MockDisclosure disclosure = new MockDisclosure().expand(president.replaces)
+                .expand(emperor);
         String trace = render(disclosure);
 
         assertTrue(trace.contains(String.join("\n",

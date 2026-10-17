@@ -15,24 +15,38 @@ import java.util.ArrayList;
 import java.util.Collection;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NestedCardRefreshTest {
 
-    @Test void inlineWorkflowStepsRemainVisibleWithoutAnOpeningClick() throws Exception {
+    /** {@code @Inline} places the steps in the card; it does not open them (#398).
+     *  Each click opens one level: the list shows the step titles, not their details. */
+    @Test void inlineWorkflowStepsOpenOneLevelPerClick() throws Exception {
         LogLike root = new LogLike("generate domains", "root detail");
         root.steps.add(new LogLike("generate one domain", "outer detail"));
+        RenderContext context = new RenderContext();
         Card[] rendered = new Card[1];
 
         SwingUtilities.invokeAndWait(() -> rendered[0] = new Card(
-                root, logConfig(2), new RenderContext(), false));
+                root, logConfig(2), context, false));
 
         CollectionHeader steps = find(rendered[0], CollectionHeader.class);
         assertNotNull(steps);
-        assertTrue(steps.isExpanded());
-        assertNotNull(findReference(rendered[0], "generate one domain"));
+        assertFalse(steps.isExpanded(), "the step list starts folded");
+        assertNull(findReference(rendered[0], "generate one domain"));
+
+        context.setCollectionExpanded(root.steps, true);
+        SwingUtilities.invokeAndWait(() -> rendered[0] = new Card(
+                root, logConfig(2), context, false));
+
+        assertNotNull(findReference(rendered[0], "generate one domain"),
+                "opening the list shows the step under its title");
+        assertFalse(renders(rendered[0], "outer detail"),
+                "and not the step's own details, which are the next level");
     }
 
     @Test
@@ -50,9 +64,6 @@ class NestedCardRefreshTest {
         context.setCollectionExpanded(root.steps, true);
         context.setCollectionExpanded(outer.steps, true);
         context.setExpanded(outer, true);
-        // Ticked fields under a reference show without a click; fold the inner entry
-        // so the test can open it and watch the nested card refresh.
-        context.setExpanded(inner, false);
 
         Card[] rendered = new Card[1];
         SwingUtilities.invokeAndWait(() -> rendered[0] = new Card(
@@ -92,7 +103,9 @@ class NestedCardRefreshTest {
         root.steps.add(outer);
         outer.steps.add(inner);
         RenderContext context = new RenderContext();
-        context.setExpanded(inner, false);
+        context.setCollectionExpanded(root.steps, true);
+        context.setExpanded(outer, true);
+        context.setCollectionExpanded(outer.steps, true);
         CardListView list = new CardListView();
         list.setRenderContext(context);
         list.addViewable(root);
@@ -156,6 +169,24 @@ class NestedCardRefreshTest {
             }
         }
         return null;
+    }
+
+    private static boolean renders(Component root, String text) {
+        if (root instanceof TextRow row
+                && row.matchesRenderedText(java.util.List.of(text), true)) {
+            return true;
+        }
+        if (root instanceof JComponent component
+                && text.equals(component.getClientProperty(
+                FieldProperties.FIELD_VALUE_PROPERTY))) {
+            return true;
+        }
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                if (renders(child, text)) return true;
+            }
+        }
+        return false;
     }
 
     private static int count(Component root, Class<?> type) {
