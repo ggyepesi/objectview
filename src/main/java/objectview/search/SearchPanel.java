@@ -81,11 +81,6 @@ public class SearchPanel extends JPanel
     private final JCheckBox fieldHighlightBox =
             new JCheckBox("Highlight Fields", false);
 
-    // Whether the top-level cards start folded to their caption (#407): the view
-    // config's own setting, set here without opening the View Config dialog.
-    private final JCheckBox captionsOnlyBox =
-            new JCheckBox("Captions only", false);
-
     // Returns to the spot before the last "jump to its card" navigation.
     private final JButton backButton = new JButton("← Back");
     private RenderContext renderContext;
@@ -264,29 +259,10 @@ public class SearchPanel extends JPanel
         }
         context.setNavChangeListener(() -> backButton.setEnabled(context.canGoBack()));
         backButton.setEnabled(context.canGoBack());
-        adoptRootsFolded(context);
-    }
-
-    /**
-     * Where the view config enters this view (directive 25): a stored setting wins,
-     * otherwise the view's own start state becomes the setting. From here on the config
-     * holds an explicit value and every card of the view can fold (#407).
-     */
-    private void adoptRootsFolded(RenderContext context) {
-        Boolean stored = viewEditor.getConfig().rootsFolded();
-        boolean folded = stored != null ? stored : context.rootsStartFolded();
-        boolean changed = folded != context.rootsStartFolded() || !context.collapsibleCards();
-        viewEditor.rootsFolded(folded);
-        context.setRootsStartFolded(folded);
-        captionsOnlyBox.setSelected(folded);
-        if (changed) applyViewConfig(false);
-    }
-
-    private void rootsFoldedChanged() {
-        boolean folded = captionsOnlyBox.isSelected();
-        viewEditor.rootsFolded(folded);
-        if (renderContext != null) renderContext.setRootsStartFolded(folded);
-        applyView();
+        // The View editor offers "captions only" (#407): the stored choice, else the
+        // view's own start state. It takes effect with the config, in applyViewConfig.
+        viewEditor.offerRootsFolded(context.rootsStartFolded());
+        context.setRootsStartFolded(viewEditor.rootsFoldedChoice());
     }
 
     public void setTargetAndApplyViewConfig(
@@ -667,7 +643,6 @@ public class SearchPanel extends JPanel
                         sortButton,
                         restoreOrderButton,
                         viewConfigButton,
-                        captionsOnlyBox,
                         fieldHighlightBox);
 
         // In a narrow panel (e.g. the "Generated instances" split pane) the
@@ -695,9 +670,6 @@ public class SearchPanel extends JPanel
                 e -> restoreOriginalTargetOrder());
 
         fieldHighlightBox.addActionListener(e -> fieldHighlightChanged());
-        captionsOnlyBox.setToolTipText("Show each top-level card as its caption only; "
-                + "click a caption to open that card.");
-        captionsOnlyBox.addActionListener(e -> rootsFoldedChanged());
         updateTargetCapabilities();
     }
 
@@ -745,7 +717,6 @@ public class SearchPanel extends JPanel
         sortButton.setEnabled(dataBacked);
         restoreOrderButton.setEnabled(dataBacked);
         viewConfigButton.setEnabled(configurable);
-        captionsOnlyBox.setEnabled(configurable);
         String sortWhy = dataBacked ? null
                 : "Sorting requires a data-backed ObjectView target";
         sortConfigButton.setToolTipText(sortWhy);
@@ -758,7 +729,6 @@ public class SearchPanel extends JPanel
 
     boolean sortAvailable() { return sortButton.isEnabled(); }
     boolean viewConfigurationAvailable() { return viewConfigButton.isEnabled(); }
-    JCheckBox captionsOnlyBox() { return captionsOnlyBox; }
 
     public ViewConfig getSearchConfig() {
         return searchEditor.getConfig();
@@ -1892,6 +1862,10 @@ public class SearchPanel extends JPanel
 
         if (!(virtualList instanceof ConfigurableVirtualizedContainer configurable)) {
             return false;
+        }
+        Boolean rootsFolded = viewEditor.rootsFoldedChoice();
+        if (renderContext != null && rootsFolded != null) {
+            renderContext.setRootsStartFolded(rootsFolded);
         }
         configurable.setViewConfigResolver(q -> effectiveConfig(
                 viewEditor, subtypeViewEditors, q));

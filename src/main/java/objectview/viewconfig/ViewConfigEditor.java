@@ -93,6 +93,12 @@ public class ViewConfigEditor extends JPanel {
             new JCheckBox("Show minor fields");
     private final JPanel minorFieldsBar =
             new JPanel(new FlowLayout(FlowLayout.LEFT));
+    // Whether the view's top-level cards start as captions only (#407). Offered only by
+    // the editor of a view's own View config; a presentation setting, never a tick.
+    private final JCheckBox rootsFoldedBox =
+            new JCheckBox("Top-level cards: captions only");
+    private final JPanel rootsFoldedBar =
+            new JPanel(new FlowLayout(FlowLayout.LEFT));
 
     private List<Col> cols;
     private Runnable changeListener;
@@ -217,7 +223,15 @@ public class ViewConfigEditor extends JPanel {
             fireConfigChanged();
         });
         minorFieldsBar.add(allMinorFieldsBox);
-        add(minorFieldsBar, BorderLayout.NORTH);
+        rootsFoldedBox.setToolTipText("Show each top-level card as its caption only; "
+                + "click a caption to open that card.");
+        rootsFoldedBox.addActionListener(e -> fireConfigChanged());
+        rootsFoldedBar.add(rootsFoldedBox);
+        rootsFoldedBar.setVisible(false);
+        JPanel north = new JPanel(new BorderLayout());
+        north.add(rootsFoldedBar, BorderLayout.NORTH);
+        north.add(minorFieldsBar, BorderLayout.CENTER);
+        add(north, BorderLayout.NORTH);
         updateMinorFieldsBar();
 
         rebuildRows(false);
@@ -450,6 +464,9 @@ public class ViewConfigEditor extends JPanel {
         this.typeSource = types;
         this.enteredConfig = config == null ? new ViewConfig() : config.copy();
         this.sourceConfig = literal(enteredConfig);
+        if (enteredConfig.rootsFolded() != null) {
+            rootsFoldedBox.setSelected(enteredConfig.rootsFolded());
+        }
         this.hiddenFields = hidden == null ? Set.of() : Set.copyOf(hidden);
         this.rowSource = ConfigFieldRowSource.INSTANCE;
         this.expandedPaths.clear();
@@ -1281,10 +1298,19 @@ public class ViewConfigEditor extends JPanel {
         }
     }
 
-    /** Sets whether the view's root cards start as captions only (#407) — a presentation
-     *  setting of the config this editor edits, carried into every config it returns. */
-    public void rootsFolded(boolean folded) {
-        if (sourceConfig != null) sourceConfig.rootsFolded(folded);
+    /**
+     * Offers the view's "captions only" choice (#407) in this editor. The config's stored
+     * choice wins; a config that has none starts from {@code viewDefault}, the view's own.
+     */
+    public void offerRootsFolded(boolean viewDefault) {
+        Boolean stored = enteredConfig == null ? null : enteredConfig.rootsFolded();
+        rootsFoldedBox.setSelected(stored != null ? stored : viewDefault);
+        rootsFoldedBar.setVisible(true);
+    }
+
+    /** The view's "captions only" choice, or null when this editor does not offer it. */
+    public Boolean rootsFoldedChoice() {
+        return rootsFoldedBar.isVisible() ? rootsFoldedBox.isSelected() : null;
     }
 
     public ViewConfig getConfig() {
@@ -1294,6 +1320,7 @@ public class ViewConfigEditor extends JPanel {
             return result;
         }
         ViewConfig result = copyHeader(sourceConfig);
+        if (rootsFoldedChoice() != null) result.rootsFolded(rootsFoldedChoice());
         result.minorFieldsVisible(!minorOnly && allMinorFieldsBox.isSelected());
         result.getFields().clear();
 
@@ -1355,6 +1382,7 @@ public class ViewConfigEditor extends JPanel {
      *  deepest-first so a parent sees its already-attached descendants. */
     private ViewConfig buildTreeConfig() {
         ViewConfig result = copyHeader(sourceConfig);
+        if (rootsFoldedChoice() != null) result.rootsFolded(rootsFoldedChoice());
         // In the inline tree, the Minor fields switch is a visibility/admission
         // gate. Each minor field remains an ordinary explicit selection, so turning
         // the gate off can hide the set without erasing those remembered choices.
@@ -2032,7 +2060,7 @@ public class ViewConfigEditor extends JPanel {
                         ? ""
                         : col.action.label(row);
                 case CLEAR -> row.isField() && row.nested() != null
-                        && hasConfiguredNestedChoice(state) ? "Clear fields" : "";
+                        && hasConfiguredNestedChoice(state) ? "Clear nested config" : "";
                 case EXPAND -> row.isClassBranch() || row.nested() == null
                         ? ""
                         : state.childEditor == null
@@ -2143,6 +2171,13 @@ public class ViewConfigEditor extends JPanel {
     private String typeAndState(RowState state) {
         String type = state.cutNote == null ? state.row.typeLabel()
                 : state.row.typeLabel() + "   " + state.cutNote;
+        // A reference renders as a link wherever its target has a top-level card, so
+        // its configured fields show only inline elsewhere (a collection member, a view
+        // without that card). Said here, by the renderer's own rule, so a reader knows
+        // why ticking them may change nothing on a card.
+        if (isReference(state.row.path())) {
+            type += (type.isBlank() ? "" : "   ") + REFERENCE_NOTE;
+        }
         if (connectedFieldSelection && state.row.nested() != null && !state.use) {
             int remembered = configuredNestedChoiceCount(state);
             if (remembered > 0) {
@@ -2152,6 +2187,31 @@ public class ViewConfigEditor extends JPanel {
             }
         }
         return type;
+    }
+
+    static final String REFERENCE_NOTE = "reference · a link where it has its own card";
+
+    /** Whether the field at {@code path} is a reference, by the one rule the renderer
+     *  uses ({@link objectview.plan.PlanResolver#representation}), read off the same
+     *  shape the editor's config is written against. */
+    private boolean isReference(FieldPath path) {
+        if (path == null || path.isRoot()) return false;
+        objectview.plan.TypeShape shape = editorShape(sourceConfig);
+        objectview.field.FieldRef found = null;
+        for (String segment : path.segments()) {
+            if (shape == null) return false;
+            found = null;
+            for (objectview.field.FieldRef field : shape.fields()) {
+                if (segment.equals(field.name())) {
+                    found = field;
+                    break;
+                }
+            }
+            if (found == null) return false;
+            shape = shape.nested(found);
+        }
+        return found != null && objectview.plan.PlanResolver.representation(found)
+                == objectview.plan.Representation.REFERENCE;
     }
 
     private RowState stateAt(FieldPath path) {

@@ -17,7 +17,6 @@ public class SearchToolBar extends JPanel {
             JButton sortButton,
             JButton restoreOrderButton,
             JButton viewConfigButton,
-            JCheckBox captionsOnlyBox,
             JCheckBox highlightFieldsBox) {
 
         super(new GridLayout(2, 1, 0, 3));
@@ -41,7 +40,6 @@ public class SearchToolBar extends JPanel {
         secondRow.add(sortButton);
         secondRow.add(restoreOrderButton);
         secondRow.add(viewConfigButton);
-        secondRow.add(captionsOnlyBox);
         secondRow.add(highlightFieldsBox);
 
         add(firstRow);
