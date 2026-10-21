@@ -27,6 +27,11 @@ public class ViewConfig {
     // Render images with their answer text blurred out (quiz query panels).
     private boolean blurImages = false;
     private AnswerType answerType = AnswerType.AUTO;
+    // A view's root cards start folded to their caption (#407): the reader's choice,
+    // made on the search bar. Presentation only — it changes no field selection. Null
+    // until the view that shows this config fills in its own default where the config
+    // enters it; every reader after that sees an explicit value.
+    private Boolean rootsFolded;
     // A field selection (quiz key / finite field picker) follows only the paths the
     // user ticked. A View, search or sort config instead inherits recursive fields.
     // This belongs to the config: a renderer cannot infer the distinction from an
@@ -91,9 +96,7 @@ public class ViewConfig {
         c.allMinorFields = this.allMinorFields;
         c.minorFieldsVisible = this.minorFieldsVisible;
         c.addListener = this.addListener;
-        c.thumb = this.thumb;
-        c.blurImages = this.blurImages;
-        c.answerType = this.answerType;
+        c.copyPresentationFrom(this);
         c.finitePaths = this.finitePaths;
 
         c.inheritedFrom = inheritedFrom == null ? null
@@ -209,6 +212,33 @@ public class ViewConfig {
 
     public ViewConfig setBlurImages(boolean v) {
         blurImages = v;
+        return this;
+    }
+
+    /** Whether the view's root cards start as captions only; null while the view has
+     *  not yet given it its default (#407). */
+    public Boolean rootsFolded() {
+        return rootsFolded;
+    }
+
+    public ViewConfig rootsFolded(Boolean folded) {
+        rootsFolded = folded;
+        return this;
+    }
+
+    /**
+     * Takes {@code source}'s presentation settings — how this config is shown, never what
+     * it selects. Every path that rebuilds a config from another (a copy, the literal
+     * form, the editor's result) carries them through this one method, so a new setting
+     * cannot be dropped by the one copy that forgot it.
+     */
+    public ViewConfig copyPresentationFrom(ViewConfig source) {
+        if (source == null) return this;
+        addListener = source.addListener;
+        thumb = source.thumb;
+        blurImages = source.blurImages;
+        answerType = source.answerType;
+        rootsFolded = source.rootsFolded;
         return this;
     }
 

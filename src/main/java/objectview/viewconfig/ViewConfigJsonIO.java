@@ -83,6 +83,7 @@ public class ViewConfigJsonIO {
         cfg.setAddListener(j.addListener);
         cfg.setThumb(j.thumb);
         cfg.setBlurImages(j.blurImages);
+        cfg.rootsFolded(j.rootsFolded);
         cfg.setFinitePaths(Boolean.TRUE.equals(j.finitePaths));
         if (j.answerType != null) {
             try {
@@ -126,6 +127,7 @@ public class ViewConfigJsonIO {
         j.addListener = cfg.isAddListener();
         j.thumb = cfg.isThumb();
         j.blurImages = cfg.isBlurImages();
+        j.rootsFolded = cfg.rootsFolded();
         j.finitePaths = cfg.isFinitePaths() ? Boolean.TRUE : null;
         j.answerType = cfg.getAnswerType() == null ? null : cfg.getAnswerType().name();
 
@@ -149,6 +151,9 @@ public class ViewConfigJsonIO {
         public boolean addListener;
         public boolean thumb;
         public boolean blurImages;
+        // Only the root of a view carries it; nested configs leave it out (#407).
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        public Boolean rootsFolded;
         /** Present only for a finite field selection; old/saved View configs omit it. */
         @JsonInclude(JsonInclude.Include.NON_NULL)
         public Boolean finitePaths;

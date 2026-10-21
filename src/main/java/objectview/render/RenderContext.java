@@ -150,8 +150,12 @@ public class RenderContext {
                             return opensWithOwner.contains(path);
                         }
 
-                        @Override public boolean rootsStartFolded() {
+                        @Override public boolean rootsFoldable() {
                             return collapsibleCards;
+                        }
+
+                        @Override public boolean rootsStartFolded() {
+                            return rootsStartFolded;
                         }
                     },
                     this::valueLink);
@@ -562,6 +566,8 @@ public class RenderContext {
     // toggle flips the state and asks the view (via a handler) to rebuild that
     // one card FRESH at its new size — never grown in place.
     private boolean collapsibleCards = false;
+    // Whether a foldable root starts folded to its caption (#407).
+    private boolean rootsStartFolded = false;
     private final java.util.List<java.util.function.Consumer<Viewable>> cardToggleHandlers =
             new java.util.ArrayList<>();
     private final java.util.List<java.util.function.Consumer<Viewable>> cardResizeHandlers =
@@ -571,8 +577,30 @@ public class RenderContext {
         return collapsibleCards;
     }
 
+    /** The view's code-level choice: its roots fold, and start folded, or neither. A
+     *  view with the search bar turns that into the reader's setting
+     *  ({@link #setRootsStartFolded}); this is then only its default. */
     public void setCollapsibleCards(boolean collapsibleCards) {
         this.collapsibleCards = collapsibleCards;
+        this.rootsStartFolded = collapsibleCards;
+    }
+
+    public boolean rootsStartFolded() {
+        return rootsStartFolded;
+    }
+
+    /**
+     * The reader's setting (#407): every captioned root card can fold, and they all start
+     * open or as captions only. Changing it forgets the open/closed choices already made,
+     * so the setting visibly applies to every card — as Collapse all below forgets the
+     * choices beneath one node. The view rebuilds its cards afterwards.
+     */
+    public void setRootsStartFolded(boolean folded) {
+        collapsibleCards = true;
+        if (rootsStartFolded == folded) return;
+        rootsStartFolded = folded;
+        referenceExpanded.clear();
+        collectionExpanded.clear();
     }
 
     /** Whether {@code key}'s root card is open: the reader's choice, kept in the same
@@ -580,7 +608,7 @@ public class RenderContext {
      *  is assumed; one without a caption is always shown open
      *  ({@link objectview.plan.RenderExecutor#rootOpen}). */
     public boolean isCardExpanded(Object key) {
-        return key != null && (!collapsibleCards || isExpanded(key, false));
+        return key != null && (!collapsibleCards || isExpanded(key, !rootsStartFolded));
     }
 
     public void toggleCardExpanded(Object key) {

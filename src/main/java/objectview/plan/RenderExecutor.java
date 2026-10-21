@@ -122,12 +122,12 @@ public final class RenderExecutor {
     }
 
     /** Whether a root occurrence is open: the card is an occurrence like any other
-     *  (#398). A view that does not fold its roots never folds them; one that does folds
-     *  each under its caption until the reader opens it, and a root with no caption has
-     *  nothing to fold under, so it shows itself. */
+     *  (#398). It starts as the view's setting says — open, or folded under its caption
+     *  (#407) — and then follows the reader's choice. A root with no caption has nothing
+     *  to fold under, so it shows itself, and a view whose roots cannot fold shows them. */
     public boolean rootOpen(Level level) {
-        return !disclosure.rootsStartFolded() || level.caption() == null
-                || disclosure.isExpanded(level.target(), false);
+        return !disclosure.rootsFoldable() || level.caption() == null
+                || disclosure.isExpanded(level.target(), !disclosure.rootsStartFolded());
     }
 
     /** The decisions for {@code level}'s fields: ticked ones in config order, then the

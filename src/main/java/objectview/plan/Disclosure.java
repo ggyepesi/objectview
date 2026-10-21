@@ -42,9 +42,14 @@ public interface Disclosure {
         return false;
     }
 
-    /** A view's own setting: whether it shows its root cards folded to their caption
-     *  (a birdseye list) until the reader opens one. A view that does not fold its roots
-     *  never folds them. */
+    /** Whether the view's captioned root cards can fold at all. A view with the search
+     *  bar always can; one without a reader control keeps the choice its code made. */
+    default boolean rootsFoldable() {
+        return rootsStartFolded();
+    }
+
+    /** Whether a foldable root starts folded to its caption — the view's root
+     *  {@code ViewConfig} setting, chosen by the reader on the search bar (#407). */
     default boolean rootsStartFolded() {
         return false;
     }

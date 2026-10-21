@@ -248,10 +248,7 @@ public final class ViewConfigDesugar {
         ViewConfig out = ViewConfig.leaf();
         if (source == null) return out;
         out.setCls(source.getCls());
-        out.setAddListener(source.isAddListener());
-        out.setThumb(source.isThumb());
-        out.setBlurImages(source.isBlurImages());
-        out.setAnswerType(source.getAnswerType());
+        out.copyPresentationFrom(source);
         // "All minor fields" also meant "show the minor-fields switch on". The ticks are
         // expanded below; the switch keeps its own, already existing, setting.
         out.minorFieldsVisible(source.minorFieldsVisible() != null

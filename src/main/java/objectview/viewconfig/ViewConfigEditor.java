@@ -1281,6 +1281,12 @@ public class ViewConfigEditor extends JPanel {
         }
     }
 
+    /** Sets whether the view's root cards start as captions only (#407) — a presentation
+     *  setting of the config this editor edits, carried into every config it returns. */
+    public void rootsFolded(boolean folded) {
+        if (sourceConfig != null) sourceConfig.rootsFolded(folded);
+    }
+
     public ViewConfig getConfig() {
         if (treeMode) {
             ViewConfig result = buildConfigIncludingClassBranches();
@@ -1542,10 +1548,7 @@ public class ViewConfigEditor extends JPanel {
         result.setCls(source.getCls());
         result.setAllFields(false);   // the editor emits literal configs
         result.setAllMinorFields(false);
-        result.setAddListener(source.isAddListener());
-        result.setThumb(source.isThumb());
-        result.setAnswerType(source.getAnswerType());
-        result.setBlurImages(source.isBlurImages());
+        result.copyPresentationFrom(source);
         result.minorFieldsVisible(source.minorFieldsVisible());
         return result;
     }
