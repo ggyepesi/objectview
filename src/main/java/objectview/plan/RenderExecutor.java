@@ -4,6 +4,7 @@ import objectview.Viewable;
 import objectview.field.FieldRef;
 import objectview.field.FieldSchema;
 import objectview.field.FieldSet;
+import objectview.field.LinkedText;
 import objectview.viewconfig.ViewConfig;
 
 import java.util.ArrayList;
@@ -114,8 +115,15 @@ public final class RenderExecutor {
         if (plan.caption() != null) {
             Object value = fields.read(plan.caption().name());
             if (value != null && !String.valueOf(value).isBlank()) {
-                caption = String.valueOf(value);
-                captionUrl = valueLinker.apply(value);
+                if (plan.caption().field().link()) {
+                    LinkedText linked = LinkedText.parse(
+                            value, plan.caption().field().linkText());
+                    caption = linked.label();
+                    captionUrl = linked.url();
+                } else {
+                    caption = String.valueOf(value);
+                    captionUrl = valueLinker.apply(value);
+                }
             }
         }
         return new Level(target, literal, fields, plan, caption, captionUrl);
@@ -126,8 +134,12 @@ public final class RenderExecutor {
      *  (#407) — and then follows the reader's choice. A root with no caption has nothing
      *  to fold under, so it shows itself, and a view whose roots cannot fold shows them. */
     public boolean rootOpen(Level level) {
-        return !disclosure.rootsFoldable() || level.caption() == null
-                || disclosure.isExpanded(level.target(), !disclosure.rootsStartFolded());
+        if (!disclosure.rootsFoldable() || level.caption() == null) return true;
+        // The card's own view config decides (#407): views that share one context — the
+        // sections of a coordinated view — each keep their own setting.
+        Boolean own = level.config() == null ? null : level.config().rootsFolded();
+        boolean folded = own != null ? own : disclosure.rootsStartFolded();
+        return disclosure.isExpanded(level.target(), !folded);
     }
 
     /** The decisions for {@code level}'s fields: ticked ones in config order, then the

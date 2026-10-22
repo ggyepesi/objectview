@@ -72,11 +72,12 @@ public final class ViewConfigDesugar {
      * Removes, in place, every object or object-collection field of {@code literal}
      * with nothing selected below it. In a View, search or sort config an object is a
      * branch, never a value of its own: it is in the config only while a nested field
-     * (or an inheritance) is. An older config that ticked an object alone, for its
-     * caption or its size, is converted here where it enters, so a config only shown
-     * renders as the editor would show it. Deepest first, so a branch emptied below
-     * goes with it. A quiz key never passes through here: there an object alone is
-     * its caption.
+     * (or an inheritance) is. A scalar reference is the exception because it is not an
+     * expandable object branch at all: it is a terminal navigation link whose caption
+     * is its value. An older config that ticked another object alone, for its caption
+     * or its size, is converted here where it enters, so a config only shown renders
+     * as the editor would show it. Deepest first, so a branch emptied below goes with
+     * it. A quiz key never passes through here: there an object alone is its caption.
      */
     public static ViewConfig connected(ViewConfig literal, TypeShape shape) {
         if (literal == null || shape == null) return literal;
@@ -89,6 +90,7 @@ public final class ViewConfigDesugar {
             FieldRef field = field(shape, entry.getKey());
             TypeShape nested = field == null ? null : shape.nested(field);
             if (nested == null) continue;
+            if (PlanResolver.representation(field) == Representation.REFERENCE) continue;
             connected(child, nested);
             if (child.getFields().isEmpty()) entries.remove();
         }
@@ -184,8 +186,9 @@ public final class ViewConfigDesugar {
         return true;
     }
 
-    /** Whether {@code config} is literal and every recursive field already points at
-     * the nearest ancestor selected by {@link ConfigChain}. */
+    /** Whether {@code config} is literal and each stored inheritance already points at
+     * the nearest matching ancestor selected by {@link ConfigChain}. Explicit recursive
+     * children are literal configs of their own and need no inheritance. */
     private static boolean prepared(ViewConfig config, TypeShape shape,
                                     ConfigChain<ViewConfig> parent, FieldRef via) {
         if (config == null || config.isAllFields() || config.isAllMinorFields()) return false;
@@ -203,13 +206,14 @@ public final class ViewConfigDesugar {
             if (child == null) return false;
             FieldRef field = shape == null ? null : field(shape, name);
             ViewConfig ancestor = chain.inherited(field);
-            if (ancestor != null) {
-                if (child.inheritedFrom() != ancestor) return false;
+            if (child.inheritedFrom() != null) {
+                if (ancestor == null || child.inheritedFrom() != ancestor) return false;
                 continue;
             }
-            if (child.inheritedFrom() != null) return false;
             TypeShape nested = field == null || shape == null ? null : shape.nested(field);
-            if (nested != null && child.getFields().isEmpty()) return false; // see connected
+            if (nested != null
+                    && PlanResolver.representation(field) != Representation.REFERENCE
+                    && child.getFields().isEmpty()) return false; // see connected
             if (!prepared(child, nested, chain, field)) return false;
         }
         return true;
@@ -225,15 +229,19 @@ public final class ViewConfigDesugar {
     private static ViewConfig child(ViewConfig explicit, FieldRef field, TypeShape shape,
                                     Implicit implicit, ConfigChain<ViewConfig> chain,
                                     boolean inherit, Map<ViewConfig, ViewConfig> outs) {
-        ViewConfig ancestor = inherit ? chain.inherited(field) : null;
-        if (ancestor != null) return ViewConfig.inheriting(ancestor);
         if (explicit != null && explicit.inheritedFrom() != null) {
             ViewConfig mapped = outs.get(explicit.inheritedFrom());
             return ViewConfig.inheriting(mapped != null ? mapped : explicit.inheritedFrom());
         }
         TypeShape nested = field == null || shape == null ? null : shape.nested(field);
-        if (explicit == null) return implicit.child(field, nested, chain);
-        return literal(explicit, nested, implicit, chain, field, inherit, outs);
+        if (explicit != null) {
+            return literal(explicit, nested, implicit, chain, field, inherit, outs);
+        }
+        ViewConfig ancestor = inherit && field != null
+                && PlanResolver.representation(field) != Representation.REFERENCE
+                ? chain.inherited(field) : null;
+        return ancestor != null ? ViewConfig.inheriting(ancestor)
+                : implicit.child(field, nested, chain);
     }
 
     private static FieldRef field(TypeShape shape, String name) {

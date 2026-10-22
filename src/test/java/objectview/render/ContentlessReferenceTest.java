@@ -70,9 +70,9 @@ class ContentlessReferenceTest {
         assertEquals(1, renderedCount(card, "Terry Gilliam"));
     }
 
-    /** A field-name caption alone is not a View state: an older config ticking one is
-     *  converted where it enters. */
-    @Test void aSelectedObjectFieldWithNoChildrenIsNotShown() throws Exception {
+    /** A scalar reference is a terminal value. Without DISPLAY it shows only its field
+     * caption and never invents the target's name. */
+    @Test void aSelectedReferenceWithNoChildrenShowsOnlyItsFieldCaption() throws Exception {
         Film film = new Film("12 Monkeys", new Person("Terry Gilliam"));
         ViewConfig config = ViewConfig.of(Film.class);
         config.setAllFields(false);
@@ -80,7 +80,7 @@ class ContentlessReferenceTest {
 
         Card card = cardFor(film, config);
 
-        assertNull(findByFieldName(card, "director"));
+        assertNotNull(findByFieldName(card, "director"));
         assertFalse(renders(card, "Terry Gilliam"),
                 "selecting the object field must not select DISPLAY implicitly");
     }

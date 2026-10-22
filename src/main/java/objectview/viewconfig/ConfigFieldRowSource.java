@@ -205,8 +205,11 @@ public final class ConfigFieldRowSource implements FieldRowSource {
      *  expandable even with no value — its children then come from the schema. */
     private static NestedFieldSource nestedFor(
             FieldTypeSource.FieldTypeInfo info, Viewable child) {
-        boolean valueBacked = child != null && hasFields(child)
-                && (info == null || info.nested() != null);
+        // A live Viewable already carries its concrete type and field set. This is the
+        // authoritative fallback for a polymorphic reference (Viewable / a common base)
+        // whose declared schema cannot enumerate the concrete child's fields. The
+        // schema still supplies metadata for every field it knows below.
+        boolean valueBacked = child != null && hasFields(child);
         if (valueBacked) {
             return new NestedFieldSource(
                     asViewableClass(child.getClass()),

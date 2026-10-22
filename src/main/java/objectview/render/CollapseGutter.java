@@ -65,6 +65,16 @@ final class CollapseGutter implements MouseListener, MouseMotionListener {
         host.addMouseMotionListener(INSTANCE);
     }
 
+    /** Disarms a retained host when it becomes folded. Local disclosure refresh keeps
+     * the component itself, so installation alone is not enough: the old action and
+     * listeners must stop making its ordinary left edge behave like a gutter. */
+    static void uninstall(JComponent host) {
+        host.putClientProperty(ACTION, null);
+        host.removeMouseListener(INSTANCE);
+        host.removeMouseMotionListener(INSTANCE);
+        if (INSTANCE.hovered == host) INSTANCE.hover(host, false);
+    }
+
     /** Paints the strip, from the card's own paintComponent so it sits under the
      *  card's content and never intercepts a child's own painting. */
     void paint(Graphics g, JComponent card, int height) {

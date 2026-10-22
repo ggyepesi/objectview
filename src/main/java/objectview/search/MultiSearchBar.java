@@ -29,7 +29,7 @@ public class MultiSearchBar extends JPanel {
     private final JTextField field = new JTextField(30);
     private final JCheckBox fieldHighlight = new JCheckBox("Highlight fields");
     private final javax.swing.Timer debounce;
-    private final JScrollPane navigatorScroll;
+    private final JTabbedPane hitNavigationTabs = new JTabbedPane();
 
     public MultiSearchBar(List<SearchPanel> engines) {
         super(new BorderLayout(0, 4));
@@ -77,23 +77,25 @@ public class MultiSearchBar extends JPanel {
         // Hit rows are one result of the global query, just like the global input
         // and configuration. Keeping their class-owned engines here prevents every
         // instance section from growing a misleading second Search/Sort/View pane.
-        JPanel navigators = new JPanel();
-        navigators.setLayout(new BoxLayout(navigators, BoxLayout.Y_AXIS));
-        for (SearchPanel engine : this.engines) navigators.add(engine);
-        navigatorScroll = new JScrollPane(navigators);
-        navigatorScroll.setPreferredSize(new Dimension(640, 210));
-        navigatorScroll.getVerticalScrollBar().setUnitIncrement(16);
-        navigatorScroll.setVisible(false);
-        add(navigatorScroll, BorderLayout.CENTER);
+        for (SearchPanel engine : this.engines) {
+            hitNavigationTabs.addTab(engine.sectionTypeName(), engine);
+        }
+        hitNavigationTabs.setPreferredSize(new Dimension(640, 210));
+        hitNavigationTabs.setVisible(false);
+        add(hitNavigationTabs, BorderLayout.CENTER);
     }
 
     private void runSearch() {
         String query = field.getText();
-        navigatorScroll.setVisible(query != null && !query.isBlank());
+        hitNavigationTabs.setVisible(query != null && !query.isBlank());
         for (SearchPanel e : engines) {
             e.runCoordinatedSearch(query);
         }
         revalidate();
+    }
+
+    JTabbedPane hitNavigationTabs() {
+        return hitNavigationTabs;
     }
 
     // Single config dialog with one tab per class (classes as roots): each tab

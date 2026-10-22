@@ -4,11 +4,10 @@ import objectview.field.FieldRef;
 
 /**
  * The types on a config path, root first, each with what its level holds there (its
- * config, its editor row). The one rule for recursion (#368): a field whose declared
- * target type is already on the path has no config of its own and inherits the nearest
- * ancestor's of that type. The field editor marks such a field ↩, the View default and
- * the editor write the inheritance into the config, and search walks it — all through
- * {@link #inherited}, so they cannot disagree on which field recurses.
+ * config, its editor row). It identifies the nearest occurrence of a declared target
+ * type. Defaults may use that occurrence to express an unbounded recursive projection;
+ * an explicitly authored child config always wins and may continue to any finite depth
+ * along the same cycle (#368, #410).
  *
  * <p>Types are compared by their declared names: a field's target type and the root's
  * logical type, never the class of the value an instance happens to hold.
@@ -43,8 +42,9 @@ public final class ConfigChain<T> {
         return new ConfigChain<>(blankToNull(type), level, this);
     }
 
-    /** What the nearest level of {@code field}'s target type carries, or null when the
-     * field has a config of its own. */
+    /** What the nearest level of {@code field}'s target type carries, or null when no
+     * such type is already on the path. The caller decides whether an explicit child
+     * config takes precedence over this possible inheritance. */
     public T inherited(FieldRef field) {
         return inherited(typeOf(field));
     }

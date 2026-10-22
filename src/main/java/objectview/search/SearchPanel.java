@@ -84,6 +84,8 @@ public class SearchPanel extends JPanel
     // Returns to the spot before the last "jump to its card" navigation.
     private final JButton backButton = new JButton("← Back");
     private RenderContext renderContext;
+    // The captions-only choice the cards were last rendered with (#407).
+    private Boolean appliedRootsFolded;
 
     private final JPanel resultsPanel =
             new JPanel();
@@ -262,7 +264,8 @@ public class SearchPanel extends JPanel
         // The View editor offers "captions only" (#407): the stored choice, else the
         // view's own start state. It takes effect with the config, in applyViewConfig.
         viewEditor.offerRootsFolded(context.rootsStartFolded());
-        context.setRootsStartFolded(viewEditor.rootsFoldedChoice());
+        appliedRootsFolded = viewEditor.rootsFoldedChoice();
+        context.makeRootsFoldable();
     }
 
     public void setTargetAndApplyViewConfig(
@@ -1863,10 +1866,15 @@ public class SearchPanel extends JPanel
         if (!(virtualList instanceof ConfigurableVirtualizedContainer configurable)) {
             return false;
         }
+        // The choice travels in this view's own config, which every card reads. A change
+        // forgets the choices made by hand on this view's cards only: a coordinated view
+        // shares its context with sections that keep their own setting.
         Boolean rootsFolded = viewEditor.rootsFoldedChoice();
-        if (renderContext != null && rootsFolded != null) {
-            renderContext.setRootsStartFolded(rootsFolded);
+        if (renderContext != null && rootsFolded != null
+                && !rootsFolded.equals(appliedRootsFolded)) {
+            renderContext.forgetCardChoices(virtualList.items());
         }
+        appliedRootsFolded = rootsFolded;
         configurable.setViewConfigResolver(q -> effectiveConfig(
                 viewEditor, subtypeViewEditors, q));
         invalidateSearchIndex();

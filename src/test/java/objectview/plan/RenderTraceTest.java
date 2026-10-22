@@ -96,14 +96,15 @@ class RenderTraceTest {
                 "only the office's DISPLAY is read: " + h.reads);
     }
 
-    @Test void aTickedObjectWithNothingTickedUnderItIsNotRendered() {
+    @Test void aTickedScalarReferenceWithNoDisplayShowsOnlyItsFieldCaption() {
         ViewConfig office = ticks("startDate");
         office.addField("position", ViewConfig.leaf());
 
         String trace = render(person(offices(office)), opened(), notTopLevel());
 
-        assertTrue(trace.contains("SKIP offices[0].position OFF"),
-                "a field-name caption alone is not a View state:\n" + trace);
+        assertTrue(trace.contains("OBJECT offices[0].position open"), trace);
+        assertTrue(trace.contains("SKIP offices[0].position.name OFF"),
+                "selecting a reference does not select DISPLAY implicitly:\n" + trace);
         assertTrue(trace.contains("TEXT offices[0].startDate"), trace);
     }
 
@@ -141,7 +142,7 @@ class RenderTraceTest {
      *  ticks, and the opened list showed nothing. */
     @Test void aListOfTheTypeAboveItOpensToItsMembersByThatTypesConfig() {
         ViewConfig position = ticks("@view:display");
-        position.addField("superClasses", ViewConfig.leaf());
+        position.addField("superClasses", ViewConfig.inheriting(position));
         ViewConfig config = person(offices(field("position", position)));
         Object superClasses = h.kingOfMercia.dynamicFieldValues().get("superClasses");
         // Each level is one click (#398): the position, its list, then the member.

@@ -154,8 +154,9 @@ public class CardListView {
         // expands so a hit on a hidden field becomes visible. State lives in the
         // context, so it stays expanded on scroll-away-and-back.
         virtualList.setNavigateRevealHandler(q -> {
-            if (!context.isCardExpanded(q)) {
-                context.toggleCardExpanded(q);
+            ViewConfig config = cardConfigResolver == null ? null : cardConfigResolver.apply(q);
+            if (!context.isCardOpen(q, config)) {
+                context.setExpanded(q, true);
                 virtualList.invalidateCard(q);
             }
         });

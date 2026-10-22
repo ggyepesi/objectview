@@ -48,6 +48,11 @@ public class MultiView extends JPanel {
         return context;
     }
 
+    /** The built sections, in order — for tests that drive one section's own config. */
+    List<SearchableView> sectionViews() {
+        return java.util.Collections.unmodifiableList(sectionViews);
+    }
+
     public void addSection(
             String title,
             Class<? extends Viewable> type,

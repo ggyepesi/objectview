@@ -9,11 +9,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 /** The class visible in a shared configuration dialog is the only class Apply changes. */
 class MultiSearchBarTest {
 
-    private static final class DynamicGraphRecord extends ViewableAdapter {
+    private static class DynamicGraphRecord extends ViewableAdapter {
         @Override public String getIdentifier() { return "Q1"; }
         @Override public String getDisplayName() { return "accepted office"; }
         @Override public String typeName() { return "PositionReplacementExpansion"; }
@@ -40,5 +41,22 @@ class MultiSearchBarTest {
                 applied::add);
 
         assertEquals(List.of("PositionWithHolders"), applied);
+    }
+
+    @Test void eachClassOwnsAHitNavigationTab() {
+        SearchPanel position = new SearchPanel(DynamicGraphRecord.class,
+                new DynamicGraphRecord());
+        SearchPanel office = new SearchPanel(DynamicGraphRecord.class,
+                new DynamicGraphRecord() {
+                    @Override public String typeName() { return "OfficeHolding"; }
+                });
+
+        MultiSearchBar bar = new MultiSearchBar(List.of(position, office));
+        JTabbedPane tabs = bar.hitNavigationTabs();
+
+        assertEquals(2, tabs.getTabCount());
+        assertEquals("PositionReplacementExpansion", tabs.getTitleAt(0));
+        assertEquals("OfficeHolding", tabs.getTitleAt(1));
+        assertFalse(tabs.isVisible(), "hit navigation stays out of the way before a search");
     }
 }

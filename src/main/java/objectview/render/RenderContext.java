@@ -589,11 +589,34 @@ public class RenderContext {
         return rootsStartFolded;
     }
 
+    /** Every captioned root can fold; whether it starts folded is its own config's
+     *  setting, with this context's as the default (#407). */
+    public void makeRootsFoldable() {
+        collapsibleCards = true;
+    }
+
+    /** Whether {@code card}, rendered under {@code config}, is open: the executor's one
+     *  decision, which reads the card's own config before this context's default. */
+    public boolean isCardOpen(Viewable card, ViewConfig config) {
+        // Prepared exactly as the card prepares it, a missing config included.
+        return card != null && executor().rootOpen(
+                executor().level(card, Card.literal(card, config, this)));
+    }
+
+    /** Forgets the open/closed choices made by hand on {@code roots}, so a changed
+     *  start setting visibly applies to each of them. Only these cards: a context may
+     *  be shared by sections that keep their own setting. */
+    public void forgetCardChoices(java.util.Collection<?> roots) {
+        if (roots == null) return;
+        for (Object root : roots) {
+            if (root != null) referenceExpanded.remove(root);
+        }
+    }
+
     /**
-     * The reader's setting (#407): every captioned root card can fold, and they all start
-     * open or as captions only. Changing it forgets the open/closed choices already made,
-     * so the setting visibly applies to every card — as Collapse all below forgets the
-     * choices beneath one node. The view rebuilds its cards afterwards.
+     * The view-wide default (#407): every captioned root card can fold, and a card whose
+     * own config does not say starts open or as captions only by this. Changing it
+     * forgets the open/closed choices already made, so it visibly applies to every card.
      */
     public void setRootsStartFolded(boolean folded) {
         collapsibleCards = true;

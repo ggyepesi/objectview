@@ -24,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class ApplyRebuildsVisibleCardsTest {
 
-    @Test void untickingThePositionCaptionAndApplyingRebuildsTheVisibleCard() throws Exception {
+    @Test void untickingThePositionReferenceAndApplyingRebuildsTheVisibleCard() throws Exception {
         HistoryShape h = new HistoryShape();
         ViewConfig position = ViewConfig.leaf();
         position.addField("name", ViewConfig.leaf());
@@ -53,7 +53,7 @@ class ApplyRebuildsVisibleCardsTest {
         JComponent[] after = new JComponent[1];
         SwingUtilities.invokeAndWait(() -> {
             built[0].search().viewEditor().uncheckFieldPath(
-                    FieldPath.of("offices", "position", "name"));
+                    FieldPath.of("offices", "position"));
             built[0].search().applyView();
             after[0] = built[0].cardList().getVirtualList().buildIfNeeded(h.wigmund);
         });

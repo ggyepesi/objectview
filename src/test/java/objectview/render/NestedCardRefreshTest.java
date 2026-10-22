@@ -125,6 +125,35 @@ class NestedCardRefreshTest {
         list.dispose();
     }
 
+    @Test void collectionDisclosureRebuildsOnlyThatFieldInAVirtualCard()
+            throws Exception {
+        LogLike root = new LogLike("generate domains", "root detail");
+        root.steps.add(new LogLike("generate one domain", "outer detail"));
+        RenderContext context = new RenderContext();
+        CardListView list = new CardListView();
+        list.setRenderContext(context);
+        list.addViewable(root);
+        list.createCardsPanel(1);
+        list.getVirtualList().setViewConfigResolver(ignored -> logConfig(2));
+
+        javax.swing.JComponent[] rootCard = new javax.swing.JComponent[1];
+        TextBlock[] unchangedSibling = new TextBlock[1];
+        SwingUtilities.invokeAndWait(() -> {
+            rootCard[0] = list.getVirtualList().buildIfNeeded(root);
+            unchangedSibling[0] = find(rootCard[0], TextBlock.class);
+            CollectionHeader header = find(rootCard[0], CollectionHeader.class);
+            assertNotNull(unchangedSibling[0]);
+            assertNotNull(header);
+            header.dispatchEvent(click(header));
+        });
+
+        assertSame(rootCard[0], list.getVirtualList().builtCard(root));
+        assertSame(unchangedSibling[0], find(rootCard[0], TextBlock.class),
+                "opening one collection must not repaint the card's sibling fields");
+        assertNotNull(findReference(rootCard[0], "generate one domain"));
+        list.dispose();
+    }
+
     private static MouseEvent click(JComponent component) {
         return new MouseEvent(component, MouseEvent.MOUSE_CLICKED,
                 System.currentTimeMillis(), 0, 1, 1, 1, false,

@@ -26,7 +26,7 @@ class ViewConfigEditorPathTest {
 
     private static final class Team extends ViewableAdapter {
         String league = "NHL";
-        Place place = new Place();
+        List<Place> place = List.of(new Place());
         @Override public String getIdentifier() { return league; }
         @Override public String getDisplayName() { return league; }
     }

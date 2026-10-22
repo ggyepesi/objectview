@@ -15,7 +15,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * A reference renders as a link wherever its target has its own card, so ticking its
  * fields can change nothing on that card. The View editor says so on the row, by the
- * renderer's own representation rule, and still lets the reader configure it.
+ * renderer's own representation rule. It is one terminal navigation value, so it has
+ * no disclosure promising nested fields.
  */
 class AReferenceRowIsMarkedTest {
 
@@ -63,8 +64,8 @@ class AReferenceRowIsMarkedTest {
         });
 
         assertTrue(employer.get(0).contains(ViewConfigEditor.REFERENCE_NOTE), employer.toString());
-        assertTrue(employer.get(0).contains("▸") || employer.get(0).contains("▾"),
-                "a reference stays expandable: its fields apply where it renders inline");
+        assertFalse(employer.get(0).contains("▸") || employer.get(0).contains("▾"),
+                "a scalar reference has no nested-field disclosure");
         assertFalse(address.get(0).contains(ViewConfigEditor.REFERENCE_NOTE),
                 "an inline object is part of its owner, never a link");
         assertFalse(name.get(0).contains(ViewConfigEditor.REFERENCE_NOTE));

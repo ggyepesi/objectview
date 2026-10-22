@@ -137,7 +137,7 @@ class SearchableTableViewTest {
                 "a null nested value leaves the configured leaf cell empty");
     }
 
-    @Test void anObjectWithNoSelectedChildrenIsNotAnEffectiveViewChoice() {
+    @Test void aScalarReferenceWithNoSelectedChildrenIsATerminalColumn() {
         Nested nested = new Nested("Budapest");
         Parent parent = new Parent("Hungary", nested);
         ViewConfig objectOnly = ViewConfig.leaf();
@@ -152,7 +152,7 @@ class SearchableTableViewTest {
                 .configState(new SearchPanel.ConfigState(null, null, view))
                 .build().table();
 
-        assertEquals(List.of(), dottedColumns(table));
+        assertEquals(List.of("nested"), dottedColumns(table));
         assertFalse(values(table.row(parent)).contains("Budapest"),
                 "an object branch enters View only through a selected nested field");
     }

@@ -37,11 +37,10 @@ public class ViewConfig {
     // This belongs to the config: a renderer cannot infer the distinction from an
     // otherwise identical literal field tree.
     private boolean finitePaths;
-    // A field whose type is already on the config path has no config of its own: it
-    // inherits the nearest ancestor's of that type (#368). The back-edge is kept out of
-    // the field map, so a walk over the ticks never loops. The View editor/default write
-    // it; the shared rendering boundary repairs an old/raw View that predates the mark.
-    // A finite field selection records that different meaning explicitly above.
+    // An automatic default can reuse the nearest ancestor projection of the same type
+    // (#368). The back-edge is kept out of the field map, so a walk over the ticks never
+    // loops. A manual child config always wins and can continue to any finite depth;
+    // a finite field selection records that different meaning explicitly above.
     private ViewConfig inheritedFrom;
 
     public static ViewConfig of(Class<? extends Viewable> cls) {

@@ -7,10 +7,12 @@ import objectview.viewconfig.ViewConfig;
  * The one default for a new View config: every top-level field, minor ones included,
  * and the DISPLAY of each object they lead to, so a reference reads as its target's
  * name rather than "Open"; an {@code @Inline} object also shows its own fields. Nothing
- * deeper is ticked; a field of a type already on the path inherits that ancestor's
- * config instead, folded, so a self-reference opens one level per expand (#368). It is expressed in the shorthand it replaces and desugared at once, so
- * the default is literal from the start; the DISPLAY ticks are ordinary ticks a reader
- * can untick. Only a default ticks them: an object ticked by hand ticks nothing under it.
+ * deeper is ticked. An automatic recursive field may inherit an ancestor projection,
+ * folded; a manual child config always wins and may continue to any requested finite
+ * depth (#368, #410). It is expressed in the shorthand it replaces and desugared at
+ * once, so the default is literal from the start; the DISPLAY ticks are ordinary ticks
+ * a reader can untick. Only a default ticks them: an object ticked by hand ticks nothing
+ * under it.
  */
 public final class ViewDefaults {
 
@@ -53,7 +55,8 @@ public final class ViewDefaults {
         return displayOnly(nested);
     }
 
-    private static ViewConfig displayOnly(TypeShape nested) {
+    /** The ordinary display-only projection used for a compact object/reference value. */
+    public static ViewConfig displayOnly(TypeShape nested) {
         ViewConfig child = ViewConfig.leaf();
         FieldRef display = nested == null ? null : nested.displayField();
         if (display != null) child.addField(display.name(), ViewConfig.leaf());

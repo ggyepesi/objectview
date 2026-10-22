@@ -26,12 +26,12 @@ class CaptionsOnlyToggleTest {
             var context = view.cardList().getRenderContext();
 
             assertFalse(box(view).isSelected());
-            assertTrue(context.isCardExpanded(item), "the view's default: open");
+            assertTrue(context.isCardOpen(item, view.search().getViewConfig()), "the view's default: open");
 
             box(view).doClick();
             view.search().applyView();
 
-            assertFalse(context.isCardExpanded(item), "now its caption only");
+            assertFalse(context.isCardOpen(item, view.search().getViewConfig()), "now its caption only");
             assertEquals(Boolean.TRUE, saved.get().view().rootsFolded(),
                     "the setting is the view config's, and is published with it");
         });
@@ -43,7 +43,7 @@ class CaptionsOnlyToggleTest {
             SearchableView view = SearchableView.builder(List.of(item)).sample(item)
                     .collapsible(true).build();
             assertTrue(box(view).isSelected());
-            assertFalse(view.cardList().getRenderContext().isCardExpanded(item));
+            assertFalse(view.cardList().getRenderContext().isCardOpen(item, view.search().getViewConfig()));
         });
     }
 
@@ -55,7 +55,7 @@ class CaptionsOnlyToggleTest {
                     .collapsible(false)
                     .configState(new SearchPanel.ConfigState(null, null, stored)).build();
             assertTrue(box(view).isSelected());
-            assertFalse(view.cardList().getRenderContext().isCardExpanded(item));
+            assertFalse(view.cardList().getRenderContext().isCardOpen(item, view.search().getViewConfig()));
         });
     }
 
@@ -65,15 +65,15 @@ class CaptionsOnlyToggleTest {
             SearchableView view = SearchableView.builder(List.of(item)).sample(item)
                     .collapsible(true).build();
             var context = view.cardList().getRenderContext();
-            context.toggleCardExpanded(item);
-            assertTrue(context.isCardExpanded(item));
+            context.setExpanded(item, true);   // opened by hand
+            assertTrue(context.isCardOpen(item, view.search().getViewConfig()));
 
             box(view).doClick();                 // open
             view.search().applyView();
             box(view).doClick();                 // captions only again
             view.search().applyView();
 
-            assertFalse(context.isCardExpanded(item),
+            assertFalse(context.isCardOpen(item, view.search().getViewConfig()),
                     "the setting applies to every card, not only the untouched ones");
         });
     }

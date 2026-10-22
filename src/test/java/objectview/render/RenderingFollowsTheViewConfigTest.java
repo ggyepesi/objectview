@@ -172,9 +172,9 @@ class RenderingFollowsTheViewConfigTest {
                         assertEquals(childSelected && !targetTopLevel && opened,
                                 hasFieldRow(card, "offices"), name);
                         ReferenceRow occurrence = findReference(card, WIGMUND);
-                        // With nothing ticked under it the reference is no View
-                        // state and is not shown at all.
-                        assertEquals(targetTopLevel && (targetDisplay || childSelected),
+                        // The reference itself is now a terminal configured value; its
+                        // child projection only controls the caption/inline fallback.
+                        assertEquals(targetTopLevel,
                                 occurrence != null && occurrence.navigatesToTopLevel(), name);
                         assertEquals(targetDisplay,
                                 paints(card, "Wigmund of Mercia"), name);
@@ -413,7 +413,7 @@ class RenderingFollowsTheViewConfigTest {
                 "the scalar target's selected fields belong to its own top-level card");
     }
 
-    @Test void untickingNestedDisplaysDoesNotRemoveSelectedSiblingObjectsFromTheEditor()
+    @Test void aScalarReferenceHasOneCheckboxWhileItsCollectionOwnerKeepsNestedChoices()
             throws Exception {
         ViewConfig office = ViewConfig.of(Office.class);
         ViewConfig root = ruler(office);
@@ -422,17 +422,17 @@ class RenderingFollowsTheViewConfigTest {
         javax.swing.SwingUtilities.invokeAndWait(() -> {
             ViewConfigEditor editor = new ViewConfigEditor(root, WIGMUND);
             assertTrue(editor.uncheckFieldPath(FieldPath.of("offices", "label")));
-            assertTrue(editor.uncheckFieldPath(
+            assertFalse(editor.uncheckFieldPath(
                     FieldPath.of("offices", "position", "name")));
+            assertTrue(editor.uncheckFieldPath(FieldPath.of("offices", "position")));
             edited[0] = editor.getConfig();
         });
 
         ViewConfig result = edited[0].getFieldConfig("offices");
         assertNotNull(result);
         assertTrue(result.hasField("source"));
-        assertTrue(result.hasField("position"));
+        assertFalse(result.hasField("position"));
         assertFalse(result.hasField("label"));
-        assertFalse(result.getFieldConfig("position").hasField("name"));
     }
 
     @Test void anEmptyTickedCollectionStillShowsItsZeroSize() throws Exception {

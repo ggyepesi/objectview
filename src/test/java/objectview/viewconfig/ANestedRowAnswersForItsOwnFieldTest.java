@@ -7,6 +7,7 @@ import javax.swing.JTable;
 import javax.swing.SwingUtilities;
 import java.awt.Component;
 import java.awt.Container;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -34,7 +35,7 @@ class ANestedRowAnswersForItsOwnFieldTest {
 
     static final class Parent extends ViewableAdapter {
         String city = "root-city";
-        Nested nominee = new Nested();
+        List<Nested> nominee = List.of(new Nested());
         @Override public String getIdentifier() { return city; }
         @Override public String getDisplayName() { return city; }
     }

@@ -3,6 +3,7 @@ package objectview.render;
 import objectview.utils.BrowserLauncher;
 import objectview.field.FieldProperties;
 import objectview.field.FieldPath;
+import objectview.field.LinkedText;
 
 import javax.swing.*;
 import java.awt.*;
@@ -34,13 +35,13 @@ public class LinkRow extends TextRow {
         this(
                 fieldName,
                 fieldPath,
-                parse(rawValue, annotationText));
+                LinkedText.parse(rawValue, annotationText));
     }
 
     private LinkRow(
             String fieldName,
             FieldPath fieldPath,
-            ParsedLink parsed) {
+            LinkedText parsed) {
 
         super(
                 fieldName,
@@ -107,33 +108,4 @@ public class LinkRow extends TextRow {
         }
     }
 
-    private static ParsedLink parse(
-            String rawValue,
-            String annotationText) {
-
-        String value =
-                rawValue == null ? "" : rawValue.trim();
-
-        String valueLabel = null;
-
-        int bar = value.indexOf('|');
-        if (bar > 0 && bar < value.length() - 1) {
-            valueLabel = value.substring(0, bar).trim();
-            value = value.substring(bar + 1).trim();
-        }
-
-        String label =
-                annotationText != null && !annotationText.isBlank()
-                        ? annotationText.trim()
-                        : valueLabel != null && !valueLabel.isBlank()
-                          ? valueLabel
-                          : value;
-
-        return new ParsedLink(value, label);
-    }
-
-    private record ParsedLink(
-            String url,
-            String label) {
-    }
 }

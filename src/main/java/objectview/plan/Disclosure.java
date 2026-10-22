@@ -48,8 +48,9 @@ public interface Disclosure {
         return rootsStartFolded();
     }
 
-    /** Whether a foldable root starts folded to its caption — the view's root
-     *  {@code ViewConfig} setting, chosen by the reader on the search bar (#407). */
+    /** Whether a foldable root starts folded to its caption, for a root whose own view
+     *  config does not say: the view's default. A config's {@code rootsFolded}, chosen in
+     *  View Config, decides for the cards it renders (#407). */
     default boolean rootsStartFolded() {
         return false;
     }

@@ -284,7 +284,9 @@ public class Card extends JPanel implements RenderedInstanceHost {
      *  does — the gutter is a second place to reach the same action, not a second
      *  implementation of it. */
     void toggleCollapsed() {
-        renderContext.toggleCardExpanded(viewable);
+        // The same decision that painted this card, so a card whose own config starts it
+        // folded flips from folded, whatever the shared context's default says.
+        renderContext.setExpanded(viewable, !renderContext.executor().rootOpen(level()));
         renderContext.notifyCardToggled(viewable);
     }
 
@@ -603,8 +605,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
      * nested card receives an already literal child config. A missing config is the one
      * default.
      */
-    private static ViewConfig literal(Viewable viewable, ViewConfig config,
-                                      RenderContext context) {
+    static ViewConfig literal(Viewable viewable, ViewConfig config,
+                              RenderContext context) {
         TypeShape shape = viewable == null ? null
                 : context == null ? TypeShape.of(viewable, null, null)
                 : context.shape(viewable);

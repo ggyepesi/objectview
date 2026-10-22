@@ -53,6 +53,7 @@ class MockComponentsTest {
                 child(root, "leader"));
         assertSame(ada, navigation.target());
         assertEquals(Representation.REFERENCE, navigation.representation());
+        assertEquals("Ada", navigation.caption());
         assertEquals("leader.name", navigation.captionAt().path().dotted());
 
         MockSink.MockCollection members = assertInstanceOf(MockSink.MockCollection.class,
@@ -133,7 +134,7 @@ class MockComponentsTest {
         assertEquals("Ada", member.caption());
     }
 
-    @Test void connectedConfigAddsAncestorsAndClearRemovesTheRenderedBranch()
+    @Test void connectedConfigAddsAncestorsAndUntickingItsLeafRemovesTheRenderedBranch()
             throws Exception {
         Child ada = new Child("Ada");
         Parent parent = new Parent(ada);
@@ -156,7 +157,7 @@ class MockComponentsTest {
 
         ViewConfig[] clearedConfig = new ViewConfig[1];
         SwingUtilities.invokeAndWait(() -> {
-            assertTrue(editor[0].clearNestedSelection(FieldPath.of("members")));
+            assertTrue(editor[0].uncheckFieldPath(FieldPath.of("members", "name")));
             assertFalse(editor[0].checkFieldPath(FieldPath.of("members")),
                     "an object branch cannot render without a nested value");
             clearedConfig[0] = editor[0].getConfig();

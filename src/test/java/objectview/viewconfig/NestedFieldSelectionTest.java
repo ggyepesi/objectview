@@ -1,6 +1,7 @@
 package objectview.viewconfig;
 
 import objectview.ViewableAdapter;
+import objectview.annotations.Reference;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.JTable;
@@ -9,6 +10,7 @@ import java.awt.Component;
 import java.awt.Container;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -24,7 +26,7 @@ class NestedFieldSelectionTest {
     }
 
     private static final class Parent extends ViewableAdapter {
-        Child child = new Child();
+        List<Child> child = List.of(new Child());
         @Override public String getIdentifier() { return "parent"; }
         @Override public String getDisplayName() { return "parent"; }
     }
@@ -34,6 +36,20 @@ class NestedFieldSelectionTest {
         List<Child> children = List.of(new Child());
         @Override public String getIdentifier() { return "collections"; }
         @Override public String getDisplayName() { return "collections"; }
+    }
+
+    private static final class References extends ViewableAdapter {
+        @Reference Child child = new Child();
+        List<Child> children = List.of(new Child());
+        @Override public String getIdentifier() { return "references"; }
+        @Override public String getDisplayName() { return "references"; }
+    }
+
+    private static final class Constellation extends ViewableAdapter {
+        String name = "Orion";
+        List<Constellation> sharesBorderWith = List.of();
+        @Override public String getIdentifier() { return name; }
+        @Override public String getDisplayName() { return name; }
     }
 
     @Test void uncheckingParentSuppressesButDoesNotForgetNestedChoices() throws Exception {
@@ -63,18 +79,25 @@ class NestedFieldSelectionTest {
             int kept = rowContaining(table, "kept");
             assertTrue(Boolean.TRUE.equals(table.getValueAt(kept, use)),
                     "a suppressed descendant keeps its check");
-            assertFalse(table.isCellEditable(kept, use),
-                    "a suppressed descendant is visible but disabled");
-            assertFalse(table.prepareRenderer(
+            assertTrue(table.isCellEditable(kept, use),
+                    "a suppressed descendant remains editable");
+            assertTrue(table.prepareRenderer(
                             table.getCellRenderer(kept, use), kept, use).isEnabled(),
-                    "the disabled state is painted, not merely rejected by the model");
+                    "suppression is painted as grey, not implemented by disabling the editor");
             assertTrue(rowContains(table, row, "1 nested field remembered"));
+
+            int omitted = rowContaining(table, "omitted");
+            table.setValueAt(true, omitted, use);
+            assertFalse(Boolean.TRUE.equals(table.getValueAt(row, use)),
+                    "editing a remembered descendant does not restore its owner");
+            assertTrue(editor[0].getConfig().getRememberedFieldConfig("child")
+                    .hasField("omitted"));
 
             table.setValueAt(true, row, use);
             ViewConfig restored = editor[0].getConfig().getFieldConfig("child");
             assertNotNull(restored);
             assertTrue(restored.hasField("kept"));
-            assertFalse(restored.hasField("omitted"));
+            assertTrue(restored.hasField("omitted"));
             assertTrue(table.isCellEditable(kept, use));
             assertTrue(table.prepareRenderer(
                             table.getCellRenderer(kept, use), kept, use).isEnabled());
@@ -126,24 +149,6 @@ class NestedFieldSelectionTest {
         });
     }
 
-    @Test void clearNestedSelectionIsTheExplicitForgetOperation() throws Exception {
-        ViewConfig child = ViewConfig.of(Child.class);
-        child.setAllFields(false);
-        child.addField("kept", ViewConfig.leaf());
-        ViewConfig config = ViewConfig.of(Parent.class);
-        config.setAllFields(false);
-        config.addField("child", child);
-
-        SwingUtilities.invokeAndWait(() -> {
-            ViewConfigEditor editor = new ViewConfigEditor(config, new Parent());
-            editor.setConnectedFieldSelection(true);
-            assertTrue(editor.clearNestedSelection(
-                    objectview.field.FieldPath.of("child")));
-            assertFalse(editor.getConfig().hasField("child"));
-            assertNull(editor.getConfig().getRememberedFieldConfig("child"));
-        });
-    }
-
     @Test void rawCollectionsAreTerminalButObjectCollectionsNeedANestedChoice()
             throws Exception {
         SwingUtilities.invokeAndWait(() -> {
@@ -178,7 +183,7 @@ class NestedFieldSelectionTest {
 
             assertFalse(Boolean.TRUE.equals(table.getValueAt(childRow, use)));
             assertTrue(Boolean.TRUE.equals(table.getValueAt(kept, use)));
-            assertFalse(table.isCellEditable(kept, use));
+            assertTrue(table.isCellEditable(kept, use));
             table.setValueAt(true, childRow, use);
             assertTrue(editor.getConfig().getFieldConfig("child").hasField("kept"));
         });
@@ -203,6 +208,69 @@ class NestedFieldSelectionTest {
         } finally {
             file.delete();
         }
+    }
+
+    @Test void scalarReferenceIsATerminalChoiceWithoutADisclosureChip() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ViewConfig config = ViewConfig.of(References.class);
+            config.setAllFields(false);
+            ViewConfigEditor editor = new ViewConfigEditor(config, new References());
+            editor.setConnectedFieldSelection(true);
+            JTable table = findTable(editor);
+            int use = booleanColumn(table);
+            int scalar = rowContaining(table, "child");
+            int collection = rowContaining(table, "children");
+
+            assertEquals("", table.getValueAt(scalar, 0),
+                    "a navigation-only scalar reference has nothing to disclose");
+            assertEquals("▸", table.getValueAt(collection, 0),
+                    "an object collection still exposes its member projection");
+            assertTrue(table.isCellEditable(scalar, use));
+            table.setValueAt(true, scalar, use);
+            assertTrue(editor.getConfig().hasField("child"));
+            assertTrue(editor.getConfig().getFieldConfig("child")
+                    .hasField(objectview.field.ViewableContractFieldSet.DISPLAY_KEY));
+        });
+    }
+
+    @Test void aRecursiveCollectionExposesItsNextConfigurableOccurrence()
+            throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ViewConfig config = ViewConfig.of(Constellation.class);
+            config.setAllFields(false);
+            ViewConfigEditor editor = new ViewConfigEditor(config, new Constellation());
+            editor.setConnectedFieldSelection(true);
+            editor.setInheritsRecursion(true);
+            editor.setSelectedPath(objectview.field.FieldPath.parse(
+                    "sharesBorderWith.name"));
+            JTable table = findTable(editor);
+            int nestedName = table.getSelectedRow();
+            int use = booleanColumn(table);
+
+            assertTrue(nestedName >= 0, "the first recursive occurrence has child rows");
+            assertTrue(table.isCellEditable(nestedName, use));
+            table.setValueAt(true, nestedName, use);
+            assertTrue(editor.getConfig().getFieldConfig("sharesBorderWith")
+                    .hasField("name"));
+        });
+    }
+
+    @Test void openingADisclosureDoesNotSelectAReorderSource() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ViewConfig config = ViewConfig.of(Collections.class);
+            config.setAllFields(false);
+            ViewConfigEditor editor = new ViewConfigEditor(config, new Collections(),
+                    FieldTableContributor.REORDERABLE);
+            editor.setConnectedFieldSelection(true);
+            JTable table = findTable(editor);
+            int children = rowContaining(table, "children");
+
+            table.clearSelection();
+            table.changeSelection(children, 0, false, false);
+
+            assertEquals(-1, table.getSelectedRow(),
+                    "a disclosure click cannot make the sort move targets flash");
+        });
     }
 
     private static JTable findTable(Container root) {
