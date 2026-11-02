@@ -38,6 +38,7 @@ public final class GroupMembersView extends JPanel {
             selectionHandler.accept(group);
             if (this.showOnSelection) showGroup(group);
         });
+        groups.setShowButtonVisible(!showOnSelection);
         JComponent first = membersFirst ? members : groups;
         JComponent second = membersFirst ? groups : members;
         JSplitPane split = new JSplitPane(orientation, first, second);

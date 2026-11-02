@@ -15,6 +15,7 @@ public class GroupTreeView extends JPanel {
     private final JTree tree;
     private final JScrollPane treeScrollPane;
     private final JPanel controls;
+    private final JButton showButton;
     private final JLabel status;
     private Consumer<ViewableGroup<?>> showGroupHandler;
     private Consumer<ViewableGroup<?>> selectionHandler;
@@ -42,7 +43,7 @@ public class GroupTreeView extends JPanel {
         tree.setSelectionRow(0);
         treeScrollPane = new JScrollPane(tree);
 
-        JButton showButton = new JButton("Show instances");
+        showButton = new JButton("Show instances");
         showButton.addActionListener(event -> showSelectedGroup());
         controls = new JPanel(new GridLayout(0, 3, 4, 4));
         controls.add(showButton);
@@ -90,10 +91,29 @@ public class GroupTreeView extends JPanel {
         selectionHandler = handler;
     }
 
+    /**
+     * Keep the explicit action only when selection does not already reveal members.
+     * A group browser must not offer two controls for the same navigation.
+     */
+    public void setShowButtonVisible(boolean visible) {
+        if (visible && showButton.getParent() == null) {
+            controls.add(showButton);
+        } else if (!visible && showButton.getParent() == controls) {
+            controls.remove(showButton);
+        }
+        controls.setVisible(controls.getComponentCount() > 0);
+        controls.revalidate();
+        controls.repaint();
+    }
+
     public JButton addControl(String label, Runnable action) {
         JButton button = new JButton(label);
         button.addActionListener(event -> action.run());
-        controls.add(button, Math.max(0, controls.getComponentCount() - 1));
+        int index = showButton.getParent() == controls
+                ? Math.max(0, controls.getComponentCount() - 1)
+                : controls.getComponentCount();
+        controls.add(button, index);
+        controls.setVisible(true);
         controls.revalidate();
         controls.repaint();
         return button;
