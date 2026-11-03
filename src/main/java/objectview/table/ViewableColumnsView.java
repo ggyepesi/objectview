@@ -482,11 +482,16 @@ public final class ViewableColumnsView
                 int left = columnLeft(i, width, count);
                 int cellWidth = Math.max(0,
                         columnLeft(i + 1, width, count) - left - 2 * CELL_PAD_X);
-                child.setSize(Math.max(1, cellWidth),
+                boolean contentSized = Boolean.TRUE.equals(child.getClientProperty(
+                        objectview.field.FieldProperties.CONTENT_SIZED_PROPERTY));
+                int childWidth = contentSized
+                        ? Math.min(Math.max(1, cellWidth), child.getPreferredSize().width)
+                        : Math.max(1, cellWidth);
+                child.setSize(Math.max(1, childWidth),
                         Math.max(1, child.getPreferredSize().height));
                 layoutSubtree(child);
                 int cellHeight = child.getPreferredSize().height;
-                child.setBounds(left + CELL_PAD_X, CELL_PAD_Y, cellWidth,
+                child.setBounds(left + CELL_PAD_X, CELL_PAD_Y, childWidth,
                         Math.max(0, getHeight() - 2 * CELL_PAD_Y));
                 height = Math.max(height, cellHeight + 2 * CELL_PAD_Y);
             }

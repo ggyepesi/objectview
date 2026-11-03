@@ -1316,10 +1316,12 @@ public class Card extends JPanel implements RenderedInstanceHost {
     }
 
     private static void addInlineItem(JPanel panel, JComponent nested, int row) {
+        boolean contentSized = Boolean.TRUE.equals(nested.getClientProperty(
+                FieldProperties.CONTENT_SIZED_PROPERTY));
         panel.add(nested, GridBagUtils.weighted(
-                0, row, 1.0, 0.0,
+                0, row, contentSized ? 0.0 : 1.0, 0.0,
                 GridBagConstraints.NORTHWEST,
-                GridBagConstraints.HORIZONTAL,
+                contentSized ? GridBagConstraints.NONE : GridBagConstraints.HORIZONTAL,
                 new Insets(2, 6, 2, 6)));
     }
 
@@ -1646,11 +1648,15 @@ public class Card extends JPanel implements RenderedInstanceHost {
     private void addSingle(Component comp, int row) {
         renderedConfiguredContent = true;
 
+        boolean contentSized = comp instanceof JComponent component
+                && Boolean.TRUE.equals(component.getClientProperty(
+                        FieldProperties.CONTENT_SIZED_PROPERTY));
+
         add(comp, GridBagUtils.weighted(
                 0, row,
-                1.0, 0.0,
+                contentSized ? 0.0 : 1.0, 0.0,
                 GridBagConstraints.NORTHWEST,
-                GridBagConstraints.HORIZONTAL,
+                contentSized ? GridBagConstraints.NONE : GridBagConstraints.HORIZONTAL,
                 new Insets(2, 2, 2, 2)));
     }
 

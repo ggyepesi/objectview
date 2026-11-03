@@ -65,8 +65,15 @@ public final class ValueRenderer {
 
     private static JComponent imageComponent(String fieldName, FieldPath fieldPath, ImagePane imagePane) {
         JPanel panel = basePanel(fieldName, fieldPath, imagePane);
+        panel.putClientProperty(FieldProperties.CONTENT_SIZED_PROPERTY, Boolean.TRUE);
 
-        panel.add(imagePane, GridBagUtils.weighted(0, 0, 1.0, 1.0, GridBagConstraints.CENTER, GridBagConstraints.BOTH, new Insets(2, 2, 2, 2)));
+        // The picture owns an aspect-ratio-preserving preferred size. Stretching its
+        // component in BOTH directions made the unused part of that rectangle appear
+        // as grey fill around portrait/landscape images. The surrounding field may
+        // grow; the image itself stays at its proportional size, centered within it.
+        panel.add(imagePane, GridBagUtils.weighted(0, 0, 1.0, 1.0,
+                GridBagConstraints.CENTER, GridBagConstraints.NONE,
+                new Insets(2, 2, 2, 2)));
 
         return panel;
     }

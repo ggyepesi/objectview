@@ -323,27 +323,37 @@ public class ImagePane extends JPanel
     }
 
     // The pane's layout footprint. imageWidth/imageHeight stay the NATURAL image
-    // size (the paint/crop math needs it); the preferred size is a display box —
-    // large images are capped (paintComponent scales to fit, so nothing is lost)
-    // and a real minimum is set, because without one GridBagLayout collapses the
-    // pane to nothing whenever a card is narrower than the image's natural size
-    // (the "tiny icon" cards).
+    // size (the paint/crop math needs it); preferred and minimum sizes are display
+    // boxes with the SAME aspect ratio. A square minimum made a portrait picture's
+    // component much wider than the picture and exposed the panel background as a
+    // grey strip. Large images remain capped and tiny images retain a usable longest
+    // side, but neither rule changes their proportions.
     private void applyDisplaySize() {
         int w = Math.max(1, imageWidth);
         int h = Math.max(1, imageHeight);
 
         int max = Math.max(w, h);
         if (max > displayCap) {
-            w = w * displayCap / max;
-            h = h * displayCap / max;
+            w = Math.max(1, (int) Math.round((double) w * displayCap / max));
+            h = Math.max(1, (int) Math.round((double) h * displayCap / max));
         }
 
-        // The floor cannot exceed the cap, or a capped pane would be forced back to
+        // The floor applies to the longest side, not independently to width and
+        // height. It cannot exceed the cap, or a capped pane would be forced back to
         // the card-sized box the cap exists to avoid.
         int floor = Math.min(150, displayCap);
+        int displayedMax = Math.max(w, h);
+        if (displayedMax < floor) {
+            w = Math.max(1, (int) Math.round((double) w * floor / displayedMax));
+            h = Math.max(1, (int) Math.round((double) h * floor / displayedMax));
+        }
 
-        setPreferredSize(new Dimension(Math.max(floor, w), Math.max(floor, h)));
-        setMinimumSize(new Dimension(floor, floor));
+        setPreferredSize(new Dimension(w, h));
+
+        int preferredMax = Math.max(w, h);
+        int minWidth = Math.max(1, (int) Math.round((double) w * floor / preferredMax));
+        int minHeight = Math.max(1, (int) Math.round((double) h * floor / preferredMax));
+        setMinimumSize(new Dimension(minWidth, minHeight));
     }
 
     /**

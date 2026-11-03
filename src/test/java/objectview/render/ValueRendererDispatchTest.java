@@ -1,6 +1,7 @@
 package objectview.render;
 
 import objectview.field.FieldPath;
+import objectview.field.FieldProperties;
 import objectview.media.ImagePane;
 import objectview.media.MediaValueData;
 import objectview.viewconfig.ViewConfig;
@@ -9,6 +10,8 @@ import org.junit.jupiter.api.Test;
 import javax.swing.JComponent;
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -50,6 +53,39 @@ class ValueRendererDispatchTest {
         assertNotNull(rendered);
         assertNotSame(stored, rendered,
                 "table/card sizing must not mutate the component stored in the domain");
+    }
+
+    @Test void imageComponentIsNotStretchedAwayFromItsAspectRatio() throws Exception {
+        ImagePane stored = new ImagePane(
+                "photo", "https://example.com/photo.jpg", null,
+                false, false, false);
+        JComponent rendered = render(stored);
+        ImagePane image = find(rendered, ImagePane.class);
+
+        assertNotNull(image);
+        Container parent = image.getParent();
+        GridBagConstraints constraints =
+                ((GridBagLayout) parent.getLayout()).getConstraints(image);
+        assertEquals(GridBagConstraints.NONE, constraints.fill,
+                "the field can grow without turning the image into a grey rectangle");
+        assertEquals(Boolean.TRUE, ((JComponent) parent).getClientProperty(
+                FieldProperties.CONTENT_SIZED_PROPERTY));
+    }
+
+    @Test void aCardKeepsTheWholeMediaFieldContentSized() {
+        Portrait portrait = new Portrait();
+        Card card = new Card(portrait, ViewConfig.of(Portrait.class),
+                new RenderContext(List.of(portrait)), false);
+        ImagePane image = find(card, ImagePane.class);
+
+        assertNotNull(image);
+        JComponent field = (JComponent) image.getParent();
+        assertSame(card, field.getParent());
+        GridBagConstraints constraints =
+                ((GridBagLayout) card.getLayout()).getConstraints(field);
+        assertEquals(GridBagConstraints.NONE, constraints.fill,
+                "the titled media field must fit the image, not the card row");
+        assertEquals(0.0, constraints.weightx);
     }
 
     /**
@@ -99,6 +135,14 @@ class ValueRendererDispatchTest {
         @objectview.annotations.Inline
         private final List<MediaValueData> image = List.of(
                 new MediaValueData("portrait", "https://example.com/photo.jpg", false));
+        @Override public String getIdentifier() { return name; }
+        @Override public String getDisplayName() { return name; }
+    }
+
+    private static final class Portrait extends objectview.ViewableAdapter {
+        @objectview.annotations.DisplayField private final String name = "one";
+        private final MediaValueData image = new MediaValueData(
+                "portrait", "https://example.com/photo.jpg", false);
         @Override public String getIdentifier() { return name; }
         @Override public String getDisplayName() { return name; }
     }

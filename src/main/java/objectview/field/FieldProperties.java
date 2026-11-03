@@ -20,6 +20,14 @@ public final class FieldProperties {
     /** Client-property key: the field's value. */
     public static final String FIELD_VALUE_PROPERTY = "objectview.fieldValue";
 
+    /**
+     * Client-property key: this rendered value owns its layout width. Containers may
+     * leave the surrounding row/column wider, but must not stretch this component to
+     * fill it. Media uses this so its titled field box fits the picture rather than
+     * leaving the picture centred in an otherwise empty rectangle.
+     */
+    public static final String CONTENT_SIZED_PROPERTY = "objectview.contentSized";
+
     private FieldProperties() {
     }
 }
