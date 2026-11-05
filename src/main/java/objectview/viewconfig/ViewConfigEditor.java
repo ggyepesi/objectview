@@ -635,7 +635,11 @@ public class ViewConfigEditor extends JPanel {
                             context.config(), context.sample(), true,
                             context.hideMedia(), context.hiddenFields(),
                             context.fieldTypes());
-                    buildTree(parentPath, depth + 1, minors, true);
+                    // The gate is already visible above the table. It is not a tree
+                    // node, so its fields stay siblings of the ordinary fields at
+                    // this level; hidden indentation makes the first one look owned
+                    // by the preceding row.
+                    buildTree(parentPath, depth, minors, true);
                 }
                 continue;
             }
@@ -1388,9 +1392,8 @@ public class ViewConfigEditor extends JPanel {
             if (state.minorBranch && !allMinorFieldsBox.isSelected()) {
                 continue;
             }
-            // Minor fields are visually indented under a presentation-only block;
-            // structurally they still attach directly to the surrounding config.
-            int depth = state.minorBranch ? row.depth() - 1 : row.depth();
+            // The minor-fields switch is a gate above the rows, not a hidden parent.
+            int depth = row.depth();
             String name = row.configName();
             if (row.nested() != null && isReference(row.path())) {
                 // A scalar reference contributes its navigation caption as one terminal
@@ -1413,6 +1416,15 @@ public class ViewConfigEditor extends JPanel {
                 cfg.setAllFields(false);
                 parents[depth + 1] = cfg;
                 configAt.put(row.path(), cfg);
+                // Reserve this field's position now, in the exact row order the
+                // reader arranged. The second pass resolves inheritance/remembered
+                // state and replaces the value under the same key; LinkedHashMap
+                // keeps this insertion position. Attaching all object branches only
+                // in that second, deepest-first pass moved them behind plain fields
+                // and reversed sibling branches.
+                if (state.use || row.isClassBranch()) {
+                    parents[depth].addField(name, cfg);
+                }
                 refs.add(new RefEntry(
                         parents[depth], name, cfg, state.use, row.nested().type(),
                         row.path(), state, explicit, row.isClassBranch()));

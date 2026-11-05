@@ -95,6 +95,32 @@ class MinorBlockRowTest {
         });
     }
 
+    /** The minor-fields switch is a gate above the table, not a hidden tree node.
+     * Indenting its rows made the first minor field look like a child of whichever
+     * ordinary field happened to precede it (reported for Display label and
+     * alternateNames). */
+    @Test void aMinorFieldIsPaintedAsASiblingNotAsAChildOfThePreviousField()
+            throws Exception {
+        class Named extends ViewableAdapter {
+            private final String displayName = "Horus";
+            @Minor private final List<String> alternateNames = List.of("Heru");
+            @Override public String getIdentifier() { return displayName; }
+            @Override public String getDisplayName() { return displayName; }
+        }
+
+        SwingUtilities.invokeAndWait(() -> {
+            ViewConfigEditor editor = new ViewConfigEditor(
+                    ViewConfig.allWithMinorFields(Named.class), new Named());
+            JTable table = findTable(editor);
+            int row = rowContaining(table, "alternateNames");
+            int field = column(table, "Field");
+
+            assertTrue("alternateNames".equals(table.getValueAt(row, field)),
+                    "a visible top-level minor field must not carry hidden indentation: '"
+                            + table.getValueAt(row, field) + "'");
+        });
+    }
+
     @Test void noMinorFieldsMeansNoBlock() {
         assertFalse(hasBlock(rowsFor(new Plain())),
                 "an empty group is not a group");
@@ -234,6 +260,20 @@ class MinorBlockRowTest {
             if (cell != null && value.equals(cell.toString().trim())) return true;
         }
         return false;
+    }
+
+    private static int rowContaining(JTable table, String value) {
+        for (int row = 0; row < table.getRowCount(); row++) {
+            if (rowContains(table, row, value)) return row;
+        }
+        throw new AssertionError("No row for " + value);
+    }
+
+    private static int column(JTable table, String name) {
+        for (int column = 0; column < table.getColumnCount(); column++) {
+            if (name.equals(table.getColumnName(column))) return column;
+        }
+        throw new AssertionError("No column " + name);
     }
 
     private static JTable findTable(Container root) {

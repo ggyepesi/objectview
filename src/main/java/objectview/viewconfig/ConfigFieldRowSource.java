@@ -17,8 +17,10 @@ import java.lang.reflect.TypeVariable;
 import java.lang.reflect.WildcardType;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Default row source for reflected Viewable classes and map-backed dynamic samples.
@@ -118,8 +120,10 @@ public final class ConfigFieldRowSource implements FieldRowSource {
             List<FieldRow> result, FieldRowContext context) {
         Viewable sample = context.sample();
         FieldSet fields = FieldSet.of(sample);
+        Set<String> sampleFields = new LinkedHashSet<>();
         for (FieldRef field : fields.fields()) {
             String name = field.name();
+            sampleFields.add(name);
             FieldTypeSource.FieldTypeInfo info = context.fieldTypes() == null
                     ? null : context.fieldTypes().field(name);
             boolean minor = field.minor() || info != null && info.minor();
@@ -153,6 +157,17 @@ public final class ConfigFieldRowSource implements FieldRowSource {
                     ? FieldRow.dynamic(name, displayLabel, label, nested)
                     : FieldRow.reflected(reflected, label, nested));
         }
+
+        // A shape sample is deliberately shallow at a reference cycle. It can still
+        // contribute a useful caption/value, but it is not the field inventory: the
+        // authoritative schema must supplement fields absent from that sample. This
+        // is also the correct meaning for a partial FieldTypeSource — known schema
+        // fields are added without hiding sample-only fields for which field(name)
+        // intentionally falls back to reflection.
+        if (context.fieldTypes() != null
+                && !context.fieldTypes().fieldNames().isEmpty()) {
+            addSchemaRows(result, context, sampleFields);
+        }
     }
 
     /** Enumerates a reference that has NO live sample value from its schema — the
@@ -160,6 +175,13 @@ public final class ConfigFieldRowSource implements FieldRowSource {
      *  Driven by the model rather than a live value. */
     private void addSchemaRows(List<FieldRow> result,
                                FieldRowContext context) {
+        addSchemaRows(result, context, Set.of());
+    }
+
+    /** Adds schema fields missing from an optional live sample. */
+    private void addSchemaRows(List<FieldRow> result,
+                               FieldRowContext context,
+                               Set<String> alreadyAdded) {
         FieldTypeSource types = context.fieldTypes();
 
         if (!context.minorOnly()) {
@@ -173,6 +195,7 @@ public final class ConfigFieldRowSource implements FieldRowSource {
                     ? List.<FieldRef>of()
                     : objectview.field.ViewableContractFieldSet.fieldRefs()) {
                 if (!context.hiddenFields().contains(field.name())
+                        && !alreadyAdded.contains(field.name())
                         && !types.fieldNames().contains(field.name())) {
                     result.add(FieldRow.dynamic(
                             field.name(), field.label(), field.typeLabel(), null));
@@ -181,7 +204,8 @@ public final class ConfigFieldRowSource implements FieldRowSource {
         }
 
         for (String name : types.fieldNames()) {
-            if (context.hiddenFields().contains(name)) {
+            if (alreadyAdded.contains(name)
+                    || context.hiddenFields().contains(name)) {
                 continue;
             }
             FieldTypeSource.FieldTypeInfo info = types.field(name);

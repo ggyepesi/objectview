@@ -1,7 +1,14 @@
 package objectview.viewconfig;
 
 import objectview.ViewableAdapter;
+import objectview.annotations.DisplayField;
 import objectview.annotations.Reference;
+import objectview.plan.MockDisclosure;
+import objectview.plan.MockSink;
+import objectview.plan.PlanResolver;
+import objectview.plan.RenderExecutor;
+import objectview.plan.TypeShape;
+import objectview.plan.ViewConfigDesugar;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.JTable;
@@ -50,6 +57,66 @@ class NestedFieldSelectionTest {
         List<Constellation> sharesBorderWith = List.of();
         @Override public String getIdentifier() { return name; }
         @Override public String getDisplayName() { return name; }
+    }
+
+    private static final class Family extends ViewableAdapter {
+        @DisplayField String name;
+        List<Family> child = List.of();
+        String summary;
+        List<Family> sibling = List.of();
+
+        Family(String name, String summary) {
+            this.name = name;
+            this.summary = summary;
+        }
+
+        @Override public String getIdentifier() { return name; }
+        @Override public String getDisplayName() { return name; }
+    }
+
+    /** The View Config is the paint order. Nested branches used to be attached in a
+     * second deepest-first pass, moving them behind every plain field and reversing
+     * child/sibling. The same round trip must also leave a collection projection that
+     * really reveals its members when its disclosure is opened. */
+    @Test void configuredSiblingOrderAndRecursiveCollectionProjectionSurviveTheEditor()
+            throws Exception {
+        Family khonsu = new Family("Khonsu", "moon god");
+        Family maat = new Family("Maat", "truth goddess");
+        Family amun = new Family("Amun", "creator god");
+        amun.child = List.of(khonsu);
+        amun.sibling = List.of(maat);
+
+        ViewConfig member = ViewConfig.leaf();
+        member.setCls(Family.class);
+        member.addField("name", ViewConfig.leaf());
+        ViewConfig entered = ViewConfig.leaf();
+        entered.setCls(Family.class);
+        entered.addField("name", ViewConfig.leaf());
+        entered.addField("child", member);
+        entered.addField("summary", ViewConfig.leaf());
+        entered.addField("sibling", member.copy());
+
+        ViewConfig[] result = new ViewConfig[1];
+        SwingUtilities.invokeAndWait(() -> {
+            ViewConfigEditor editor = new ViewConfigEditor(
+                    entered, amun, FieldTableContributor.REORDERABLE);
+            editor.setConnectedFieldSelection(true);
+            editor.setInheritsRecursion(true);
+            result[0] = editor.getConfig();
+        });
+
+        assertEquals(List.of("name", "child", "summary", "sibling"),
+                List.copyOf(result[0].getFields().keySet()),
+                "the saved config and renderer consume one sibling order");
+
+        MockSink sink = new MockSink();
+        ViewConfig literal = ViewConfigDesugar.preparedView(
+                result[0], TypeShape.ofClass(Family.class));
+        new RenderExecutor(new PlanResolver(), value -> null, value -> true,
+                new MockDisclosure().expand(amun.child))
+                .render(amun, literal, sink);
+        assertTrue(sink.traceText().contains(
+                        "OBJECT child[0] caption=\"Khonsu\""), sink.traceText());
     }
 
     @Test void uncheckingParentSuppressesButDoesNotForgetNestedChoices() throws Exception {
