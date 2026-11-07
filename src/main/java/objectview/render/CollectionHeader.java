@@ -19,7 +19,6 @@ import java.awt.event.MouseEvent;
 public class CollectionHeader extends JComponent {
     private static final int PAD_X = 6;
     private static final int PAD_Y = 4;
-    private static final int TRI_W = 12;
 
     private final String fieldName;
     private int count;
@@ -132,7 +131,7 @@ public class CollectionHeader extends JComponent {
     @Override
     public Dimension getPreferredSize() {
         FontMetrics fm = getFontMetrics(labelFont());
-        int w = PAD_X + TRI_W + fm.stringWidth(text()) + PAD_X;
+        int w = TextRow.FIELD_NAME_X + fm.stringWidth(text()) + PAD_X;
         int h = fm.getHeight() + 2 * PAD_Y;
         return new Dimension(Math.max(100, w), h);
     }
@@ -171,7 +170,7 @@ public class CollectionHeader extends JComponent {
 
             g2.setFont(font);
             g2.setColor(hover ? new Color(0, 80, 180) : getForeground());
-            g2.drawString(text(), PAD_X + TRI_W, baseline);
+            g2.drawString(text(), TextRow.FIELD_NAME_X, baseline);
         } finally {
             g2.dispose();
         }

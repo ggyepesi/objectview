@@ -30,7 +30,6 @@ public class ReferenceRow extends TextRow {
     private static final Logger log = LoggerFactory.getLogger(ReferenceRow.class);
 
 
-    private static final int TRI_W = 12;
     private static final Color VALUE_COLOR = new Color(0, 80, 180);
     private static final Color TRI_COLOR = new Color(120, 120, 120);
 
@@ -158,7 +157,7 @@ public class ReferenceRow extends TextRow {
 
     @Override
     protected int leadingGlyphWidth() {
-        return TRI_W;
+        return FIELD_GUTTER;
     }
 
     @Override

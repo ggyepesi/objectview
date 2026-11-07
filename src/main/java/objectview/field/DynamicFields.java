@@ -19,6 +19,16 @@ public interface DynamicFields {
      *  or collections/maps of either. */
     Map<String, Object> dynamicFieldValues();
 
+    /**
+     * Fields visible to ObjectView at runtime. Usually identical to
+     * {@link #dynamicFieldValues()}, but a backing may overlay transient values derived
+     * from a loaded source/configuration. Such values participate in rendering,
+     * search and sort without becoming persisted domain data.
+     */
+    default Map<String, Object> viewFieldValues() {
+        return dynamicFieldValues();
+    }
+
     /** Optional authoritative schema carried with the dynamic value. Persisted
      * snapshots attach their field graph here after loading. */
     default FieldSchema dynamicFieldSchema() {

@@ -23,12 +23,12 @@ public final class DynamicFieldSet implements FieldSet {
 
     @Override
     public Object read(String name) {
-        return object.dynamicFieldValues().get(name);
+        return object.viewFieldValues().get(name);
     }
 
     @Override
     public boolean has(String name) {
-        return object.dynamicFieldValues().containsKey(name);
+        return object.viewFieldValues().containsKey(name);
     }
 
     @Override
@@ -41,7 +41,7 @@ public final class DynamicFieldSet implements FieldSet {
         List<FieldRef> out = new ArrayList<>();
 
         for (Map.Entry<String, Object> e
-                : object.dynamicFieldValues().entrySet()) {
+                : object.viewFieldValues().entrySet()) {
 
             out.add(fieldRef(e.getKey(), e.getValue()));
         }

@@ -25,6 +25,11 @@ public class TextRow extends JComponent implements TextSelectable {
     private static final int PAD_Y = 4;
     private static final int GAP = 8;
     private static final int MAX_PREF_WIDTH = 420;
+    /** One leading control gutter for every peer field row. Rows without a
+     * disclosure glyph leave it empty, so their field names still align with
+     * reference and collection field names. */
+    static final int FIELD_GUTTER = 12;
+    static final int FIELD_NAME_X = PAD_X + FIELD_GUTTER;
 
     private static final Color SEARCH_HIGHLIGHT =
             new Color(255, 245, 120);
@@ -137,10 +142,11 @@ public class TextRow extends JComponent implements TextSelectable {
     }
 
     /** Width reserved at the far left for a leading glyph (e.g. an expand
-     *  triangle); 0 by default. Subclasses that draw one override this AND
+     *  triangle). Every row reserves the same gutter; subclasses that draw one
+     *  override this only if their glyph requires a different width, and also override
      *  {@link #paintLeadingGlyph}. */
     protected int leadingGlyphWidth() {
-        return 0;
+        return FIELD_GUTTER;
     }
 
     /** Paint a leading glyph at {@code x} (the left pad), aligned to the first

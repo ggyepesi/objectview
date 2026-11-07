@@ -115,7 +115,7 @@ public interface FieldSet {
             backing = new SchemaFieldSet(backing, effective);
             FieldRef display = backing.displayField();
             if (object instanceof DynamicFields dynamic && display != null
-                    && !dynamic.dynamicFieldValues().containsKey(display.name())) {
+                    && !dynamic.viewFieldValues().containsKey(display.name())) {
                 backing = new LabelDisplayFieldSet(backing, display.name(), object);
             }
         }

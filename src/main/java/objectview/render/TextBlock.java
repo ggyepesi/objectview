@@ -510,7 +510,8 @@ public class TextBlock extends JComponent implements TextSelectable {
             }
         }
 
-        int naturalWidth = Math.max(120, Math.min(MAX_PREF_WIDTH, PAD_X + longest + PAD_X));
+        int naturalWidth = Math.max(120, Math.min(MAX_PREF_WIDTH,
+                TextRow.FIELD_NAME_X + longest + PAD_X));
 
         // Reserve height for wrapping at the width we are actually given (the
         // card stretches us past naturalWidth). Computing height at
@@ -573,7 +574,7 @@ public class TextBlock extends JComponent implements TextSelectable {
                     if (!prefix.isEmpty()) {
                         g2.setFont(fieldFont);
                         g2.setColor(getForeground());
-                        g2.drawString(prefix, PAD_X, pl.baseline());
+                        g2.drawString(prefix, TextRow.FIELD_NAME_X, pl.baseline());
                     }
 
                     previous = row;
@@ -622,7 +623,7 @@ public class TextBlock extends JComponent implements TextSelectable {
         for (Row row : rows) {
             String prefix = prefix(row);
             int prefixWidth = prefix.isEmpty() ? 0 : fmField.stringWidth(prefix) + GAP;
-            int valueX = PAD_X + prefixWidth;
+            int valueX = TextRow.FIELD_NAME_X + prefixWidth;
             int valueWidth = Math.max(80, width - valueX - PAD_X);
 
             List<String> wrapped = new ArrayList<>();
