@@ -315,8 +315,9 @@ public final class VirtualizedCardList
 
         positionCard(i, card);
 
-        if (measureCardIfChanged(q, card)) {
-            rebuildTops();
+        TopsChange change = measure(i, q, card);
+        if (change.changed()) {
+            apply(List.of(change));
             positionCard(i, card);
             revalidate();
         }
@@ -728,7 +729,82 @@ public final class VirtualizedCardList
         estimate.addSample(measured);
     }
 
+    /**
+     * What measuring one row did to {@link #tops}. Usually its exact height replaced
+     * the estimate it was laid out with: then only the rows after it move, all by the
+     * same {@code delta} (often 0). Only when the measurement moved its class estimate
+     * do all not-yet-built rows of that class change, and the table is rebuilt.
+     */
+    private record TopsChange(int index, int delta, boolean rebuild) {
+        static final TopsChange NONE = new TopsChange(-1, 0, false);
+
+        boolean changed() { return rebuild || delta != 0; }
+    }
+
+    /**
+     * Measures {@code q}'s card at {@code index} and reports the layout change.
+     * Rebuilding the whole table for every first measurement made building a row
+     * cost a pass over every item: 1,000 rows of a 100,000-item table took 5.5 s,
+     * almost all of it in {@link #rebuildTops()} recomputing positions that the
+     * measurement had not moved.
+     */
+    private TopsChange measure(int index, Viewable q, JComponent card) {
+        int heightBefore = rowHeight(q);
+        int estimateBefore = estimateOf(q);
+        if (!measureCardIfChanged(q, card)) {
+            return TopsChange.NONE;
+        }
+        if (estimateOf(q) != estimateBefore) {
+            return new TopsChange(index, 0, true);
+        }
+        return new TopsChange(index, rowHeight(q) - heightBefore, false);
+    }
+
+    private int estimateOf(Viewable q) {
+        HeightEstimate estimate = q == null ? null : estimatesByClass.get(q.getClass());
+        return estimate == null ? DEFAULT_ROW : estimate.value();
+    }
+
+    /** Brings {@link #tops} up to date for {@code changes}: one full rebuild if any
+     *  moved an estimate, otherwise one pass adding each row's delta to the rows after
+     *  it. */
+    private void apply(List<TopsChange> changes) {
+        if (changes.stream().anyMatch(TopsChange::rebuild)
+                || tops.length != items.size() + 1) {
+            rebuildTops();
+            return;
+        }
+        List<TopsChange> ordered = new ArrayList<>(changes);
+        ordered.sort(Comparator.comparingInt(TopsChange::index));
+        int next = 0;
+        int shift = 0;
+        for (int j = ordered.get(0).index() + 1; j < tops.length; j++) {
+            while (next < ordered.size() && ordered.get(next).index() < j) {
+                shift += ordered.get(next++).delta();
+            }
+            tops[j] += shift;
+        }
+    }
+
+    /** Full recomputations of {@link #tops}, for tests that guard their cost. */
+    int topsRebuilds() { return topsRebuilds; }
+
+    /** Whether the incrementally maintained {@link #tops} equals a full recomputation
+     *  from the current heights; for tests. Changes nothing. */
+    boolean topsConsistent() {
+        if (tops.length != items.size() + 1) return false;
+        int y = 0;
+        for (int i = 0; i < items.size(); i++) {
+            if (tops[i] != y) return false;
+            y += rowHeight(items.get(i));
+        }
+        return tops[items.size()] == y;
+    }
+
+    private int topsRebuilds;
+
     private void rebuildTops() {
+        topsRebuilds++;
         tops = new int[items.size() + 1];
 
         int y = 0;
@@ -824,7 +900,7 @@ public final class VirtualizedCardList
 
         syncBuiltRange(first, last);
 
-        boolean heightsChanged = false;
+        List<TopsChange> changes = new ArrayList<>();
 
         for (int i = first; i <= last; i++) {
             Viewable q = items.get(i);
@@ -836,13 +912,14 @@ public final class VirtualizedCardList
 
             positionCard(i, card);
 
-            if (measureCardIfChanged(q, card)) {
-                heightsChanged = true;
+            TopsChange change = measure(i, q, card);
+            if (change.changed()) {
+                changes.add(change);
             }
         }
 
-        if (heightsChanged) {
-            rebuildTops();
+        if (!changes.isEmpty()) {
+            apply(changes);
 
             for (int i = first; i <= last; i++) {
                 JComponent card =
@@ -871,7 +948,7 @@ public final class VirtualizedCardList
                                     );
         }
 
-        return heightsChanged || moved;
+        return !changes.isEmpty() || moved;
     }
 
     private JComponent buildCard(Viewable q) {
@@ -1089,10 +1166,11 @@ public final class VirtualizedCardList
         if (q == null) return;
         JComponent card = built.get(q);
         if (card == null || card.getParent() != this) return;
-        if (measureCardIfChanged(q, card)) {
-            rebuildTops();
-            int index = indexOf(q);
-            if (index >= 0) positionCard(index, card);
+        int index = indexOf(q);
+        TopsChange change = index < 0 ? TopsChange.NONE : measure(index, q, card);
+        if (change.changed()) {
+            apply(List.of(change));
+            positionCard(index, card);
         }
         revalidate();
         syncScrollPaneToContent();

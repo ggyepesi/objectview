@@ -546,4 +546,49 @@ class VirtualizedCardListTest {
                     "the reachable range must include the expanded card's bottom");
         });
     }
+
+    /**
+     * Building a row used to rebuild the whole position table, so each new row cost a
+     * pass over every item: 1,000 rows of a 100,000-item table took 5.5 s in the table
+     * benchmark. A row whose exact height leaves its class estimate unchanged now only
+     * moves the rows after it; with uniform rows that is a handful of rebuilds in all.
+     */
+    @Test void buildingRowsOfAUniformListDoesNotRebuildThePositionTableEachTime() {
+        List<Item> items = makeItems(10_000);
+        VirtualizedCardList list = install(items);
+        int before = list.topsRebuilds();
+
+        for (int i = 0; i < 1_000; i++) {
+            list.buildIfNeeded(items.get(i * 7));
+        }
+
+        assertTrue(list.topsRebuilds() - before <= 2,
+                "full rebuilds while building 1,000 rows: " + (list.topsRebuilds() - before));
+        assertTrue(list.topsConsistent());
+    }
+
+    /** The other side: shifting by deltas must give exactly the positions a full
+     *  recomputation gives, whatever the heights and the order rows are built in,
+     *  including rows that change height after they were built. */
+    @Test void incrementalPositionsEqualAFullRecomputation() {
+        List<Item> items = makeItems(2_000);
+        java.util.Random random = new java.util.Random(7);
+        for (Item item : items) realHeight.put(item, 40 + random.nextInt(5) * 30);
+        VirtualizedCardList list = install(items);
+
+        for (int step = 0; step < 600; step++) {
+            Item item = items.get(random.nextInt(items.size()));
+            if (step % 5 == 4 && list.builtCard(item) != null) {
+                realHeight.put(item, EXPANDED + random.nextInt(200));
+                list.remeasureCard(item);
+            } else {
+                list.buildIfNeeded(item);
+            }
+            assertTrue(list.topsConsistent(), "positions drifted at step " + step);
+        }
+        Item last = items.get(items.size() - 1);
+        list.buildIfNeeded(last);
+        assertEquals(list.totalHeight() > 0, true);
+        assertTrue(list.topsConsistent());
+    }
 }
