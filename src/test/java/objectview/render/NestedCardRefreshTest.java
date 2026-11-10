@@ -189,6 +189,93 @@ class NestedCardRefreshTest {
         list.dispose();
     }
 
+    @Test void collapsingAnExpandedCollectionMemberReleasesItsNestedHeight()
+            throws Exception {
+        LogLike root = new LogLike("root", "root detail");
+        LogLike parent = new LogLike("parent", "parent detail");
+        parent.steps.add(new LogLike("grandparent", "grandparent detail"));
+        root.steps.add(parent);
+        RenderContext context = new RenderContext();
+        CardListView list = new CardListView();
+        list.setRenderContext(context);
+        list.addViewable(root);
+        list.createCardsPanel(1);
+        list.getVirtualList().setViewConfigResolver(ignored -> logConfig(3));
+
+        int[] heights = new int[5];
+        SwingUtilities.invokeAndWait(() -> {
+            JComponent card = list.getVirtualList().buildIfNeeded(root);
+            heights[0] = list.getVirtualList().getPreferredSize().height;
+
+            CollectionHeader collection = find(card, CollectionHeader.class);
+            assertNotNull(collection);
+            collection.dispatchEvent(click(collection));
+            heights[1] = list.getVirtualList().getPreferredSize().height;
+
+            ReferenceRow member = findReference(card, "parent");
+            assertNotNull(member);
+            member.valueClicked(click(member));
+            heights[2] = list.getVirtualList().getPreferredSize().height;
+
+            ReferenceRow expandedMember = findReference(card, "parent");
+            assertNotNull(expandedMember);
+            expandedMember.valueClicked(click(expandedMember));
+            heights[3] = list.getVirtualList().getPreferredSize().height;
+
+            CollectionHeader expandedCollection = find(card, CollectionHeader.class);
+            assertNotNull(expandedCollection);
+            expandedCollection.dispatchEvent(click(expandedCollection));
+            heights[4] = list.getVirtualList().getPreferredSize().height;
+        });
+
+        assertTrue(heights[1] > heights[0]);
+        assertTrue(heights[2] > heights[1]);
+        assertEquals(heights[1], heights[3],
+                "closing a collection member must remove its nested body height");
+        assertEquals(heights[0], heights[4],
+                "closing the collection must restore the original virtual row height");
+        list.dispose();
+    }
+
+    @Test void collapsingATopLevelCardMovesTheNextVirtualCardUpImmediately()
+            throws Exception {
+        LogLike aker = new LogLike("Aker", "expanded detail");
+        aker.steps.add(new LogLike("parent", "parent detail"));
+        LogLike akhty = new LogLike("Akhty", "next card detail");
+        RenderContext context = new RenderContext();
+        context.setCollapsibleCards(true);
+        CardListView list = new CardListView();
+        list.setRenderContext(context);
+        list.addViewable(aker);
+        list.addViewable(akhty);
+        list.createCardsPanel(1);
+        list.getVirtualList().setViewConfigResolver(ignored -> logConfig(2));
+
+        int[] positions = new int[4];
+        SwingUtilities.invokeAndWait(() -> {
+            Card collapsedAker = (Card) list.getVirtualList().buildIfNeeded(aker);
+            JComponent akhtyCard = list.getVirtualList().buildIfNeeded(akhty);
+            positions[0] = collapsedAker.getHeight();
+            positions[1] = akhtyCard.getY();
+
+            collapsedAker.toggleCollapsed();
+            Card expandedAker = (Card) list.getVirtualList().builtCard(aker);
+            positions[2] = akhtyCard.getY() - expandedAker.getHeight();
+
+            expandedAker.toggleCollapsed();
+            Card collapsedAgain = (Card) list.getVirtualList().builtCard(aker);
+            positions[3] = akhtyCard.getY() - collapsedAgain.getHeight();
+        });
+
+        assertEquals(positions[0], positions[1],
+                "the next card starts immediately after the initially collapsed card");
+        assertEquals(0, positions[2],
+                "the next card must move down when its predecessor expands");
+        assertEquals(0, positions[3],
+                "the next card must move back up when its predecessor collapses");
+        list.dispose();
+    }
+
     private static MouseEvent click(JComponent component) {
         return new MouseEvent(component, MouseEvent.MOUSE_CLICKED,
                 System.currentTimeMillis(), 0, 1, 1, 1, false,

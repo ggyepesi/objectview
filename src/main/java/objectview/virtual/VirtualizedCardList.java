@@ -772,6 +772,7 @@ public final class VirtualizedCardList
         if (changes.stream().anyMatch(TopsChange::rebuild)
                 || tops.length != items.size() + 1) {
             rebuildTops();
+            positionBuiltFrom(0);
             return;
         }
         List<TopsChange> ordered = new ArrayList<>(changes);
@@ -783,6 +784,18 @@ public final class VirtualizedCardList
                 shift += ordered.get(next++).delta();
             }
             tops[j] += shift;
+        }
+        positionBuiltFrom(ordered.get(0).index());
+    }
+
+    /** Keep the materialized components in the same layout state as {@link #tops}.
+     * A single-card toggle changes every following row's top. Waiting for a later
+     * viewport pass to copy those positions into component bounds left the old expanded
+     * interval visible between two already-materialized cards after collapse. */
+    private void positionBuiltFrom(int firstIndex) {
+        for (Map.Entry<Viewable, JComponent> entry : built.entrySet()) {
+            int index = indexOf(entry.getKey());
+            if (index >= firstIndex) positionCard(index, entry.getValue());
         }
     }
 
@@ -1122,10 +1135,12 @@ public final class VirtualizedCardList
     }
 
     /**
-     * Discards a single card (and its stale height) so it is rebuilt fresh by
-     * the factory at its next visible pass — used when a card's own rendering
-     * changed (e.g. collapse/expand), so the new size is re-measured rather than
-     * grown in place. No-op if the card isn't built. Call on the EDT.
+     * Discards a single card so it is rebuilt fresh by the factory — used when a
+     * card's own rendering changed (e.g. collapse/expand). Its old exact height is
+     * retained only as the measurement baseline until the replacement is measured;
+     * dropping it first substitutes the class estimate and can turn a real collapse
+     * into a zero-height change, leaving the expanded interval in {@link #tops}.
+     * No-op if the card isn't built. Call on the EDT.
      */
     public void invalidateCard(Viewable q) {
         if (q == null) {
@@ -1135,7 +1150,6 @@ public final class VirtualizedCardList
         if (card != null) {
             remove(card);
         }
-        heights.remove(q);
 
         // Rebuild q at its NEW (toggled) size and rebuild the height table from the
         // EXACT measured height in one step. The old code called rebuildTops() here
@@ -1147,6 +1161,7 @@ public final class VirtualizedCardList
         if (indexOf(q) >= 0) {
             buildIfNeeded(q);   // build + measure exact + rebuildTops + revalidate
         } else {
+            heights.remove(q);
             rebuildTops();
             revalidate();
         }
