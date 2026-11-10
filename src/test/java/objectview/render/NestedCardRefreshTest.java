@@ -154,6 +154,41 @@ class NestedCardRefreshTest {
         list.dispose();
     }
 
+    @Test void collapsingACollectionShrinksItsVirtualRowBackToTheHeader()
+            throws Exception {
+        LogLike root = new LogLike("generate domains", "root detail");
+        root.steps.add(new LogLike("generate one domain", "outer detail"));
+        RenderContext context = new RenderContext();
+        CardListView list = new CardListView();
+        list.setRenderContext(context);
+        list.addViewable(root);
+        list.createCardsPanel(1);
+        list.getVirtualList().setViewConfigResolver(ignored -> logConfig(2));
+
+        int[] heights = new int[3];
+        SwingUtilities.invokeAndWait(() -> {
+            JComponent card = list.getVirtualList().buildIfNeeded(root);
+            heights[0] = list.getVirtualList().getPreferredSize().height;
+
+            CollectionHeader collapsed = find(card, CollectionHeader.class);
+            assertNotNull(collapsed);
+            collapsed.dispatchEvent(click(collapsed));
+            heights[1] = list.getVirtualList().getPreferredSize().height;
+
+            CollectionHeader expanded = find(card, CollectionHeader.class);
+            assertNotNull(expanded);
+            assertTrue(expanded.isExpanded());
+            expanded.dispatchEvent(click(expanded));
+            heights[2] = list.getVirtualList().getPreferredSize().height;
+        });
+
+        assertTrue(heights[1] > heights[0],
+                "opening the members must grow the virtual row");
+        assertEquals(heights[0], heights[2],
+                "collapsing must remove the expanded body's reserved row height");
+        list.dispose();
+    }
+
     private static MouseEvent click(JComponent component) {
         return new MouseEvent(component, MouseEvent.MOUSE_CLICKED,
                 System.currentTimeMillis(), 0, 1, 1, 1, false,

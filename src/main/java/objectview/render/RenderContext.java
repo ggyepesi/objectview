@@ -158,7 +158,8 @@ public class RenderContext {
                             return rootsStartFolded;
                         }
                     },
-                    this::valueLink);
+                    this::valueLink,
+                    this::shape);
         }
         return executor;
     }

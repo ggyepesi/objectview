@@ -26,6 +26,7 @@ public final class RenderExecutor {
 
     private final PlanResolver resolver;
     private final Function<Viewable, FieldSchema> schemas;
+    private final Function<Viewable, TypeShape> shapes;
     private final Predicate<Viewable> topLevel;
     private final Disclosure disclosure;
     private final Function<Object, String> valueLinker;
@@ -52,8 +53,24 @@ public final class RenderExecutor {
                           Predicate<Viewable> topLevel,
                           Disclosure disclosure,
                           Function<Object, String> valueLinker) {
+        this(resolver, schemas, topLevel, disclosure, valueLinker, null);
+    }
+
+    /**
+     * @param shapes the actual target's shape, used to bind a polymorphic
+     *               {@code @view:display} tick to that target's declared DISPLAY field
+     */
+    public RenderExecutor(PlanResolver resolver,
+                          Function<Viewable, FieldSchema> schemas,
+                          Predicate<Viewable> topLevel,
+                          Disclosure disclosure,
+                          Function<Object, String> valueLinker,
+                          Function<Viewable, TypeShape> shapes) {
         this.resolver = resolver;
         this.schemas = schemas == null ? value -> null : schemas;
+        this.shapes = shapes == null
+                ? value -> TypeShape.of(value, this.schemas.apply(value), ignored -> null)
+                : shapes;
         this.topLevel = topLevel == null ? value -> false : topLevel;
         this.disclosure = disclosure == null ? Disclosure.INITIAL : disclosure;
         this.valueLinker = valueLinker == null ? ignored -> null : valueLinker;
@@ -198,7 +215,14 @@ public final class RenderExecutor {
                     return new Decision(Kind.LEAF, at, field, Representation.TEXT, value,
                             null, false, 0, null);
                 }
-                Level object = level(target, field.child());
+                // A field declared against a polymorphic base (including Viewable)
+                // carries the stable @view:display alias. Bind that alias only now,
+                // when the referenced value supplies its actual schema. This is the
+                // same preparation every nested Card performs, but the decision needs
+                // the caption before it knows whether there is a body to open.
+                ViewConfig targetConfig = ViewConfigDesugar.preparedView(
+                        field.child(), shapes.apply(target));
+                Level object = level(target, targetConfig);
                 // Rule 7: a scalar reference to an object with its own card is a link,
                 // even back to the card it sits in; a collection member is the
                 // collection's projection.

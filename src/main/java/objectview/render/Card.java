@@ -663,7 +663,23 @@ public class Card extends JPanel implements RenderedInstanceHost {
     /** The component tree changed in place; keep it and update only its virtual
      * owner's cached measurement. */
     void notifyOwnerLayoutChanged() {
-        if (path.isRoot()) renderContext.notifyCardResized(viewable);
+        Card root = this;
+        for (Container parent = getParent(); parent != null; parent = parent.getParent()) {
+            if (parent instanceof Card card) root = card;
+        }
+
+        // Swing's deferred revalidate is too late for VirtualizedCardList's
+        // synchronous remeasurement. In particular, GridBagLayout can still report
+        // the expanded preferred height immediately after a nested collection was
+        // collapsed. Invalidate the retained root card's layout cache before asking
+        // its owner to measure it; otherwise the removed body survives as blank row
+        // space until an unrelated resize triggers another layout pass.
+        if (root.getLayout() instanceof java.awt.LayoutManager2 layout) {
+            layout.invalidateLayout(root);
+        }
+        root.invalidate();
+        root.revalidate();
+        if (root.path.isRoot()) root.renderContext.notifyCardResized(root.viewable);
     }
 
     private void addTitleHeaderIfNeeded() {
@@ -1105,7 +1121,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
         ReferenceRow chip = new ReferenceRow(
                 named ? "" : label, fieldPath, target, renderContext, object.config(),
                 objectPathTitle(target), open, navigate, navigate,
-                chipText, object.captionField());
+                chipText, object.captionField(), object.captionUrl());
         if (!open) {
             return maybeDecoratedReference(chip, target, decorate);
         }

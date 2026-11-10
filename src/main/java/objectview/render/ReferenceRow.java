@@ -4,6 +4,7 @@ import objectview.demo.CardFrame;
 import objectview.field.FieldProperties;
 import objectview.field.FieldPath;
 import objectview.Viewable;
+import objectview.utils.BrowserLauncher;
 import objectview.viewconfig.ViewConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,6 +48,7 @@ public class ReferenceRow extends TextRow {
     // top-level card.  The triangle owns disclosure; the caption owns navigation.
     private final boolean expandable;
     private final String displayFieldName;
+    private final String externalUrl;
 
     /** The caption of a navigation link whose target has no selected DISPLAY. It names
      * the action, not the object, so nothing the ViewConfig left unticked leaks in. */
@@ -55,6 +57,9 @@ public class ReferenceRow extends TextRow {
     boolean navigatesToTopLevel() { return navigate; }
 
     Viewable target() { return target; }
+
+    /** External destination declared by this reference's selected DISPLAY field. */
+    public String url() { return externalUrl; }
 
     public ReferenceRow(String fieldName,
                         FieldPath fieldPath,
@@ -109,6 +114,24 @@ public class ReferenceRow extends TextRow {
                         boolean expandable,
                         String caption,
                         String displayFieldName) {
+        this(fieldName, fieldPath, target, renderContext, openConfig, openTitle,
+                expanded, navigate, expandable, caption, displayFieldName, null);
+    }
+
+    /** A reference whose configured DISPLAY is itself a link. Its caption opens that
+     *  link; the separate disclosure glyph still expands or collapses the object. */
+    public ReferenceRow(String fieldName,
+                        FieldPath fieldPath,
+                        Viewable target,
+                        RenderContext renderContext,
+                        ViewConfig openConfig,
+                        String openTitle,
+                        boolean expanded,
+                        boolean navigate,
+                        boolean expandable,
+                        String caption,
+                        String displayFieldName,
+                        String externalUrl) {
         super(fieldName,
                 fieldPath == null ? FieldPath.ROOT : fieldPath,
                 List.of(caption == null ? "" : caption));
@@ -122,9 +145,13 @@ public class ReferenceRow extends TextRow {
         this.navigate = navigate;
         this.expandable = expandable;
         this.displayFieldName = displayFieldName;
+        this.externalUrl = externalUrl == null ? "" : externalUrl.trim();
 
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        setToolTipText(navigate && expandable
+        setToolTipText(!this.externalUrl.isBlank()
+                ? "Click the linked name to open it · click the triangle to "
+                        + (expanded ? "collapse" : "expand") + " · right-click for more"
+                : navigate && expandable
                 ? "Click the name to jump to its card · click the triangle to "
                         + (expanded ? "collapse" : "expand") + " · right-click for more"
                 : navigate
@@ -142,6 +169,11 @@ public class ReferenceRow extends TextRow {
     @Override
     protected Color valueColor() {
         return VALUE_COLOR;
+    }
+
+    @Override
+    protected boolean underlineValue() {
+        return !externalUrl.isBlank();
     }
 
     @Override
@@ -183,6 +215,10 @@ public class ReferenceRow extends TextRow {
     // in a window stays on the right-click menu.)
     @Override
     protected void valueClicked(MouseEvent e) {
+        if (!externalUrl.isBlank()) {
+            BrowserLauncher.open(externalUrl);
+            return;
+        }
         if (NAV_DEBUG) {
             log.debug("[nav] ref valueClicked navigate=" + navigate
                     + " target='" + (target == null ? "null" : target.getDisplayName())
@@ -199,7 +235,9 @@ public class ReferenceRow extends TextRow {
      * caption navigates and its disclosure glyph/padding changes only disclosure. */
     @Override
     protected void valueClickedAt(Point point) {
-        if (navigate && (!expandable || isPointOverValue(point))) {
+        if (!externalUrl.isBlank() && isPointOverValue(point)) {
+            BrowserLauncher.open(externalUrl);
+        } else if (navigate && (!expandable || isPointOverValue(point))) {
             openOrFocus();
         } else {
             toggleExpansion();
@@ -212,6 +250,11 @@ public class ReferenceRow extends TextRow {
             return;
         }
         menu.addSeparator();
+        if (!externalUrl.isBlank()) {
+            JMenuItem copyUrl = new JMenuItem("Copy URL");
+            copyUrl.addActionListener(e -> copyToClipboard(externalUrl));
+            menu.add(copyUrl);
+        }
         JMenuItem open = new JMenuItem("Open in window");
         open.addActionListener(e -> openFullObject());
         menu.add(open);
