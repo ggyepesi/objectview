@@ -59,7 +59,7 @@ public final class LiteralPaths {
             FieldPath path = prefix.append(name);
             String label = field == null
                     ? objectview.field.ViewableContractFieldSet.label(name) : field.label();
-            String title = titlePrefix.isEmpty() ? label : titlePrefix + "." + label;
+            String title = title(titlePrefix, label, displayLeaf(field, name));
             ViewConfig child = ticked.getValue();
             if (child != null && !child.getFields().isEmpty()) {
                 values(child, walked, nested, path, title, excludeMedia, out);
@@ -107,7 +107,7 @@ public final class LiteralPaths {
             if (field != null && field.role() == FieldRole.IDENTITY) continue;
             String label = field == null ? name : field.label();
             FieldPath path = prefix.append(name);
-            String title = titlePrefix.isEmpty() ? label : titlePrefix + "." + label;
+            String title = title(titlePrefix, label, displayLeaf(field, name));
             ViewConfig child = ticked.getValue();
             if (child != null && !child.getFields().isEmpty()) {
                 collect(child, shape == null || field == null ? null : shape.nested(field),
@@ -118,6 +118,22 @@ public final class LiteralPaths {
                         field == null ? FieldRole.NONE : field.role()));
             }
         }
+    }
+
+    /**
+     * A nested object's DISPLAY value is that object's caption, so its column is named
+     * after the object's field alone: "Selected instance", not "Selected instance.Display
+     * label". Every other nested leaf keeps its owner path; a top-level field keeps its
+     * own label.
+     */
+    private static String title(String titlePrefix, String label, boolean displayLeaf) {
+        if (titlePrefix.isEmpty()) return label;
+        return displayLeaf ? titlePrefix : titlePrefix + "." + label;
+    }
+
+    private static boolean displayLeaf(FieldRef field, String name) {
+        return field == null ? ViewableContractFieldSet.DISPLAY_KEY.equals(name)
+                : field.role() == FieldRole.DISPLAY;
     }
 
     private static FieldRef field(TypeShape shape, String name) {

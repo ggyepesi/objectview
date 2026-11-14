@@ -137,6 +137,35 @@ class SearchableTableViewTest {
                 "a null nested value leaves the configured leaf cell empty");
     }
 
+    /**
+     * A nested object's DISPLAY value is that object's caption, so the column is named
+     * after the object's field. It read "nested.Display label" (in the app: "Selected
+     * instance.Display label"), naming the mechanism rather than what the cells show.
+     * Any other nested leaf keeps its owner path.
+     */
+    @Test void aNestedCaptionColumnIsNamedAfterItsObjectField() {
+        Nested nested = new Nested("Budapest");
+        Parent parent = new Parent("Hungary", nested);
+        ViewConfig nestedConfig = ViewConfig.of(Nested.class);
+        nestedConfig.setAllFields(false);
+        nestedConfig.addField(objectview.field.ViewableContractFieldSet.DISPLAY_KEY,
+                ViewConfig.leaf());
+        nestedConfig.addField("label", ViewConfig.leaf());
+        ViewConfig view = ViewConfig.of(Parent.class);
+        view.setAllFields(false);
+        view.addField("nested", nestedConfig);
+
+        ViewableColumnsView table = SearchableView.builder(List.of(parent))
+                .mode(RenderingMode.TABLE)
+                .sample(parent)
+                .configState(new SearchPanel.ConfigState(null, null, view))
+                .build().table();
+
+        assertEquals("nested", column(table,
+                "nested." + objectview.field.ViewableContractFieldSet.DISPLAY_KEY).title());
+        assertEquals("nested.label", column(table, "nested.label").title());
+    }
+
     @Test void aScalarReferenceWithNoSelectedChildrenIsATerminalColumn() {
         Nested nested = new Nested("Budapest");
         Parent parent = new Parent("Hungary", nested);
