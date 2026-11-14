@@ -87,8 +87,8 @@ public class UrlOpener {
                 }
 
                 if (responseCode >= 400) {
-                    throw new RuntimeException(
-                            "HTTP " + responseCode + " for " + url);
+                    connection.disconnect();
+                    throw new HttpStatusException(responseCode, url);
                 }
 
                 return connection.getInputStream();
@@ -144,5 +144,20 @@ public class UrlOpener {
                 || message.contains("timed out")
                 || message.contains("Read timed out")
                 || message.contains("connect timed out"));
+    }
+
+    /**
+     * A final HTTP error status. Some services answer "nothing recorded" with 404, and a
+     * caller must be able to tell that from a failure without reading the message.
+     */
+    public static final class HttpStatusException extends RuntimeException {
+        private final int status;
+
+        public HttpStatusException(int status, URL url) {
+            super("HTTP " + status + " for " + url);
+            this.status = status;
+        }
+
+        public int status() { return status; }
     }
 }
