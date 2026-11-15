@@ -16,7 +16,18 @@ public class UrlOpener {
     private static long lastRequestTime = 0;
 
     public static InputStream open(String url) throws Exception {
-        return open(new URL(url));
+        return open(address(url));
+    }
+
+    /**
+     * Source APIs sometimes return a human-readable URL with literal spaces in its
+     * path. URL accepts that spelling inconsistently across protocol handlers, while
+     * URI rejects it before the request. Normalize only those literal spaces here;
+     * existing percent escapes remain untouched.
+     */
+    static URL address(String url) throws java.net.MalformedURLException {
+        if (url == null) throw new java.net.MalformedURLException("URL is null");
+        return new URL(url.trim().replace(" ", "%20"));
     }
 
     public static InputStream open(URL url) throws Exception {

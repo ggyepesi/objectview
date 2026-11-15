@@ -3,7 +3,6 @@ package objectview.utils.swing;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.*;
-import java.net.URI;
 import javax.imageio.ImageIO;
 
 import objectview.utils.UrlOpener;
@@ -171,7 +170,7 @@ public class CachedImage {
     }
 
     protected void readToImageBuf(String url) throws Exception {
-        try (InputStream in = UrlOpener.open(URI.create(url).toURL())) {
+        try (InputStream in = UrlOpener.open(url)) {
             imageBuf = in.readAllBytes();
         } catch (Exception e) {
             System.err.printf("CachedImage: failed reading %s: %s%n",
