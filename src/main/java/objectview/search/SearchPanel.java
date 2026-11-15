@@ -89,6 +89,8 @@ public class SearchPanel extends JPanel
 
     private final JPanel resultsPanel =
             new JPanel();
+    private final JScrollPane resultsScroll =
+            new JScrollPane(resultsPanel);
 
     private final List<Viewable> originalViewables =
             new ArrayList<>();
@@ -163,6 +165,10 @@ public class SearchPanel extends JPanel
     // per-field results panel + per-panel navigation + highlighting.
     private boolean suppressSearchEvents = false;
     private boolean coordinated;
+    /** A tabbed/shared owner decides which navigator is visible. Without this,
+     *  every engine makes itself visible for the same query and unselected class
+     *  panels can cover the selected tab's rows. */
+    private boolean navigationVisibilityOwnedByContainer;
 
     // The class this section searches (for the shared config's per-class tab).
     private Class<? extends Viewable> searchClass;
@@ -658,8 +664,6 @@ public class SearchPanel extends JPanel
         resultsPanel.setLayout(
                 new BoxLayout(resultsPanel, BoxLayout.Y_AXIS));
 
-        JScrollPane resultsScroll =
-                new JScrollPane(resultsPanel);
         resultsScroll.setPreferredSize(new Dimension(320, 160));
         resultsScroll.getVerticalScrollBar().setUnitIncrement(16);
 
@@ -1146,13 +1150,22 @@ public class SearchPanel extends JPanel
         }
     }
 
+    /** Declares that this navigator is mounted in a container such as a tabbed
+     * pane which exclusively owns child visibility. Package-private because the
+     * shared search surface is the owner, not an application-level option. */
+    void setNavigationVisibilityOwnedByContainer(boolean owned) {
+        navigationVisibilityOwnedByContainer = owned;
+    }
+
     /** Runs the query against this section without stealing navigation. Small
      * views complete immediately; a large first extraction publishes and renders
      * its results from the background worker's EDT completion callback. Keeps the
      * hidden field in sync so live-add re-search uses the right text. */
     public void runCoordinatedSearch(String query) {
         String normalized = query == null ? "" : query;
-        if (coordinated) setVisible(!normalized.isBlank());
+        if (coordinated && !navigationVisibilityOwnedByContainer) {
+            setVisible(!normalized.isBlank());
+        }
         suppressSearchEvents = true;
         try {
             searchField.setText(normalized);
@@ -1367,7 +1380,7 @@ public class SearchPanel extends JPanel
     }
 
     private void showIndexingStatus(int reads) {
-        resultsPanel.removeAll();
+        beginResultsReplacement();
         JLabel status = new JLabel(String.format(
                 "Preparing search text… (%,d field values)", reads));
         status.setName("search-indexing-status");
@@ -1379,7 +1392,7 @@ public class SearchPanel extends JPanel
 
     private void showIndexingFailure() {
         searchIndexStale = true;
-        resultsPanel.removeAll();
+        beginResultsReplacement();
         JLabel status = new JLabel("Could not prepare search text");
         status.setName("search-indexing-error");
         status.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
@@ -1825,7 +1838,7 @@ public class SearchPanel extends JPanel
     }
 
     private void showSearchResults(Map<FieldPath, HitGroup> groups) {
-        resultsPanel.removeAll();
+        beginResultsReplacement();
 
         JComponent first =
                 null;
@@ -2402,9 +2415,17 @@ public class SearchPanel extends JPanel
     }
 
     private void clearResults() {
-        resultsPanel.removeAll();
+        beginResultsReplacement();
         resultsPanel.revalidate();
         resultsPanel.repaint();
+    }
+
+    /** A new query owns a new navigation list. Retaining the old list's viewport
+     *  can put a narrower result entirely above the visible area: its card is then
+     *  correctly highlighted while the navigation panel appears empty. */
+    private void beginResultsReplacement() {
+        resultsPanel.removeAll();
+        resultsScroll.getViewport().setViewPosition(new Point(0, 0));
     }
 
     private void addHitGroupRow(HitGroup g) {
@@ -2544,7 +2565,7 @@ public class SearchPanel extends JPanel
     }
 
     private void showSearchResultsVirtual(Map<FieldPath, HitGroupQ> groups) {
-        resultsPanel.removeAll();
+        beginResultsReplacement();
         currentVirtualGroups = List.copyOf(groups.values());
         IdentityHashMap<Viewable, List<HitGroupQ>> byItem = new IdentityHashMap<>();
         for (HitGroupQ group : currentVirtualGroups) {

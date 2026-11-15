@@ -4,12 +4,23 @@ import org.junit.jupiter.api.Test;
 
 import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
+import javax.swing.JTextField;
+import javax.swing.JFrame;
 import objectview.ViewableAdapter;
+import objectview.EdtTests;
+import objectview.view.SearchableView;
+import java.awt.Component;
+import java.awt.Container;
+import java.awt.BorderLayout;
+import java.awt.GraphicsEnvironment;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 /** The class visible in a shared configuration dialog is the only class Apply changes. */
 class MultiSearchBarTest {
@@ -58,5 +69,135 @@ class MultiSearchBarTest {
         assertEquals("PositionReplacementExpansion", tabs.getTitleAt(0));
         assertEquals("OfficeHolding", tabs.getTitleAt(1));
         assertFalse(tabs.isVisible(), "hit navigation stays out of the way before a search");
+    }
+
+    @Test void typingInTheSharedFieldShowsTheSelectedClassNavigationRows()
+            throws Exception {
+        assumeFalse(GraphicsEnvironment.isHeadless());
+        AtomicReference<MultiSearchBar> shared = new AtomicReference<>();
+        AtomicReference<SearchPanel> engine = new AtomicReference<>();
+        AtomicReference<JFrame> window = new AtomicReference<>();
+        EdtTests.onEdt(() -> {
+            DynamicGraphRecord item = new DynamicGraphRecord();
+            SearchPanel search = SearchableView.builder(List.of(item))
+                    .sample(item).build().search();
+            MultiSearchBar bar = new MultiSearchBar(List.of(search));
+            JFrame frame = new JFrame("search-navigation-layout-test");
+            frame.setLayout(new BorderLayout());
+            frame.add(bar, BorderLayout.NORTH);
+            frame.add(new JPanel(), BorderLayout.CENTER);
+            frame.setSize(900, 600);
+            frame.setLocation(-10_000, -10_000);
+            frame.setVisible(true);
+            shared.set(bar);
+            engine.set(search);
+            window.set(frame);
+            textField(bar).setText("accepted");
+        });
+
+        Thread.sleep(250); // let the same 150 ms debounce used by the UI fire on the EDT
+
+        EdtTests.onEdt(() -> {
+            JTabbedPane tabs = shared.get().hitNavigationTabs();
+            assertTrue(tabs.isVisible());
+            assertTrue(tabs.getHeight() > 0,
+                    "showing hit navigation must allocate it visible space");
+            assertEquals(1, engine.get().virtualHitTotal());
+            Container rows = resultRows(engine.get());
+            assertTrue(rows.getComponentCount() > 0,
+                    "a highlighted hit must publish a navigation row in its selected tab");
+            assertTrue(rows.getComponent(0).getHeight() > 0,
+                    "the published navigation row must be laid out, not only retained in memory");
+            window.get().dispose();
+        });
+    }
+
+    @Test void theSelectedClassTabOwnsTheOnlyVisibleNavigationPanel()
+            throws Exception {
+        AtomicReference<MultiSearchBar> shared = new AtomicReference<>();
+        AtomicReference<SearchPanel> character = new AtomicReference<>();
+        AtomicReference<SearchPanel> episode = new AtomicReference<>();
+        EdtTests.onEdt(() -> {
+            DynamicGraphRecord characterItem = new DynamicGraphRecord() {
+                @Override public String typeName() { return "Character"; }
+            };
+            DynamicGraphRecord episodeItem = new DynamicGraphRecord() {
+                @Override public String getDisplayName() { return "episode without the query"; }
+                @Override public String typeName() { return "Episode"; }
+            };
+            SearchPanel characterSearch = SearchableView.builder(List.of(characterItem))
+                    .sample(characterItem).build().search();
+            SearchPanel episodeSearch = SearchableView.builder(List.of(episodeItem))
+                    .sample(episodeItem).build().search();
+            MultiSearchBar bar = new MultiSearchBar(List.of(characterSearch, episodeSearch));
+            shared.set(bar);
+            character.set(characterSearch);
+            episode.set(episodeSearch);
+            textField(bar).setText("accepted");
+        });
+
+        Thread.sleep(250);
+
+        EdtTests.onEdt(() -> {
+            JTabbedPane tabs = shared.get().hitNavigationTabs();
+            assertEquals(character.get(), tabs.getSelectedComponent());
+            assertTrue(character.get().isVisible(),
+                    "the selected Character navigation must be visible");
+            assertFalse(episode.get().isVisible(),
+                    "an unselected empty tab must not cover the selected navigation");
+            assertTrue(resultRows(character.get()).getComponentCount() > 0);
+        });
+    }
+
+    private static JTextField textField(Container root) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof JTextField field) return field;
+            if (child instanceof Container nested) {
+                JTextField found = findTextField(nested);
+                if (found != null) return found;
+            }
+        }
+        throw new IllegalStateException("Shared search field not found");
+    }
+
+    private static JTextField findTextField(Container root) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof JTextField field) return field;
+            if (child instanceof Container nested) {
+                JTextField found = findTextField(nested);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static Container resultRows(Container root) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof javax.swing.JScrollPane scroll
+                    && scroll.getVerticalScrollBarPolicy()
+                    != javax.swing.JScrollPane.VERTICAL_SCROLLBAR_NEVER) {
+                return (Container) scroll.getViewport().getView();
+            }
+            if (child instanceof Container nested) {
+                Container found = findResultRows(nested);
+                if (found != null) return found;
+            }
+        }
+        throw new IllegalStateException("Search navigation rows not found");
+    }
+
+    private static Container findResultRows(Container root) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof javax.swing.JScrollPane scroll
+                    && scroll.getVerticalScrollBarPolicy()
+                    != javax.swing.JScrollPane.VERTICAL_SCROLLBAR_NEVER) {
+                return (Container) scroll.getViewport().getView();
+            }
+            if (child instanceof Container nested) {
+                Container found = findResultRows(nested);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 }

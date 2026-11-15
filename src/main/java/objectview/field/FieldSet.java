@@ -99,12 +99,15 @@ public interface FieldSet {
         FieldSet backing;
         FieldSchema effective = schema;
         if (object instanceof DynamicFields dynamic) {
-            // A dynamic object's map is its domain data, but annotation-declared
-            // metadata on its Java base still belongs to the object. Layer only
-            // presentation metadata; do not leak the map container itself.
+            // A dynamic object's map is its authored domain data, while declared
+            // provenance/link fields and explicitly annotated references are real
+            // adapter fields. Keep those declared references readable as well: a
+            // datasource side-output can be persisted outside the map yet remain an
+            // ordinary operation-visible field.
             backing = new LayeredFieldSet(
                     new DynamicFieldSet(dynamic), new ReflectionFieldSet(object),
-                    field -> field.link() || field.role() != FieldRole.NONE);
+                    field -> field.link() || field.role() != FieldRole.NONE
+                            || field.annotatedReference());
             if (effective == null) {
                 effective = dynamic.dynamicFieldSchema();
             }

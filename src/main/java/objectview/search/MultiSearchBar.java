@@ -36,6 +36,7 @@ public class MultiSearchBar extends JPanel {
         this.engines = new ArrayList<>(engines);
         for (SearchPanel e : this.engines) {
             e.setCoordinated(true);
+            e.setNavigationVisibilityOwnedByContainer(true);
         }
 
         field.setBorder(BorderFactory.createTitledBorder("Search"));
