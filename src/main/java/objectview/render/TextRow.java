@@ -2,6 +2,7 @@ package objectview.render;
 
 import objectview.field.FieldProperties;
 import objectview.field.FieldPath;
+import objectview.field.LinkedTextSequence;
 import objectview.text.TextSelectable;
 import objectview.text.TextSelection;
 import objectview.text.TextSelectionManager;
@@ -44,7 +45,8 @@ public class TextRow extends JComponent implements TextSelectable {
                              int top,
                              int bottom,
                              int lineIndex,
-                             int sourceLineIndex) {
+                             int sourceLineIndex,
+                             int sourceStart) {
     }
 
     private record TextPosition(int lineIndex, int offset) {
@@ -53,6 +55,7 @@ public class TextRow extends JComponent implements TextSelectable {
     private final String fieldName;
     private final FieldPath fieldPath;
     private final List<String> lines;
+    private final LinkedTextSequence linkedText;
     private List<String> highlightTokens = List.of();
     private int selectedSearchSourceLine = -1;
 
@@ -65,22 +68,33 @@ public class TextRow extends JComponent implements TextSelectable {
     public TextRow(String fieldName,
                    FieldPath fieldPath,
                    Object rawValue) {
-        this(fieldName, fieldPath, rawValue == null
-                ? List.of()
-                : List.of(String.valueOf(rawValue)));
+        this(fieldName, fieldPath,
+                rawValue == null ? List.of() : List.of(String.valueOf(rawValue)),
+                rawValue instanceof LinkedTextSequence sequence ? sequence : null);
     }
 
     public TextRow(String fieldName,
                    FieldPath fieldPath,
                    List<String> lines) {
+        this(fieldName, fieldPath, lines, null);
+    }
+
+    private TextRow(String fieldName,
+                    FieldPath fieldPath,
+                    List<String> lines,
+                    LinkedTextSequence linkedText) {
         Card.RenderStats.textRows++;
 
         this.fieldName = fieldName == null ? "" : fieldName;
         this.fieldPath = fieldPath == null ? FieldPath.ROOT : fieldPath;
         this.lines = lines == null ? List.of() : new ArrayList<>(lines);
+        this.linkedText = linkedText;
 
         setOpaque(false);
         setFocusable(true);
+        if (linkedText != null && !linkedText.urls().isEmpty()) {
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        }
 
         putClientProperty(FieldProperties.FIELD_NAME_PROPERTY, this.fieldName);
         putClientProperty(FieldProperties.FIELD_PATH_PROPERTY, this.fieldPath);
@@ -89,7 +103,10 @@ public class TextRow extends JComponent implements TextSelectable {
 
         addMouseListener(TextCopyMouseHandler.INSTANCE);
         addMouseMotionListener(TextCopyMouseHandler.INSTANCE);
-        setToolTipText("Drag to select · " + copyKeyName() + "/right-click to copy");
+        setToolTipText(linkedText == null
+                ? "Drag to select · " + copyKeyName() + "/right-click to copy"
+                : "Click a linked part to open it · drag to select · "
+                        + copyKeyName() + "/right-click to copy");
 
         registerCopyShortcut();
     }
@@ -239,7 +256,49 @@ public class TextRow extends JComponent implements TextSelectable {
     /** Click dispatch is value-sensitive: subclasses such as LinkRow may decline a
      * click in the row's padding or field-label area. */
     protected void valueClickedAt(Point point) {
+        if (openLinkedPartAt(point)) return;
         valueClicked(null);
+    }
+
+    /** Opens the independently linked text run under {@code point}. Subclasses whose
+     * ordinary click owns navigation or disclosure call this first so hit-testing and
+     * painting keep the same meaning. */
+    protected final boolean openLinkedPartAt(Point point) {
+        String url = linkedUrlAt(point);
+        if (url == null) return false;
+        objectview.utils.BrowserLauncher.open(url);
+        return true;
+    }
+
+    /** Destinations painted inside this row, in reading order. */
+    public List<String> linkedUrls() {
+        return linkedText == null ? List.of() : linkedText.urls();
+    }
+
+    /** Package-visible seam for rendering tests: null over ordinary text/padding. */
+    String linkedUrlAt(Point point) {
+        if (linkedText == null || point == null) return null;
+        FontMetrics metrics = getFontMetrics(valueFont());
+        for (PaintLine line : computePaintLines(getWidth())) {
+            if (point.y < line.top() || point.y > line.bottom()
+                    || point.x < line.x()) continue;
+            int local = characterAt(metrics, line.text(), point.x - line.x());
+            if (local >= 0) {
+                LinkedTextSequence.Part part = linkedText.linkedPartAt(
+                        line.sourceStart() + local);
+                return part == null ? null : part.url();
+            }
+        }
+        return null;
+    }
+
+    private static int characterAt(FontMetrics metrics, String text, int x) {
+        if (text == null || text.isEmpty() || x < 0
+                || x > metrics.stringWidth(text)) return -1;
+        for (int index = 0; index < text.length(); index++) {
+            if (x < metrics.stringWidth(text.substring(0, index + 1))) return index;
+        }
+        return text.length() - 1;
     }
 
     boolean isPointOverValue(Point point) {
@@ -596,12 +655,7 @@ public class TextRow extends JComponent implements TextSelectable {
 
             List<PaintLine> paintLines = computePaintLines(getWidth());
             for (PaintLine line : paintLines) {
-                paintTextLine(g2,
-                              line.text(),
-                              line.x(),
-                              line.baseline(),
-                              fmValue,
-                              line.lineIndex());
+                paintTextLine(g2, line, fmValue);
             }
             InstancePaint.paintCurrentSearchOccurrence(
                     g2, selectedOccurrencePaintBounds(paintLines, fmValue));
@@ -643,18 +697,26 @@ public class TextRow extends JComponent implements TextSelectable {
 
         int y = PAD_Y + fmValue.getAscent();
         int paintLine = 0;
+        int globalSourceStart = 0;
         List<String> sourceLines = lines.isEmpty() ? List.of("") : lines;
         for (int sourceLine = 0; sourceLine < sourceLines.size(); sourceLine++) {
+            String sourceText = sourceLines.get(sourceLine);
             List<String> wrapped = new ArrayList<>();
-            wrapOneLine(sourceLines.get(sourceLine), fmValue, valueWidth, wrapped);
+            wrapOneLine(sourceText, fmValue, valueWidth, wrapped);
             if (wrapped.isEmpty()) wrapped.add("");
+            int sourceCursor = 0;
             for (String line : wrapped) {
+                int found = sourceText.indexOf(line, sourceCursor);
+                if (found < 0) found = sourceCursor;
                 out.add(new PaintLine(line, valueX, y,
                                       y - fmValue.getAscent(),
                                       y + fmValue.getDescent(),
-                                      paintLine++, sourceLine));
+                                      paintLine++, sourceLine,
+                                      globalSourceStart + found));
+                sourceCursor = Math.min(sourceText.length(), found + line.length());
                 y += fmValue.getHeight();
             }
+            globalSourceStart += sourceText.length() + 1;
         }
 
         cachedWidth = width;
@@ -662,20 +724,16 @@ public class TextRow extends JComponent implements TextSelectable {
         return out;
     }
 
-    private void paintTextLine(Graphics2D g2,
-                               String text,
-                               int x,
-                               int baseline,
-                               FontMetrics fm,
-                               int lineIndex) {
+    private void paintTextLine(Graphics2D g2, PaintLine line, FontMetrics fm) {
+        String text = line.text();
         if (text == null || text.isEmpty()) {
             return;
         }
 
         boolean[] searchMark = searchMarks(text);
 
-        int selectedStart = selection.selectedStartForLine(lineIndex);
-        int selectedEnd = selection.selectedEndForLine(lineIndex, text.length());
+        int selectedStart = selection.selectedStartForLine(line.lineIndex());
+        int selectedEnd = selection.selectedEndForLine(line.lineIndex(), text.length());
 
         selectedStart = selectedStart < 0
                 ? -1
@@ -693,24 +751,30 @@ public class TextRow extends JComponent implements TextSelectable {
                     && selectedEnd >= 0
                     && pos >= selectedStart
                     && pos < selectedEnd;
+            LinkedTextSequence.Part linked = linkedText == null ? null
+                    : linkedText.linkedPartAt(line.sourceStart() + pos);
 
             while (pos < text.length()
                     && searchMark[pos] == highlighted
                     && ((selectedStart >= 0
                     && selectedEnd >= 0
                     && pos >= selectedStart
-                    && pos < selectedEnd) == selected)) {
+                    && pos < selectedEnd) == selected)
+                    && java.util.Objects.equals(linked,
+                            linkedText == null ? null
+                                    : linkedText.linkedPartAt(
+                                            line.sourceStart() + pos))) {
                 pos++;
             }
 
             String part = text.substring(start, pos);
-            int partX = x + fm.stringWidth(text.substring(0, start));
+            int partX = line.x() + fm.stringWidth(text.substring(0, start));
             int partW = fm.stringWidth(part);
 
             if (selected) {
                 g2.setColor(SELECTION_BACKGROUND);
                 g2.fillRect(partX,
-                            baseline - fm.getAscent(),
+                            line.baseline() - fm.getAscent(),
                             partW,
                             fm.getHeight());
                 g2.setColor(SELECTION_FOREGROUND);
@@ -718,17 +782,17 @@ public class TextRow extends JComponent implements TextSelectable {
                 if (highlighted) {
                     g2.setColor(SEARCH_HIGHLIGHT);
                     g2.fillRect(partX,
-                                baseline - fm.getAscent(),
+                                line.baseline() - fm.getAscent(),
                                 partW,
                                 fm.getHeight());
                 }
-                g2.setColor(valueColor());
+                g2.setColor(linked == null ? valueColor() : LinkRow.LINK_COLOR);
             }
 
-            g2.drawString(part, partX, baseline);
+            g2.drawString(part, partX, line.baseline());
 
-            if (!selected && underlineValue()) {
-                int underY = baseline + 1;
+            if (!selected && (underlineValue() || linked != null)) {
+                int underY = line.baseline() + 1;
                 g2.fillRect(partX, underY, partW, underlineThickness());
             }
         }

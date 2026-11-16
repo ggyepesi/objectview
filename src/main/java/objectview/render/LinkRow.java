@@ -15,7 +15,7 @@ import java.util.List;
  */
 public class LinkRow extends TextRow {
 
-    private static final Color LINK_COLOR =
+    static final Color LINK_COLOR =
             new Color(0, 80, 200);
 
     private final String url;

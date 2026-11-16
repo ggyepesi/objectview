@@ -5,6 +5,7 @@ import objectview.field.FieldRef;
 import objectview.field.FieldSchema;
 import objectview.field.FieldSet;
 import objectview.field.LinkedText;
+import objectview.field.LinkedTextSequence;
 import objectview.viewconfig.ViewConfig;
 
 import java.util.ArrayList;
@@ -78,7 +79,8 @@ public final class RenderExecutor {
 
     /** One object under its literal config: its fields, plan and ticked caption. */
     public record Level(Viewable target, ViewConfig config, FieldSet fields,
-                        ObjectPlan plan, String caption, String captionUrl) {
+                        ObjectPlan plan, String caption, String captionUrl,
+                        LinkedTextSequence linkedCaption) {
         /** Whether a ticked field other than the caption has something to show. A blank
          * or absent value renders nothing, so it cannot justify an expander; a collection
          * always shows its size. Reads ticked fields only, stopping at the first present
@@ -129,10 +131,14 @@ public final class RenderExecutor {
         ObjectPlan plan = resolver.resolve(literal, fields, target.typeName(), schema != null);
         String caption = null;
         String captionUrl = null;
+        LinkedTextSequence linkedCaption = null;
         if (plan.caption() != null) {
             Object value = fields.read(plan.caption().name());
             if (value != null && !String.valueOf(value).isBlank()) {
-                if (plan.caption().field().link()) {
+                if (value instanceof LinkedTextSequence sequence) {
+                    caption = sequence.text();
+                    linkedCaption = sequence;
+                } else if (plan.caption().field().link()) {
                     LinkedText linked = LinkedText.parse(
                             value, plan.caption().field().linkText());
                     caption = linked.label();
@@ -143,7 +149,8 @@ public final class RenderExecutor {
                 }
             }
         }
-        return new Level(target, literal, fields, plan, caption, captionUrl);
+        return new Level(target, literal, fields, plan, caption, captionUrl,
+                linkedCaption);
     }
 
     /** Whether a root occurrence is open: the card is an occurrence like any other

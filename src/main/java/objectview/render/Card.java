@@ -999,10 +999,10 @@ public class Card extends JPanel implements RenderedInstanceHost {
             RenderExecutor.Level object = decision.object();
             return maybeDecoratedReference(new ReferenceRow(
                     context.label(), decision.at().path(), object.target(), renderContext,
-                    object.config(), objectPathTitle(object.target()), false, true,
+                    object.config(), objectPathTitle(object.target()), false, true, false,
                     object.caption() == null
-                            ? ReferenceRow.NAVIGATION_LABEL : object.caption(),
-                    object.captionField()), object.target(), true);
+                            ? ReferenceRow.NAVIGATION_LABEL : captionValue(object),
+                    object.captionField(), object.captionUrl()), object.target(), true);
         }
 
         @Override public JComponent backReference(RenderExecutor.Decision decision,
@@ -1053,8 +1053,9 @@ public class Card extends JPanel implements RenderedInstanceHost {
         }
         return new ReferenceRow(label, decision.at().path(), target, renderContext,
                 object.config(), objectPathTitle(target), false, hasCard,
-                object.caption() == null ? ReferenceRow.NAVIGATION_LABEL : object.caption(),
-                object.captionField());
+                false, object.caption() == null
+                        ? ReferenceRow.NAVIGATION_LABEL : captionValue(object),
+                object.captionField(), object.captionUrl());
     }
 
     /**
@@ -1087,7 +1088,13 @@ public class Card extends JPanel implements RenderedInstanceHost {
                 return maybeDecoratedReference(new ReferenceRow(
                         label, fieldPath, target, renderContext, object.config(),
                         objectPathTitle(target), false, true,
-                        object.caption(), object.captionField()), target, true);
+                        false, captionValue(object), object.captionField(),
+                        object.captionUrl()), target, true);
+            }
+            if (object.linkedCaption() != null) {
+                return maybeDecoratedReference(
+                        new TextRow(label, fieldPath.append(object.captionField()),
+                                object.linkedCaption()), target, decorate);
             }
             if (object.captionUrl() != null && !object.captionUrl().isBlank()) {
                 return maybeDecoratedReference(
@@ -1121,7 +1128,8 @@ public class Card extends JPanel implements RenderedInstanceHost {
         ReferenceRow chip = new ReferenceRow(
                 named ? "" : label, fieldPath, target, renderContext, object.config(),
                 objectPathTitle(target), open, navigate, navigate,
-                chipText, object.captionField(), object.captionUrl());
+                named ? chipText : captionValue(object),
+                object.captionField(), object.captionUrl());
         if (!open) {
             return maybeDecoratedReference(chip, target, decorate);
         }
@@ -1155,6 +1163,10 @@ public class Card extends JPanel implements RenderedInstanceHost {
                     new Insets(0, indent, 4, 0)));
         }
         return wrap;
+    }
+
+    private static Object captionValue(RenderExecutor.Level object) {
+        return object.linkedCaption() == null ? object.caption() : object.linkedCaption();
     }
 
     /** The body of an open object: a nested card over its exact literal child config.

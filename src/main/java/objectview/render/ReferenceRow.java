@@ -129,12 +129,12 @@ public class ReferenceRow extends TextRow {
                         boolean expanded,
                         boolean navigate,
                         boolean expandable,
-                        String caption,
+                        Object caption,
                         String displayFieldName,
                         String externalUrl) {
         super(fieldName,
                 fieldPath == null ? FieldPath.ROOT : fieldPath,
-                List.of(caption == null ? "" : caption));
+                caption == null ? "" : caption);
         Card.RenderStats.referenceRows++;
 
         this.target = target;
@@ -235,7 +235,9 @@ public class ReferenceRow extends TextRow {
      * caption navigates and its disclosure glyph/padding changes only disclosure. */
     @Override
     protected void valueClickedAt(Point point) {
-        if (!externalUrl.isBlank() && isPointOverValue(point)) {
+        if (openLinkedPartAt(point)) {
+            return;
+        } else if (!externalUrl.isBlank() && isPointOverValue(point)) {
             BrowserLauncher.open(externalUrl);
         } else if (navigate && (!expandable || isPointOverValue(point))) {
             openOrFocus();
