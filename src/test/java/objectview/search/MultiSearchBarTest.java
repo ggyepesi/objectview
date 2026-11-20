@@ -25,6 +25,8 @@ import static org.junit.jupiter.api.Assumptions.assumeFalse;
 /** The class visible in a shared configuration dialog is the only class Apply changes. */
 class MultiSearchBarTest {
 
+    private static final java.time.Duration SETTLE = java.time.Duration.ofSeconds(5);
+
     private static class DynamicGraphRecord extends ViewableAdapter {
         @Override public String getIdentifier() { return "Q1"; }
         @Override public String getDisplayName() { return "accepted office"; }
@@ -95,13 +97,14 @@ class MultiSearchBarTest {
             textField(bar).setText("accepted");
         });
 
-        Thread.sleep(250); // let the same 150 ms debounce used by the UI fire on the EDT
+        // The 150 ms debounce, the search and the layout it triggers are later EDT
+        // events; wait for the state itself rather than a fixed time (#520).
+        EdtTests.awaitOnEdt(() -> shared.get().hitNavigationTabs().getHeight() > 0,
+                SETTLE, "showing hit navigation allocates it visible space");
 
         EdtTests.onEdt(() -> {
             JTabbedPane tabs = shared.get().hitNavigationTabs();
             assertTrue(tabs.isVisible());
-            assertTrue(tabs.getHeight() > 0,
-                    "showing hit navigation must allocate it visible space");
             assertEquals(1, engine.get().virtualHitTotal());
             Container rows = resultRows(engine.get());
             assertTrue(rows.getComponentCount() > 0,
@@ -136,7 +139,8 @@ class MultiSearchBarTest {
             textField(bar).setText("accepted");
         });
 
-        Thread.sleep(250);
+        EdtTests.awaitOnEdt(() -> shared.get().hitNavigationTabs().isVisible(),
+                SETTLE, "the debounced search has run");
 
         EdtTests.onEdt(() -> {
             JTabbedPane tabs = shared.get().hitNavigationTabs();
