@@ -87,7 +87,7 @@ public interface FieldSet {
     }
 
     static FieldSet of(Viewable object) {
-        return of(object, null);
+        return published(object);
     }
 
     /**
@@ -96,23 +96,35 @@ public interface FieldSet {
      * metadata therefore cannot change merely because the backing changed.
      */
     static FieldSet of(Viewable object, FieldSchema schema) {
-        FieldSet backing;
+        if (object == null) {
+            throw new IllegalArgumentException("Viewable is required");
+        }
+        FieldSet backing = published(object);
+        if (schema == null) return backing;
+        return complete(object, backing, schema);
+    }
+
+    /**
+     * Build the complete canonical field set for a standard reflected/dynamic adapter.
+     * Adapter implementations call this low-level constructor directly; calling
+     * {@link #of(Viewable)} from {@link Viewable#fields()} is a contract cycle.
+     */
+    static FieldSet standard(Viewable object) {
+        return complete(object, standardBacking(object), carriedSchema(object));
+    }
+
+    /** Complete a custom backing with the object's carried schema and Viewable contract. */
+    static FieldSet complete(Viewable object, FieldSet backing) {
+        return complete(object, backing, carriedSchema(object));
+    }
+
+    /** Complete a custom backing with an authoritative schema and Viewable contract. */
+    static FieldSet complete(Viewable object, FieldSet backing, FieldSchema schema) {
+        if (object == null) throw new IllegalArgumentException("Viewable is required");
+        if (backing == null) throw new IllegalArgumentException("FieldSet backing is required");
         FieldSchema effective = schema;
-        if (object instanceof DynamicFields dynamic) {
-            // A dynamic object's map is its authored domain data, while declared
-            // provenance/link fields and explicitly annotated references are real
-            // adapter fields. Keep those declared references readable as well: a
-            // datasource side-output can be persisted outside the map yet remain an
-            // ordinary operation-visible field.
-            backing = new LayeredFieldSet(
-                    new DynamicFieldSet(dynamic), new ReflectionFieldSet(object),
-                    field -> field.link() || field.role() != FieldRole.NONE
-                            || field.annotatedReference());
-            if (effective == null) {
-                effective = dynamic.dynamicFieldSchema();
-            }
-        } else {
-            backing = new ReflectionFieldSet(object);
+        if (effective == null && object instanceof DynamicFields dynamic) {
+            effective = dynamic.dynamicFieldSchema();
         }
         if (effective != null) {
             backing = new SchemaFieldSet(backing, effective);
@@ -124,4 +136,59 @@ public interface FieldSet {
         }
         return ViewableContractFieldSet.overlay(object, backing);
     }
+
+    /** Ask the object for its one published, already-complete representation. A legacy
+     * {@code fields() -> FieldSet.of(this)} cycle is an error, never a reason to silently
+     * substitute reflection and lose the object's schema. */
+    private static FieldSet published(Viewable object) {
+        if (object == null) throw new IllegalArgumentException("Viewable is required");
+        java.util.Set<Viewable> resolving = FieldSetResolution.RESOLVING.get();
+        if (!resolving.add(object)) {
+            throw new IllegalStateException("Viewable.fields() must publish its complete "
+                    + "FieldSet directly and must not call FieldSet.of(this): "
+                    + object.getClass().getName());
+        }
+        try {
+            FieldSet fields = object.fields();
+            if (fields == null) {
+                throw new IllegalStateException(
+                        "Viewable returned no FieldSet: " + object.getClass().getName());
+            }
+            return fields;
+        } finally {
+            resolving.remove(object);
+            if (resolving.isEmpty()) FieldSetResolution.RESOLVING.remove();
+        }
+    }
+
+    /**
+     * The standard reflected/dynamic backing used by {@link objectview.ViewableAdapter}.
+     * This deliberately does not call {@link Viewable#fields()}, so the adapter can
+     * implement that method without recursing through {@link #of(Viewable)}.
+     */
+    private static FieldSet standardBacking(Viewable object) {
+        FieldSet backing;
+        if (object instanceof DynamicFields dynamic) {
+            // A dynamic object's map is its authored domain data, while declared
+            // provenance/link fields and explicitly annotated references are real
+            // adapter fields. Keep those declared references readable as well: a
+            // datasource side-output can be persisted outside the map yet remain an
+            // ordinary operation-visible field.
+            backing = new LayeredFieldSet(
+                    new DynamicFieldSet(dynamic), new ReflectionFieldSet(object),
+                    field -> field.link() || field.role() != FieldRole.NONE
+                            || field.annotatedReference());
+        } else {
+            backing = new ReflectionFieldSet(object);
+        }
+        return backing;
+    }
+}
+
+/** Fail-fast cycle detector for the published Viewable field contract. */
+final class FieldSetResolution {
+    static final ThreadLocal<java.util.Set<Viewable>> RESOLVING =
+            ThreadLocal.withInitial(() -> java.util.Collections.newSetFromMap(
+                    new java.util.IdentityHashMap<>()));
+    private FieldSetResolution() { }
 }

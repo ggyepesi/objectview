@@ -4,6 +4,7 @@ import objectview.Viewable;
 import objectview.ViewableAdapter;
 import objectview.annotations.Minor;
 import objectview.annotations.Reference;
+import objectview.field.FieldSet;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -81,6 +82,10 @@ public abstract class DefaultViewableGroup<
     public String getDisplayName() {
         return name;
     }
+
+    /** Do not re-reflect this implementation's storage: every group backing uses the
+     * same logical fields and visibility through {@link ViewableGroupFields}. */
+    @Override public FieldSet fields() { return ViewableGroupFields.of(this); }
 
     @Override
     public String getReferenceLabel() {

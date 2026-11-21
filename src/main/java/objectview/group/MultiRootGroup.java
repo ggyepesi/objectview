@@ -1,9 +1,6 @@
 package objectview.group;
 
 import objectview.Viewable;
-import objectview.field.FieldRef;
-import objectview.field.FieldSet;
-
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -52,8 +49,28 @@ public final class MultiRootGroup implements ViewableGroup<Viewable> {
             Collection<? extends ViewableGroup<?>> roots,
             String label,
             Collection<? extends Viewable> members) {
+        List<ViewableGroup<Viewable>> list = roots(roots);
+        if (list.isEmpty()) return null;
+        return list.size() == 1 ? list.get(0) : new MultiRootGroup(label, list, members);
+    }
+
+    /**
+     * An explicit container over the supplied roots, retained even when there is only
+     * one. Use this when the container is itself a source concept (for example a saved
+     * category population), rather than merely an adapter for a forest.
+     */
+    public static ViewableGroup<?> container(
+            Collection<? extends ViewableGroup<?>> roots,
+            String label,
+            Collection<? extends Viewable> members) {
+        List<ViewableGroup<Viewable>> list = roots(roots);
+        return list.isEmpty() ? null : new MultiRootGroup(label, list, members);
+    }
+
+    private static List<ViewableGroup<Viewable>> roots(
+            Collection<? extends ViewableGroup<?>> roots) {
         if (roots == null || roots.isEmpty()) {
-            return null;
+            return List.of();
         }
         List<ViewableGroup<Viewable>> list = new ArrayList<>();
         for (ViewableGroup<?> root : roots) {
@@ -62,9 +79,9 @@ public final class MultiRootGroup implements ViewableGroup<Viewable> {
             }
         }
         if (list.isEmpty()) {
-            return null;
+            return List.of();
         }
-        return list.size() == 1 ? list.get(0) : new MultiRootGroup(label, list, members);
+        return List.copyOf(list);
     }
 
     // A ViewableGroup<X> is read-compatible as a ViewableGroup<Viewable>: its members are
@@ -89,22 +106,4 @@ public final class MultiRootGroup implements ViewableGroup<Viewable> {
         return members;
     }
 
-    /** Read-only: only the structural {@code children} field, so a walker sees the roots
-     *  and never reflects this wrapper's own Java fields. */
-    @Override public FieldSet fields() {
-        return new FieldSet() {
-            @Override public Object read(String name) {
-                return "children".equals(name) ? getChildren() : null;
-            }
-            @Override public boolean has(String name) {
-                return "children".equals(name);
-            }
-            @Override public void write(String name, Object value) {
-                throw new UnsupportedOperationException("read-only group");
-            }
-            @Override public List<FieldRef> fields() {
-                return List.of();
-            }
-        };
-    }
 }

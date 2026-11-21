@@ -46,6 +46,16 @@ class MultiRootGroupTest {
                 List.of(only), "All", List.of(new Item("ignored"))));
     }
 
+    @Test void anExplicitContainerRemainsVisibleAroundOneChild() {
+        TestGroup only = new TestGroup("only");
+
+        ViewableGroup<?> root = MultiRootGroup.container(
+                List.of(only), "Authored category", List.of());
+
+        assertEquals("Authored category", root.getDisplayName());
+        assertEquals(List.of(only), root.getChildren());
+    }
+
     @Test void childMembershipDoesNotPropagateToItsParent() {
         MutableTestGroup root = new MutableTestGroup("root");
         MutableTestGroup child = root.getOrCreateChild("child");

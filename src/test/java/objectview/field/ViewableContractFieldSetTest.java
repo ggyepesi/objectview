@@ -1,6 +1,7 @@
 package objectview.field;
 
 import objectview.ViewableAdapter;
+import objectview.Viewable;
 import objectview.annotations.DisplayField;
 import objectview.annotations.Hidden;
 import objectview.render.Card;
@@ -91,6 +92,14 @@ class ViewableContractFieldSetTest {
         assertEquals("Visible label", card.getTitle());
     }
 
+    @Test void aDirectViewableCannotDelegateItsPublishedFieldsBackToFieldSetOf() {
+        DelegatingItem item = new DelegatingItem();
+
+        IllegalStateException failure = assertThrows(
+                IllegalStateException.class, () -> FieldSet.of(item));
+        assertEquals(true, failure.getMessage().contains("must not call FieldSet.of(this)"));
+    }
+
     private static final class Item extends ViewableAdapter implements DynamicFields {
         private final String id;
         private final String display;
@@ -111,6 +120,13 @@ class ViewableContractFieldSetTest {
         private BoundItem(String label) { this.label = label; }
         @Override public String getIdentifier() { return label; }
         @Override public String getDisplayName() { return label; }
+    }
+
+    private static final class DelegatingItem implements Viewable {
+        private final String value = "ordinary";
+        @Override public String getIdentifier() { return "delegating"; }
+        @Override public String getDisplayName() { return "Delegating"; }
+        @Override public FieldSet fields() { return FieldSet.of(this); }
     }
 
     private static final class AmbiguousItem extends ViewableAdapter {

@@ -48,7 +48,7 @@ class VirtualizedCardListTest {
         @Override public String getIdentifier() { return id; }
         @Override public String getDisplayName() { return id; }
         @Override public objectview.field.FieldSet fields() {
-            return objectview.field.FieldSet.of(this);
+            return objectview.field.FieldSet.standard(this);
         }
         @Override public String toString() { return id; }
     }

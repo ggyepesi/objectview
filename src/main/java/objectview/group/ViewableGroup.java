@@ -1,6 +1,7 @@
 package objectview.group;
 
 import objectview.Viewable;
+import objectview.field.FieldSet;
 
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -13,6 +14,10 @@ import java.util.Map;
  * @param <T> member type
  */
 public interface ViewableGroup<T extends Viewable> extends Viewable {
+
+    /** Every group implementation publishes the same ordinary ObjectView shape. */
+    @Override
+    default FieldSet fields() { return ViewableGroupFields.of(this); }
 
     /**
      * What a node means in a faceted tree:

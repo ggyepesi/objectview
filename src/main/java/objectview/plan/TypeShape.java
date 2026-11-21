@@ -112,16 +112,17 @@ public interface TypeShape {
     }
 
     /**
-     * The type of {@code value}: its schema ({@code schema}, else the one a dynamic
-     * value carries) together with what its Java class declares — never the values it
-     * holds. A nested shape is the field's declared target type, looked up in
-     * {@code byType}; with no schema the value's class is reflected.
+     * The type of {@code value}: its authoritative schema when it has one, otherwise
+     * the fields the Viewable itself publishes. Standard reflected Viewables publish
+     * their reflected fields; adapters such as ViewableGroup can publish a logical
+     * shape that is not their Java storage. Configuration and rendering must read that
+     * same answer.
      */
     static TypeShape of(Viewable value, FieldSchema schema,
                         Function<String, FieldSchema> byType) {
         if (value == null) return null;
         FieldSchema effective = schema != null ? schema : FieldSet.carriedSchema(value);
-        return effective == null ? ofClass(value.getClass())
+        return effective == null ? new InstanceShape(value, byType)
                 : new SchemaTypeShape(effective, value.getClass(),
                         !FieldSet.declaresItsFields(value), byType, value.typeName());
     }
@@ -207,6 +208,51 @@ public interface TypeShape {
             Type element = arguments[arguments.length - 1];
             return element instanceof Class<?> cls && Viewable.class.isAssignableFrom(cls)
                     ? (Class<? extends Viewable>) cls : null;
+        }
+    }
+
+    /** The shape explicitly published by one schema-less Viewable. For an ordinary
+     * reflected class this is equivalent to {@link ClassShape}; for an adapter it is
+     * the adapter's logical contract rather than its implementation fields. */
+    record InstanceShape(Viewable value, Function<String, FieldSchema> byType)
+            implements TypeShape {
+        @Override public String typeName() { return value.typeName(); }
+
+        @Override public List<FieldRef> fields() {
+            return FieldSet.of(value).fields();
+        }
+
+        @Override public Field javaField(FieldRef field) {
+            return field == null ? null
+                    : ViewableAdapter.getField(value.getClass(), field.name());
+        }
+
+        @Override public TypeShape nested(FieldRef field) {
+            if (field == null) return null;
+            TypeShape declared = TypeShape.ofType(field.targetType(), byType);
+            if (declared != null) return declared;
+
+            Field reflected = javaField(field);
+            if (reflected != null) {
+                TypeShape reflectedTarget = new ClassShape(value.getClass()).nested(field);
+                if (reflectedTarget != null) return reflectedTarget;
+            }
+
+            Viewable sample = firstViewable(FieldSet.of(value).read(field.name()));
+            return sample == null ? null : TypeShape.of(
+                    sample, FieldSet.carriedSchema(sample), byType);
+        }
+
+        private static Viewable firstViewable(Object candidate) {
+            if (candidate instanceof Viewable viewable) return viewable;
+            Iterable<?> values = candidate instanceof Map<?, ?> map
+                    ? map.values()
+                    : candidate instanceof Iterable<?> iterable ? iterable : null;
+            if (values == null) return null;
+            for (Object value : values) {
+                if (value instanceof Viewable viewable) return viewable;
+            }
+            return null;
         }
     }
 

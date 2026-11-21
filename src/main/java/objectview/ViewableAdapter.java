@@ -169,7 +169,7 @@ public abstract class ViewableAdapter implements Viewable {
     @Override
     public FieldSet fields() {
         if (fieldSet == null) {
-            fieldSet = FieldSet.of(this);
+            fieldSet = FieldSet.standard(this);
         }
         return fieldSet;
     }

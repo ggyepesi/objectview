@@ -61,6 +61,20 @@ public class MultiView extends JPanel {
         addSection(title, type, objects, null, null, null);
     }
 
+    /** Adds a non-card ObjectView section (for example a group outline) while keeping
+     *  the same side-by-side owner and top-level navigation registry. */
+    public void addSection(
+            String title,
+            JComponent body,
+            List<? extends Viewable> topLevelObjects) {
+        if (built) throw new IllegalStateException("addSection() after build()");
+        sections.add(new Section(title, null,
+                topLevelObjects == null ? new ArrayList<>()
+                        : new ArrayList<>(topLevelObjects),
+                null, null, null, null, null,
+                java.util.Objects.requireNonNull(body, "section body")));
+    }
+
     /** As {@link #addSection(String, Class, List)}, but with the per-section
      *  dynamic config: a {@code sample} instance (so the search/sort/view editors
      *  enumerate map-held fields), plus optional {@code hiddenFields} and
@@ -98,7 +112,8 @@ public class MultiView extends JPanel {
                 hiddenFields,
                 fieldTypes,
                 configState,
-                configListener));
+                configListener,
+                null));
     }
 
     public void build(int columnsPerView) {
@@ -135,6 +150,13 @@ public class MultiView extends JPanel {
 
     private JComponent buildSection(
             Section s, int columns, List<SearchPanel> engines) {
+        if (s.customBody() != null) {
+            sectionViews.add(null);
+            JPanel body = new JPanel(new BorderLayout(4, 4));
+            body.setBorder(BorderFactory.createTitledBorder(s.title()));
+            body.add(s.customBody(), BorderLayout.CENTER);
+            return body;
+        }
         SearchableView view = SearchableView.builder(s.objects())
                 .type(s.type())
                 .sample(s.sample())
@@ -171,7 +193,8 @@ public class MultiView extends JPanel {
         for (Viewable value : values) {
             for (int i = 0; i < sections.size(); i++) {
                 if (java.util.Objects.equals(sections.get(i).title(), value.typeName())) {
-                    sectionViews.get(i).appendViewables(java.util.List.of(value));
+                    SearchableView view = sectionViews.get(i);
+                    if (view != null) view.appendViewables(java.util.List.of(value));
                     break;
                 }
             }
@@ -179,11 +202,11 @@ public class MultiView extends JPanel {
     }
 
     public void removeViewables(java.util.Collection<? extends Viewable> values) {
-        for (SearchableView view : sectionViews) view.removeViewables(values);
+        for (SearchableView view : sectionViews) if (view != null) view.removeViewables(values);
     }
 
     public void refreshViewables(java.util.Collection<? extends Viewable> values) {
-        for (SearchableView view : sectionViews) view.refreshViewables(values);
+        for (SearchableView view : sectionViews) if (view != null) view.refreshViewables(values);
     }
 
     /**
@@ -224,6 +247,7 @@ public class MultiView extends JPanel {
             java.util.Set<String> hiddenFields,
             FieldTypeSource fieldTypes,
             SearchPanel.ConfigState configState,
-            Consumer<SearchPanel.ConfigState> configListener) {
+            Consumer<SearchPanel.ConfigState> configListener,
+            JComponent customBody) {
     }
 }

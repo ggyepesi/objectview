@@ -13,9 +13,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 /**
- * Standalone compatibility browser composed from the pure {@link GroupTreeView}.
- * Applications embedding their own instance panel should use {@code GroupTreeView}
- * directly.
+ * Standalone browser composed from the shared {@link GroupTreeView} outline.
  */
 public class GroupView extends JPanel {
     private final GroupTreeView treeView;
@@ -26,7 +24,13 @@ public class GroupView extends JPanel {
     private final java.util.function.Function<String, FieldSchema> typeSchemas;
 
     public GroupView(ViewableGroup<?> rootGroup) {
-        this(rootGroup, null, null, null, null);
+        this(rootGroup, new RenderContext());
+    }
+
+    /** Uses the host's ordinary render context, so fields shown from the group obey the
+     * same links, top-level references and navigation as every neighbouring card. */
+    public GroupView(ViewableGroup<?> rootGroup, RenderContext renderContext) {
+        this(rootGroup, null, null, null, null, renderContext);
     }
 
     /** {@code fieldSchemas}: an instance's own schema; {@code typeSchemas}: a declared
@@ -37,12 +41,23 @@ public class GroupView extends JPanel {
             FieldTypeSource fieldTypes,
             java.util.function.Function<Viewable, FieldSchema> fieldSchemas,
             java.util.function.Function<String, FieldSchema> typeSchemas) {
+        this(rootGroup, fieldConfigurationSample, fieldTypes, fieldSchemas, typeSchemas,
+                new RenderContext());
+    }
+
+    private GroupView(
+            ViewableGroup<?> rootGroup,
+            Viewable fieldConfigurationSample,
+            FieldTypeSource fieldTypes,
+            java.util.function.Function<Viewable, FieldSchema> fieldSchemas,
+            java.util.function.Function<String, FieldSchema> typeSchemas,
+            RenderContext renderContext) {
         super(new BorderLayout());
         this.fieldConfigurationSample = fieldConfigurationSample;
         this.fieldTypes = fieldTypes;
         this.fieldSchemas = fieldSchemas;
         this.typeSchemas = typeSchemas;
-        treeView = new GroupTreeView(rootGroup);
+        treeView = new GroupTreeView(rootGroup, renderContext);
         treeView.setShowGroupHandler(this::showGroup);
         add(treeView, BorderLayout.CENTER);
     }

@@ -1,9 +1,6 @@
 package objectview.group;
 
 import objectview.Viewable;
-import objectview.field.FieldRef;
-import objectview.field.FieldSet;
-
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -72,29 +69,4 @@ public abstract class ViewableGroupAdapter implements ViewableGroup<Viewable> {
     protected void clearMembers() { members.clear(); }
     protected void removeChild(String displayName) { children.remove(displayName); }
 
-    /** Read-only structural view — the tree renderer walks children/members, not fields;
-     *  this just exposes the same graph so a generic field walker sees it too. */
-    @Override public FieldSet fields() {
-        return new FieldSet() {
-            @Override public Object read(String name) {
-                return switch (name) {
-                    case "children" -> getChildren();
-                    case "members" -> getMembers();
-                    case "parent" -> getParent();
-                    default -> null;
-                };
-            }
-            @Override public boolean has(String name) {
-                return "children".equals(name)
-                        || "members".equals(name)
-                        || "parent".equals(name);
-            }
-            @Override public void write(String name, Object value) {
-                throw new UnsupportedOperationException("read-only group view");
-            }
-            @Override public List<FieldRef> fields() {
-                return List.of();
-            }
-        };
-    }
 }

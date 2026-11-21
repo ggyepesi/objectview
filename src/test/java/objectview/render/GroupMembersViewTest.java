@@ -38,6 +38,35 @@ class GroupMembersViewTest {
         assertEquals("Entity relations (1)", new GroupNode(child).toString());
     }
 
+    @Test void hierarchyAndOrdinaryGroupFieldsExpandIndependently() {
+        Group root = new Group("All");
+        Group child = root.getOrCreateChild("Entity relations");
+        child.addMember(new Item("P31"), false);
+        GroupTreeView tree = new GroupTreeView(root);
+
+        assertTrue(tree.isGroupExpanded(root));
+        assertTrue(tree.setGroupExpanded(root, false));
+        assertTrue(tree.setGroupDetailsExpanded(root, true));
+
+        assertTrue(tree.isGroupDetailsExpanded(root));
+        assertTrue(!tree.isGroupExpanded(root));
+        assertTrue(tree.groupDetailsComponent(root) instanceof Card);
+        Card card = (Card) tree.groupDetailsComponent(root);
+        assertEquals(root, card.renderedInstance());
+        assertTrue(card.getComponentCount() > 0,
+                "the details disclosure must contain rendered ObjectView fields");
+        assertTrue(card.getPreferredSize().height > 0);
+    }
+
+    @Test void groupFieldsUseTheirHostsSharedRenderContext() {
+        Group root = new Group("All");
+        RenderContext shared = new RenderContext();
+        GroupTreeView tree = new GroupTreeView(root, shared);
+
+        assertEquals(shared, tree.detailsRenderContext(),
+                "links and references in group fields obey the surrounding view");
+    }
+
     @Test void selectionDrivenMemberViewHasNoRedundantShowButton() {
         Group root = new Group("All");
         Group child = root.getOrCreateChild("Colliding name");
@@ -54,6 +83,22 @@ class GroupMembersViewTest {
         assertTrue(view.selectGroup(child, false));
         assertEquals("Colliding name", rendered.get());
         assertTrue(buttons(view, "Show instances").isEmpty());
+    }
+
+    @Test void enterShowsTheSelectedGroupsInstances() {
+        Group root = new Group("All");
+        Group child = root.getOrCreateChild("Olympians");
+        child.addMember(new Item("Q34201"), false);
+        GroupTreeView tree = new GroupTreeView(root);
+        AtomicReference<objectview.group.ViewableGroup<?>> shown = new AtomicReference<>();
+        tree.setShowGroupHandler(shown::set);
+
+        assertTrue(tree.selectGroup(child, false));
+        javax.swing.Action enter = tree.getTree().getActionMap().get("showGroup");
+        enter.actionPerformed(new java.awt.event.ActionEvent(
+                tree.getTree(), java.awt.event.ActionEvent.ACTION_PERFORMED, "ENTER"));
+
+        assertEquals(child, shown.get());
     }
 
     private static java.util.List<JButton> buttons(Component component, String text) {
