@@ -87,6 +87,7 @@ Runnable demos in `objectview.demo`:
 | `SearchDemo` | live search, sort, field highlight + bulk expand/collapse toolbar |
 | `TableViewDemo` | the same search/config pipeline in the lightweight table layout |
 | `MultiViewDemo` | two views sharing a context; click a chip to navigate between them |
+| `ViewableTreeDemo` | hierarchical groups, member counts, group fields, keyboard navigation, and parallel member cards |
 | `RenderBenchmark [count]` | scale — 100,000 rich cards |
 
 Benchmark numbers (100,000 cards, each with several fields + a reference chip +

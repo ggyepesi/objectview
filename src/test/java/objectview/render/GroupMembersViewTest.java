@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import javax.swing.JLabel;
 import javax.swing.JButton;
+import javax.swing.JPanel;
 import javax.swing.JSplitPane;
 import java.awt.Component;
 import java.awt.Container;
@@ -58,6 +59,19 @@ class GroupMembersViewTest {
         assertTrue(card.getPreferredSize().height > 0);
     }
 
+    @Test void enabledGroupFieldsFollowTheSelectedTreeNode() {
+        Group root = new Group("All");
+        Group child = root.getOrCreateChild("Entity relations");
+        GroupTreeView tree = new GroupTreeView(root);
+
+        assertTrue(tree.setGroupDetailsExpanded(root, true));
+        assertTrue(tree.selectGroup(child, false));
+
+        assertTrue(tree.isGroupDetailsExpanded(child),
+                "Show group fields is one toggle whose card follows selection");
+        assertEquals(child, ((Card) tree.groupDetailsComponent(child)).renderedInstance());
+    }
+
     @Test void groupFieldsUseTheirHostsSharedRenderContext() {
         Group root = new Group("All");
         RenderContext shared = new RenderContext();
@@ -65,6 +79,86 @@ class GroupMembersViewTest {
 
         assertEquals(shared, tree.detailsRenderContext(),
                 "links and references in group fields obey the surrounding view");
+    }
+
+    @Test void groupAndParallelMembersCanUseOneRenderContext() {
+        Group root = new Group("All");
+        RenderContext shared = new RenderContext();
+        GroupMembersView view = new GroupMembersView(
+                root, ignored -> new JLabel("members"), JSplitPane.HORIZONTAL_SPLIT,
+                false, 0.3, true, shared);
+
+        assertEquals(shared, view.groups().detailsRenderContext(),
+                "member references in group fields must see the member panel's cards");
+    }
+
+    @Test void aReferenceToAnotherGroupRevealsItsMemberPanelBeforeNavigation() {
+        Group root = new Group("All");
+        Group first = root.getOrCreateChild("First group");
+        Group second = root.getOrCreateChild("Second group");
+        Item one = new Item("Q1");
+        Item two = new Item("Q2");
+        first.addMember(one, true);
+        second.addMember(two, true);
+        RenderContext shared = new RenderContext();
+        AtomicReference<objectview.group.ViewableGroup<?>> shown = new AtomicReference<>();
+        GroupMembersView view = new GroupMembersView(
+                root,
+                group -> {
+                    shown.set(group);
+                    return new JLabel(group.getDisplayName());
+                },
+                JSplitPane.HORIZONTAL_SPLIT, false, 0.3, true, shared);
+        shared.addTopLevelResolver(target -> shown.get() != null
+                && shown.get().getMembers().contains(target) ? new JPanel() : null);
+
+        assertTrue(view.selectGroup(first, true));
+        assertTrue(shared.focusTopLevel(two));
+
+        assertEquals(second, view.groups().selectedGroup(),
+                "navigation selects a concrete group that contains the target");
+        assertEquals(second, shown.get(),
+                "the target group's member panel exists before card resolution");
+    }
+
+    @Test void aReferenceToAMemberAlreadyShownKeepsTheCurrentGroup() {
+        Group root = new Group("All");
+        Group first = root.getOrCreateChild("First group");
+        Group second = root.getOrCreateChild("Second group");
+        Item one = new Item("Q1");
+        Item two = new Item("Q2");
+        first.addMember(one, true);
+        second.addMember(two, true);
+        RenderContext shared = new RenderContext();
+        AtomicReference<objectview.group.ViewableGroup<?>> shown = new AtomicReference<>();
+        java.util.concurrent.atomic.AtomicInteger builds =
+                new java.util.concurrent.atomic.AtomicInteger();
+        GroupMembersView view = new GroupMembersView(
+                root,
+                group -> {
+                    shown.set(group);
+                    builds.incrementAndGet();
+                    return new JLabel(group.getDisplayName());
+                },
+                JSplitPane.HORIZONTAL_SPLIT, false, 0.3, true, shared);
+        shared.addTopLevelResolver(target -> shown.get() != null
+                && shown.get().getMembers().contains(target) ? new JPanel() : null);
+        view.groups().setMultipleSelectionEnabled(true);
+
+        assertTrue(view.selectGroup(root, true));
+        int before = builds.get();
+        assertTrue(shared.focusTopLevel(two));
+        assertEquals(root, view.groups().selectedGroup(),
+                "the overview already shows the target; navigation must not narrow it");
+        assertEquals(before, builds.get(), "the shown member panel is not rebuilt");
+
+        view.groups().getTree().setSelectionRows(new int[] { 1, 2 });
+        java.util.List<objectview.group.ViewableGroup<?>> batch =
+                view.groups().selectedGroups();
+        Object leadMember = view.groups().selectedGroup().getMembers().iterator().next();
+        assertTrue(shared.focusTopLevel(leadMember));
+        assertEquals(batch, view.groups().selectedGroups(),
+                "following a link to a shown member keeps a multi-group selection");
     }
 
     @Test void selectionDrivenMemberViewHasNoRedundantShowButton() {
@@ -83,6 +177,31 @@ class GroupMembersViewTest {
         assertTrue(view.selectGroup(child, false));
         assertEquals("Colliding name", rendered.get());
         assertTrue(buttons(view, "Show instances").isEmpty());
+    }
+
+    @Test void batchSelectionKeepsOneLeadGroupForInspection() {
+        Group root = new Group("All");
+        Group first = root.getOrCreateChild("First group");
+        Group second = root.getOrCreateChild("Second group");
+        AtomicReference<java.util.List<objectview.group.ViewableGroup<?>>> selected =
+                new AtomicReference<>(java.util.List.of());
+        AtomicReference<objectview.group.ViewableGroup<?>> rendered =
+                new AtomicReference<>();
+        GroupMembersView view = new GroupMembersView(
+                root, group -> {
+                    rendered.set(group);
+                    return new JLabel(group.getDisplayName());
+                },
+                JSplitPane.HORIZONTAL_SPLIT, false, 0.3, true);
+        view.groups().setMultipleSelectionEnabled(true);
+        view.setSelectionSetHandler(selected::set);
+
+        view.groups().getTree().setSelectionRows(new int[] { 1, 2 });
+
+        assertEquals(java.util.List.of(first, second), selected.get());
+        assertTrue(selected.get().contains(view.groups().selectedGroup()));
+        assertEquals(view.groups().selectedGroup(), rendered.get(),
+                "one lead node still drives the parallel inspection panel");
     }
 
     @Test void enterShowsTheSelectedGroupsInstances() {

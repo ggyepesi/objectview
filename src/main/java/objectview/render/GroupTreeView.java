@@ -20,6 +20,12 @@ import javax.swing.tree.TreePath;
 import javax.swing.tree.TreeSelectionModel;
 import java.awt.BorderLayout;
 import java.awt.GridLayout;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /**
@@ -44,6 +50,7 @@ public class GroupTreeView extends JPanel {
     private final JLabel status;
     private Consumer<ViewableGroup<?>> showGroupHandler;
     private Consumer<ViewableGroup<?>> selectionHandler;
+    private Consumer<List<ViewableGroup<?>>> selectionSetHandler = ignored -> {};
     private ViewableGroup<?> detailsGroup;
     private Card detailsCard;
     private boolean detailsExpanded;
@@ -67,6 +74,7 @@ public class GroupTreeView extends JPanel {
             ViewableGroup<?> selected = selectedGroup();
             if (detailsExpanded) showDetails(selected);
             if (selectionHandler != null) selectionHandler.accept(selected);
+            selectionSetHandler.accept(selectedGroups());
         });
         tree.getInputMap(JComponent.WHEN_FOCUSED)
                 .put(KeyStroke.getKeyStroke("ENTER"), "showGroup");
@@ -85,7 +93,7 @@ public class GroupTreeView extends JPanel {
         outlineAndDetails.setDividerSize(0);
         outlineAndDetails.setBorder(null);
 
-        detailsButton = new JToggleButton("Show fields");
+        detailsButton = new JToggleButton("Show group fields");
         detailsButton.setToolTipText(
                 "Show or hide the selected group's ordinary ObjectView fields");
         detailsButton.addActionListener(event ->
@@ -130,7 +138,8 @@ public class GroupTreeView extends JPanel {
     private void setDetailsExpanded(boolean expanded) {
         detailsExpanded = expanded && selectedGroup() != null;
         detailsButton.setSelected(detailsExpanded);
-        detailsButton.setText(detailsExpanded ? "Hide fields" : "Show fields");
+        detailsButton.setText(detailsExpanded
+                ? "Hide group fields" : "Show group fields");
         if (!detailsExpanded) {
             outlineAndDetails.setBottomComponent(null);
             outlineAndDetails.setDividerSize(0);
@@ -166,6 +175,40 @@ public class GroupTreeView extends JPanel {
 
     public void setSelectionHandler(Consumer<ViewableGroup<?>> handler) {
         selectionHandler = handler;
+    }
+
+    /** Enables ordinary modifier-key tree selection. The lead node still controls
+     * inspection (members and group fields); the complete set belongs to batch actions. */
+    public void setMultipleSelectionEnabled(boolean enabled) {
+        tree.getSelectionModel().setSelectionMode(enabled
+                ? TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION
+                : TreeSelectionModel.SINGLE_TREE_SELECTION);
+    }
+
+    public void setSelectionSetHandler(
+            Consumer<List<ViewableGroup<?>>> handler) {
+        selectionSetHandler = handler == null ? ignored -> {} : handler;
+    }
+
+    /** Selected groups in tree order, independent of the order modifier-clicks arrived. */
+    public List<ViewableGroup<?>> selectedGroups() {
+        TreePath[] paths = tree.getSelectionPaths();
+        if (paths == null || paths.length == 0) return List.of();
+        List<TreePath> ordered = new ArrayList<>(List.of(paths));
+        ordered.sort(Comparator.comparingInt(path -> {
+            int row = tree.getRowForPath(path);
+            return row < 0 ? Integer.MAX_VALUE : row;
+        }));
+        Set<ViewableGroup<?>> seen = Collections.newSetFromMap(
+                new IdentityHashMap<>());
+        List<ViewableGroup<?>> result = new ArrayList<>();
+        for (TreePath path : ordered) {
+            Object node = path.getLastPathComponent();
+            ViewableGroup<?> group = node instanceof DefaultMutableTreeNode treeNode
+                    ? getViewableGroup(treeNode) : null;
+            if (group != null && seen.add(group)) result.add(group);
+        }
+        return List.copyOf(result);
     }
 
     /** Keep the explicit action only when selection does not already reveal members. */
