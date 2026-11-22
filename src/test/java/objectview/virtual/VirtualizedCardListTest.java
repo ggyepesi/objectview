@@ -124,6 +124,24 @@ class VirtualizedCardListTest {
     }
 
     @Test
+    void passivePinningDoesNotRevealWhatViewConfigKeepsFolded() {
+        onEdt(() -> {
+            List<Item> items = makeItems(2);
+            VirtualizedCardList list = install(items);
+            AtomicInteger reveals = new AtomicInteger();
+            list.setNavigateRevealHandler(ignored -> reveals.incrementAndGet());
+
+            list.pinToTop(items.get(0));
+            assertEquals(0, reveals.get(),
+                    "reordering may preserve the viewport without revealing content");
+
+            list.navigateToTop(items.get(0));
+            assertEquals(1, reveals.get(),
+                    "explicit navigation still reveals its target");
+        });
+    }
+
+    @Test
     void undisplayedZeroSizeViewportDoesNotMaterializeUntilLayout() {
         List<Item> items = makeItems(20);
         AtomicInteger builds = new AtomicInteger();

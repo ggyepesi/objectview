@@ -104,6 +104,24 @@ class SearchPanelTargetCapabilityTest {
         });
     }
 
+    @Test void sortingPinsTheViewportWithoutRevealingTheAnchorCard() {
+        EdtTests.onEdt(() -> {
+            Item second = new Item("second");
+            Item first = new Item("first");
+            SearchPanel search = new SearchPanel(Item.class);
+            ConfigurableDataTarget target = new ConfigurableDataTarget(second, first);
+            search.setTargetAndApplyViewConfig(target, new JPanel(), new JScrollPane());
+
+            search.applySort();
+
+            assertEquals(List.of(first, second), target.items());
+            assertEquals(1, target.pinCalls(),
+                    "Sort preserves the top item without changing its disclosure");
+            assertEquals(0, target.navigationCalls(),
+                    "revealing navigation is reserved for an explicit navigation action");
+        });
+    }
+
     @Test void anUpdatedCardReplacesItsAlreadyIndexedText() {
         EdtTests.onEdt(() -> {
             Item item = new Item("old title");
@@ -290,6 +308,8 @@ class SearchPanelTargetCapabilityTest {
 
     private static class DataTarget implements VirtualizedContainer {
         private List<Viewable> items;
+        private int pinCalls;
+        private int navigationCalls;
         private DataTarget() { this(new Item()); }
         private DataTarget(Viewable... items) {
             this.items = new ArrayList<>(List.of(items));
@@ -298,7 +318,16 @@ class SearchPanelTargetCapabilityTest {
         @Override public Viewable topVisibleItem() {
             return items.isEmpty() ? null : items.get(0);
         }
-        @Override public JComponent navigateToTop(Viewable item) { return null; }
+        @Override public JComponent pinToTop(Viewable item) {
+            pinCalls++;
+            return null;
+        }
+        @Override public JComponent navigateToTop(Viewable item) {
+            navigationCalls++;
+            return null;
+        }
+        int pinCalls() { return pinCalls; }
+        int navigationCalls() { return navigationCalls; }
         @Override public void setItems(List<Viewable> orderedItems) {
             items = new ArrayList<>(orderedItems);
         }

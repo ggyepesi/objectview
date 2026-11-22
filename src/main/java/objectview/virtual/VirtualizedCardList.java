@@ -442,6 +442,17 @@ public final class VirtualizedCardList
      */
     @Override
     public JComponent navigateToTop(Viewable q) {
+        return pinToTop(q, true);
+    }
+
+    /** Pins the row after a reorder without turning viewport preservation into the
+     * semantic "reveal this target" action used by search navigation. */
+    @Override
+    public JComponent pinToTop(Viewable q) {
+        return pinToTop(q, false);
+    }
+
+    private JComponent pinToTop(Viewable q, boolean reveal) {
         int i = indexOf(q);
 
         if (i < 0 || viewport == null) {
@@ -453,7 +464,7 @@ public final class VirtualizedCardList
         // visible. The handler may also reveal collapsed ancestors before it
         // rebuilds this card. The rebuild may change its height, which the
         // rebuildTops/scroll below then honours.
-        if (onNavigateReveal != null) {
+        if (reveal && onNavigateReveal != null) {
             onNavigateReveal.accept(q);
         }
 

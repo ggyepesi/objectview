@@ -1240,6 +1240,7 @@ class VirtualSearchHighlightTest {
 
         @Override public List<Viewable> items() { return List.of(); }
         @Override public Viewable topVisibleItem() { return null; }
+        @Override public JComponent pinToTop(Viewable item) { return null; }
         @Override public JComponent navigateToTop(Viewable item) { return null; }
         @Override public void setItems(List<Viewable> orderedItems) {}
         @Override public void forEachMaterialized(

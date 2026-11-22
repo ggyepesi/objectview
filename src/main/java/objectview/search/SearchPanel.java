@@ -457,7 +457,10 @@ public class SearchPanel extends JPanel
                 searchAndSort.sortViewables(virtualList.items(), sortPaths);
         virtualList.setItems(ordered);
         if (renderContext != null) renderContext.setSelectionOrder(ordered);
-        if (anchor != null) virtualList.navigateToTop(anchor);
+        // Preserve the reader's place, not reveal a target. navigateToTop is the
+        // semantic search/navigation operation and intentionally expands a folded card;
+        // using it here made Sort override View Config's captions-only setting.
+        if (anchor != null) virtualList.pinToTop(anchor);
         sorted = true;
         appliedSortConfiguration = sortConfigurationSignature();
         sortConfigurationChanged();

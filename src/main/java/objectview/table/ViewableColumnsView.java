@@ -161,6 +161,8 @@ public final class ViewableColumnsView
 
     @Override public Viewable topVisibleItem() { return list.topVisibleItem(); }
 
+    @Override public JComponent pinToTop(Viewable item) { return list.pinToTop(item); }
+
     @Override public JComponent navigateToTop(Viewable item) { return list.navigateToTop(item); }
 
     @Override

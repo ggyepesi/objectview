@@ -25,6 +25,14 @@ public interface VirtualizedContainer {
             java.util.function.Consumer<JComponent> listener) {}
 
     Viewable topVisibleItem();
+
+    /**
+     * Restores an item's position without revealing hidden content or changing any
+     * disclosure choice. Reordering uses this; it is deliberately different from
+     * semantic navigation to a search hit.
+     */
+    JComponent pinToTop(Viewable item);
+
     JComponent navigateToTop(Viewable item);
     void setItems(List<Viewable> orderedItems);
 }
