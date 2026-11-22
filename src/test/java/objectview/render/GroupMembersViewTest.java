@@ -161,6 +161,36 @@ class GroupMembersViewTest {
                 "following a link to a shown member keeps a multi-group selection");
     }
 
+    @Test void manualShowUsesTheDisplayedGroupWhenRevealingAReference() {
+        Group root = new Group("All");
+        Group first = root.getOrCreateChild("First group");
+        Group second = root.getOrCreateChild("Second group");
+        Item one = new Item("Q1");
+        Item two = new Item("Q2");
+        first.addMember(one, true);
+        second.addMember(two, true);
+        RenderContext shared = new RenderContext();
+        AtomicReference<objectview.group.ViewableGroup<?>> shown = new AtomicReference<>();
+        GroupMembersView view = new GroupMembersView(
+                root,
+                group -> {
+                    shown.set(group);
+                    return new JLabel(group.getDisplayName());
+                },
+                JSplitPane.HORIZONTAL_SPLIT, false, 0.3, false, shared);
+        shared.addTopLevelResolver(target -> shown.get() != null
+                && shown.get().getMembers().contains(target) ? new JPanel() : null);
+
+        assertTrue(view.selectGroup(first, true));
+        assertTrue(view.selectGroup(second, false));
+        assertEquals(first, shown.get(),
+                "selection alone does not replace an explicit Show instances panel");
+
+        assertTrue(shared.focusTopLevel(two));
+        assertEquals(second, shown.get(),
+                "navigation builds the selected target's actual member panel first");
+    }
+
     @Test void selectionDrivenMemberViewHasNoRedundantShowButton() {
         Group root = new Group("All");
         Group child = root.getOrCreateChild("Colliding name");

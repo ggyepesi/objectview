@@ -27,6 +27,9 @@ public final class GroupMembersView extends JPanel {
     private final Function<ViewableGroup<?>, JComponent> memberView;
     private final boolean showOnSelection;
     private Consumer<ViewableGroup<?>> selectionHandler = ignored -> {};
+    /** The group whose member component is installed now. This is deliberately
+     * separate from tree selection when showing members requires an explicit action. */
+    private ViewableGroup<?> shownGroup;
 
     public GroupMembersView(
             ViewableGroup<?> root,
@@ -93,8 +96,7 @@ public final class GroupMembersView extends JPanel {
     }
 
     private void revealMemberGroup(Viewable member, ViewableGroup<?> owner) {
-        ViewableGroup<?> current = groups.selectedGroup();
-        if (current != null && current.getMembers().contains(member)) return;
+        if (shownGroup != null && shownGroup.getMembers().contains(member)) return;
         boolean changed = groups.selectedGroup() != owner;
         groups.selectGroup(owner, false);
         // A changed selection already invokes showGroup when this host follows
@@ -131,6 +133,7 @@ public final class GroupMembersView extends JPanel {
     public void showGroup(ViewableGroup<?> group) {
         if (group == null) return;
         JComponent content = memberView.apply(group);
+        shownGroup = group;
         members.removeAll();
         if (content != null) members.add(content, BorderLayout.CENTER);
         members.revalidate();
