@@ -39,6 +39,16 @@ public final class RecordTypes {
         return field(name, FieldKind.TEXT, FieldKind.TEXT, "String", false, false, null);
     }
 
+    /** A text value that supplies its record's caption. The value may be a
+     * {@link LinkedTextSequence}; captions and ordinary text rows deliberately share
+     * that one linked-text representation. */
+    public static FieldRef display(String name) {
+        return FieldRef.described(name, name, FieldRole.DISPLAY,
+                FieldKind.TEXT, FieldKind.TEXT, "String",
+                false, false, null, false, false,
+                false, false, false, "", false);
+    }
+
     /** A number, ordered as one. */
     public static FieldRef number(String name) {
         return field(name, FieldKind.ORDERED, FieldKind.ORDERED, "Number", false, false, null);

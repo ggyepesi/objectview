@@ -52,7 +52,7 @@ public class LinkRow extends TextRow {
         this.label = parsed.label();
 
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        setToolTipText(this.url + " · click to open · right-click to copy");
+        showLinkDestinationOnHover();
 
         putClientProperty(
                 FieldProperties.FIELD_VALUE_PROPERTY,
@@ -84,6 +84,14 @@ public class LinkRow extends TextRow {
     @Override
     protected void valueClickedAt(Point point) {
         if (isPointOverValue(point)) valueClicked(null);
+    }
+
+    @Override protected boolean hasLinkDestination() {
+        return url != null && !url.isBlank();
+    }
+
+    @Override protected String hoverUrlAt(Point point) {
+        return isPointOverValue(point) ? url : null;
     }
 
     @Override

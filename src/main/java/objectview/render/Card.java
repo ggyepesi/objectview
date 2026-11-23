@@ -1633,6 +1633,14 @@ public class Card extends JPanel implements RenderedInstanceHost {
             return false;
         }
 
+        // Linked text is a set of clickable runs. The painted block draws plain
+        // strings, so folding it in silently dropped every link; it renders as its own
+        // TextRow, which paints, hit-tests and hovers the same runs.
+        if (value instanceof objectview.field.LinkedTextSequence linked
+                && !linked.urls().isEmpty()) {
+            return false;
+        }
+
         if (value instanceof ImagePane || value instanceof MediaValue) {
             return false;
         }

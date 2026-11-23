@@ -32,10 +32,19 @@ public final class SchemaFieldSet implements FieldSet {
 
     @Override public List<FieldRef> fields() {
         Map<String, FieldRef> combined = new LinkedHashMap<>();
+        FieldRef schemaDisplay = null;
         for (FieldRef field : schema.fields()) {
             combined.put(field.name(), field);
+            if (field.role() == FieldRole.DISPLAY) schemaDisplay = field;
         }
         for (FieldRef field : backing.fields()) {
+            // An authoritative schema that binds DISPLAY replaces an adapter's
+            // storage/fallback display field. Keeping both made displayField() return
+            // the schema answer while displayKey()/render planning picked the later
+            // backing answer — two captions for one object and, for linked captions,
+            // a silent loss of the link.
+            if (schemaDisplay != null && field.role() == FieldRole.DISPLAY
+                    && !field.name().equals(schemaDisplay.name())) continue;
             combined.putIfAbsent(field.name(), field);
         }
         return new ArrayList<>(combined.values());

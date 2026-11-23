@@ -74,6 +74,18 @@ class ViewableContractFieldSetTest {
         assertEquals("Dynamic label", fields.read(ViewableContractFieldSet.DISPLAY_KEY));
     }
 
+    @Test void schemaDisplayReplacesAnAdaptersDifferentFallbackDisplay() {
+        SchemaOverridesDisplayItem item = new SchemaOverridesDisplayItem();
+        FieldSet fields = FieldSet.of(item);
+
+        assertEquals(java.util.List.of("caption"), fields.fields().stream()
+                .filter(field -> field.role() == FieldRole.DISPLAY)
+                .map(FieldRef::name).toList());
+        assertEquals("caption", ViewableContractFieldSet.displayKey(fields));
+        assertEquals(java.util.List.of("https://example.test/member"),
+                ((LinkedTextSequence) fields.read("caption")).urls());
+    }
+
     @Test void displayFieldCannotAlsoBeHidden() {
         ViewableAdapter.clearReflectionCaches();
         assertThrows(IllegalStateException.class,
@@ -148,6 +160,27 @@ class ViewableContractFieldSetTest {
         private SchemaBoundItem(String caption) { values.put("caption", caption); }
         @Override public String getIdentifier() { return "dynamic"; }
         @Override public String getDisplayName() { return String.valueOf(values.get("caption")); }
+        @Override public Map<String, Object> dynamicFieldValues() { return values; }
+        @Override public FieldSchema dynamicFieldSchema() {
+            return () -> java.util.List.of(FieldRef.computed(
+                    "caption", "caption", FieldKind.TEXT, FieldRole.DISPLAY));
+        }
+    }
+
+
+    private static final class SchemaOverridesDisplayItem extends ViewableAdapter
+            implements DynamicFields {
+        @DisplayField private final String name = "plain fallback";
+        private final Map<String, Object> values = new LinkedHashMap<>();
+
+        private SchemaOverridesDisplayItem() {
+            values.put("caption", LinkedTextSequence.of(
+                    LinkedTextSequence.link("Linked caption",
+                            "https://example.test/member")));
+        }
+
+        @Override public String getIdentifier() { return "schema-overrides"; }
+        @Override public String getDisplayName() { return name; }
         @Override public Map<String, Object> dynamicFieldValues() { return values; }
         @Override public FieldSchema dynamicFieldSchema() {
             return () -> java.util.List.of(FieldRef.computed(

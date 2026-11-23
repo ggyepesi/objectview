@@ -103,10 +103,11 @@ public class TextRow extends JComponent implements TextSelectable {
 
         addMouseListener(TextCopyMouseHandler.INSTANCE);
         addMouseMotionListener(TextCopyMouseHandler.INSTANCE);
-        setToolTipText(linkedText == null
-                ? "Drag to select · " + copyKeyName() + "/right-click to copy"
-                : "Click a linked part to open it · drag to select · "
-                        + copyKeyName() + "/right-click to copy");
+        if (linkedText == null || linkedText.urls().isEmpty()) {
+            setToolTipText("Drag to select · " + copyKeyName() + "/right-click to copy");
+        } else {
+            showLinkDestinationOnHover();
+        }
 
         registerCopyShortcut();
     }
@@ -268,6 +269,33 @@ public class TextRow extends JComponent implements TextSelectable {
         if (url == null) return false;
         objectview.utils.BrowserLauncher.open(url);
         return true;
+    }
+
+    /**
+     * A link's hover text is its destination, exactly as a browser shows it: the URL a
+     * click at that point would open, and nothing over plain text. Usage help such as
+     * "click to open" is not shown over a link (the hand cursor already says it).
+     */
+    @Override public String getToolTipText(MouseEvent event) {
+        if (!hasLinkDestination()) return super.getToolTipText(event);
+        return event == null ? null : hoverUrlAt(event.getPoint());
+    }
+
+    /** Registers hover without a fixed help text; {@link #getToolTipText(MouseEvent)}
+     * answers per point. */
+    protected final void showLinkDestinationOnHover() {
+        setToolTipText(null);
+        ToolTipManager.sharedInstance().registerComponent(this);
+    }
+
+    /** Whether some point of this row opens a URL. */
+    protected boolean hasLinkDestination() {
+        return linkedText != null && !linkedText.urls().isEmpty();
+    }
+
+    /** The URL a click at {@code point} opens, or null. Must agree with click dispatch. */
+    protected String hoverUrlAt(Point point) {
+        return linkedUrlAt(point);
     }
 
     /** Destinations painted inside this row, in reading order. */

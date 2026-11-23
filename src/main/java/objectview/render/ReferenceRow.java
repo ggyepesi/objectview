@@ -231,6 +231,17 @@ public class ReferenceRow extends TextRow {
         }
     }
 
+    @Override protected boolean hasLinkDestination() {
+        return super.hasLinkDestination() || !externalUrl.isBlank();
+    }
+
+    /** Hover names the same destination {@link #valueClickedAt} opens. */
+    @Override protected String hoverUrlAt(Point point) {
+        String linked = super.hoverUrlAt(point);
+        if (linked != null) return linked;
+        return !externalUrl.isBlank() && isPointOverValue(point) ? externalUrl : null;
+    }
+
     /** A combined collection reference keeps two explicit hit targets: its painted
      * caption navigates and its disclosure glyph/padding changes only disclosure. */
     @Override
