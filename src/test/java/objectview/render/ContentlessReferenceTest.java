@@ -39,6 +39,23 @@ class ContentlessReferenceTest {
         assertEquals(1, renderedCount(card, "Terry Gilliam"));
     }
 
+    @Test void aCaptionOnlyRootDoesNotPromiseAnExpandableBody() throws Exception {
+        Person person = new Person("Terry Gilliam");
+        ViewConfig config = ViewConfig.of(Person.class);
+        config.setAllFields(false);
+        config.addField("personName", ViewConfig.leaf());
+        RenderContext context = new RenderContext();
+        context.setCollapsibleCards(true);
+        Card[] rendered = new Card[1];
+
+        SwingUtilities.invokeAndWait(() -> rendered[0] =
+                new Card(person, config, context, false));
+
+        assertNull(findByTooltip(rendered[0], "Expand"),
+                "a caption-only top-level card must not show a disclosure control");
+        assertTrue(renders(rendered[0], "Terry Gilliam"));
+    }
+
     @Test void aReferenceWhoseTargetHasFieldsKeepsItsExpander() throws Exception {
         Person director = new Person("Terry Gilliam");
         director.nationality = "British";
@@ -178,6 +195,20 @@ class ContentlessReferenceTest {
         if (root instanceof Container container) {
             for (Component child : container.getComponents()) {
                 Component found = findByFieldName(child, fieldName);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static Component findByTooltip(Component root, String tooltip) {
+        if (root instanceof javax.swing.JComponent component
+                && tooltip.equals(component.getToolTipText())) {
+            return root;
+        }
+        if (root instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                Component found = findByTooltip(child, tooltip);
                 if (found != null) return found;
             }
         }

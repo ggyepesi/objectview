@@ -8,20 +8,18 @@ import objectview.viewconfig.FieldTypeSource;
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
 import java.awt.*;
-import java.util.IdentityHashMap;
-import java.util.Map;
 import java.util.function.Consumer;
 
 /**
  * Standalone browser composed from the shared {@link GroupTreeView} outline.
  */
 public class GroupView extends JPanel {
+    private final GroupMembersView groupMembersView;
     private final GroupTreeView treeView;
-    private final Map<ViewableGroup<?>, CardListView> memberViews = new IdentityHashMap<>();
     private final Viewable fieldConfigurationSample;
     private final FieldTypeSource fieldTypes;
-    private final java.util.function.Function<Viewable, FieldSchema> fieldSchemas;
-    private final java.util.function.Function<String, FieldSchema> typeSchemas;
+    private Consumer<ViewableGroup<?>> showGroupObserver = ignored -> { };
+    private CardListView activeMemberView;
 
     public GroupView(ViewableGroup<?> rootGroup) {
         this(rootGroup, new RenderContext());
@@ -55,28 +53,33 @@ public class GroupView extends JPanel {
         super(new BorderLayout());
         this.fieldConfigurationSample = fieldConfigurationSample;
         this.fieldTypes = fieldTypes;
-        this.fieldSchemas = fieldSchemas;
-        this.typeSchemas = typeSchemas;
-        treeView = new GroupTreeView(rootGroup, renderContext);
-        treeView.setShowGroupHandler(this::showGroup);
-        add(treeView, BorderLayout.CENTER);
+        if (fieldSchemas != null) renderContext.setFieldSchemaResolver(fieldSchemas);
+        if (typeSchemas != null) renderContext.setTypeSchemaResolver(typeSchemas);
+        groupMembersView = new GroupMembersView(
+                rootGroup, group -> memberView(group, renderContext),
+                JSplitPane.HORIZONTAL_SPLIT, false, 0.3, false, renderContext);
+        treeView = groupMembersView.groups();
+        add(groupMembersView, BorderLayout.CENTER);
     }
 
-    private void showGroup(ViewableGroup<?> group) {
-        if (group == null || group.getMembers().isEmpty()) return;
-        CardListView view = memberViews.computeIfAbsent(group, selected -> {
-            CardListView created = new CardListView();
-            created.setFieldConfiguration(fieldConfigurationSample, fieldTypes);
-            if (fieldSchemas != null) {
-                RenderContext context = new RenderContext(selected.getMembers());
-                context.setFieldSchemaResolver(fieldSchemas);
-                context.setTypeSchemaResolver(typeSchemas);
-                created.setRenderContext(context);
-            }
-            for (Viewable member : selected.getMembers()) created.addViewable(member);
-            return created;
-        });
-        view.show(group.getFullName(), 2);
+    private JComponent memberView(
+            ViewableGroup<?> group, RenderContext renderContext) {
+        showGroupObserver.accept(group);
+        if (activeMemberView != null) {
+            activeMemberView.dispose();
+            activeMemberView = null;
+        }
+        if (group == null || group.getMembers().isEmpty()) {
+            return new JLabel("  This group has no instances.");
+        }
+        CardListView view = new CardListView();
+        view.setFieldConfiguration(fieldConfigurationSample, fieldTypes);
+        view.setRenderContext(renderContext);
+        view.setInPlaceNavigation(true);
+        for (Viewable member : group.getMembers()) view.addViewable(member);
+        view.createCardsPanel(2);
+        activeMemberView = view;
+        return view.getCardsScrollPane();
     }
 
     public JPanel getMainPanel() { return treeView; }
@@ -88,7 +91,7 @@ public class GroupView extends JPanel {
         return treeView.getViewableGroup(node);
     }
     public void setShowGroupHandler(Consumer<ViewableGroup<?>> handler) {
-        treeView.setShowGroupHandler(handler);
+        showGroupObserver = handler == null ? ignored -> { } : handler;
     }
     public void setSelectionHandler(Consumer<ViewableGroup<?>> handler) {
         treeView.setSelectionHandler(handler);

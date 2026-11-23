@@ -630,9 +630,11 @@ public class Card extends JPanel implements RenderedInstanceHost {
         visited.add(viewable);
         ancestors.add(viewable);
         // Whether a root is open is the executor's decision (#398); a view that folds
-        // its roots paints the folding header, and a root with no caption — nothing to
-        // fold under — shows its fields directly instead of an invented header.
-        if (rootRender && renderContext.collapsibleCards() && level.caption() != null) {
+        // its roots paints the folding header, but only when opening it can reveal a
+        // rendered body. A caption-only root is a value, not a door, just like a
+        // caption-only nested reference.
+        if (rootRender && renderContext.collapsibleCards()
+                && level.caption() != null && level.hasBody()) {
             buildCollapsibleRoot();
         } else {
             addTitleHeaderIfNeeded();
