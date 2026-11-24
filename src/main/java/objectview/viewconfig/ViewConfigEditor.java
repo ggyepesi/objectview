@@ -1306,9 +1306,23 @@ public class ViewConfigEditor extends JPanel {
         return offersRootsFolded ? rootsFoldedBox.isSelected() : null;
     }
 
+    /** Changes the view-wide top-level-card choice without touching this type's fields. */
+    public void rootsFoldedChoice(boolean folded) {
+        if (!offersRootsFolded || rootsFoldedBox.isSelected() == folded) return;
+        rootsFoldedBox.setSelected(folded);
+        fireConfigChanged();
+    }
+
     /** The view-wide empty-field choice, offered beside the root-card choice. */
     public Boolean emptyFieldsVisibleChoice() {
         return offersRootsFolded ? emptyFieldsBox.isSelected() : null;
+    }
+
+    /** Changes the view-wide empty-field choice without touching this type's fields. */
+    public void emptyFieldsVisibleChoice(boolean visible) {
+        if (!offersRootsFolded || emptyFieldsBox.isSelected() == visible) return;
+        emptyFieldsBox.setSelected(visible);
+        fireConfigChanged();
     }
 
     public ViewConfig getConfig() {

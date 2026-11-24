@@ -28,6 +28,8 @@ public class MultiSearchBar extends JPanel {
     private final List<SearchPanel> engines = new ArrayList<>();
     private final JTextField field = new JTextField(30);
     private final JCheckBox fieldHighlight = new JCheckBox("Highlight fields");
+    private final JCheckBox applyViewAndSortToAllTabs =
+            new JCheckBox("Apply Sort/View to all tabs");
     private final javax.swing.Timer debounce;
     private final JTabbedPane hitNavigationTabs = new JTabbedPane();
 
@@ -58,9 +60,10 @@ public class MultiSearchBar extends JPanel {
                                                     SearchPanel::applySearch));
         sortCfg.addActionListener(e -> openConfig("Sort Configuration",
                                                   SearchPanel::sortEditor, SearchPanel::applySort,
-                                                  true));
+                                                  true, false));
         viewCfg.addActionListener(e -> openConfig("View Configuration",
-                                                  SearchPanel::viewEditor, SearchPanel::applyView));
+                                                  SearchPanel::viewEditor, SearchPanel::applyView,
+                                                  false, true));
 
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         toolbar.add(field);
@@ -68,6 +71,10 @@ public class MultiSearchBar extends JPanel {
         toolbar.add(searchCfg);
         toolbar.add(sortCfg);
         toolbar.add(viewCfg);
+        applyViewAndSortToAllTabs.setToolTipText(
+                "Sort every visible class by its own Sort configuration; View also "
+                        + "shares Show empty fields and Top-level cards: captions only.");
+        toolbar.add(applyViewAndSortToAllTabs);
         add(toolbar, BorderLayout.NORTH);
 
         hitNavigationTabs.setPreferredSize(new Dimension(640, 210));
@@ -121,13 +128,14 @@ public class MultiSearchBar extends JPanel {
     private void openConfig(String title,
                             Function<SearchPanel, JComponent> editor,
                             Consumer<SearchPanel> onApply) {
-        openConfig(title, editor, onApply, false);
+        openConfig(title, editor, onApply, false, false);
     }
 
     private void openConfig(String title,
                             Function<SearchPanel, JComponent> editor,
                             Consumer<SearchPanel> onApply,
-                            boolean sortConfiguration) {
+                            boolean sortConfiguration,
+                            boolean viewConfiguration) {
         JTabbedPane tabs = new JTabbedPane();
         for (SearchPanel e : engines) {
             tabs.addTab(e.sectionTypeName(), editor.apply(e));
@@ -140,38 +148,61 @@ public class MultiSearchBar extends JPanel {
         JLabel state = new JLabel(" ");
         Runnable labelApply = () -> {
             int selected = tabs.getSelectedIndex();
-            apply.setText(selected < 0
-                    ? "Apply" : "Apply to " + tabs.getTitleAt(selected));
+            boolean allTabs = (sortConfiguration || viewConfiguration)
+                    && applyViewAndSortToAllTabs.isSelected();
+            apply.setText(selected < 0 ? "Apply"
+                    : allTabs ? "Apply to all tabs"
+                    : "Apply to " + tabs.getTitleAt(selected));
             apply.setEnabled(selected >= 0 && (!sortConfiguration
-                    || engines.get(selected).hasUnappliedSortConfiguration()));
+                    || (allTabs
+                            ? engines.stream().anyMatch(
+                                    SearchPanel::hasUnappliedSortConfiguration)
+                            : engines.get(selected)
+                                    .hasUnappliedSortConfiguration())));
             if (sortConfiguration && selected >= 0) {
-                state.setText(engines.get(selected).isSortedByCurrentSortConfiguration()
-                        ? "Instances are sorted by this configuration."
-                        : "This configuration has not been applied.");
+                state.setText(allTabs
+                        ? "Each tab keeps its own sort configuration."
+                        : engines.get(selected).isSortedByCurrentSortConfiguration()
+                                ? "Instances are sorted by this configuration."
+                                : "This configuration has not been applied.");
             }
         };
         labelApply.run();
         tabs.addChangeListener(e -> labelApply.run());
+        java.awt.event.ItemListener allTabsListener = event -> labelApply.run();
+        if (sortConfiguration || viewConfiguration) {
+            applyViewAndSortToAllTabs.addItemListener(allTabsListener);
+            dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+                @Override public void windowClosed(java.awt.event.WindowEvent event) {
+                    applyViewAndSortToAllTabs.removeItemListener(allTabsListener);
+                }
+            });
+        }
         if (sortConfiguration) {
             engines.forEach(engine -> engine.setSortConfigurationListener(labelApply));
         }
         apply.addActionListener(a -> {
             int selected = tabs.getSelectedIndex();
             if (selected < 0 || selected >= engines.size()) return;
+            boolean applyAll = (sortConfiguration || viewConfiguration)
+                    && applyViewAndSortToAllTabs.isSelected();
+            if (applyAll && viewConfiguration) {
+                shareViewOptions(engines.get(selected), engines);
+            }
             if (!sortConfiguration) {
-                applySelected(tabs, engines, onApply);
+                applySelectedOrAll(tabs, engines, onApply, applyAll);
                 return;
             }
-            SearchPanel engine = engines.get(selected);
-            String type = tabs.getTitleAt(selected);
             apply.setEnabled(false);
-            apply.setText("Sorting " + type + "…");
-            state.setText("Sorting " + type + " instances…");
+            apply.setText(applyAll ? "Sorting all tabs…"
+                    : "Sorting " + tabs.getTitleAt(selected) + "…");
+            state.setText(applyAll ? "Sorting instances in every tab…"
+                    : "Sorting " + tabs.getTitleAt(selected) + " instances…");
             // Let Swing paint the explicit running state before the synchronous
             // sorter starts; the button remains disabled until it finishes.
             javax.swing.Timer start = new javax.swing.Timer(50, ignored -> {
                 try {
-                    onApply.accept(engine);
+                    applySelectedOrAll(tabs, engines, onApply, applyAll);
                 } finally {
                     labelApply.run();
                 }
@@ -196,9 +227,34 @@ public class MultiSearchBar extends JPanel {
     /** Applies a tabbed configuration only to the section named by the visible tab. */
     static <T> void applySelected(
             JTabbedPane tabs, List<T> sections, Consumer<T> apply) {
+        applySelectedOrAll(tabs, sections, apply, false);
+    }
+
+    /** Applies either the visible section or every section's own configuration. */
+    static <T> void applySelectedOrAll(
+            JTabbedPane tabs, List<T> sections, Consumer<T> apply, boolean all) {
         if (tabs == null || sections == null || apply == null) return;
+        if (all) {
+            sections.forEach(apply);
+            return;
+        }
         int selected = tabs.getSelectedIndex();
         if (selected < 0 || selected >= sections.size()) return;
         apply.accept(sections.get(selected));
+    }
+
+    /** Shares only type-independent presentation choices; field paths stay per tab. */
+    static void shareViewOptions(SearchPanel source, List<SearchPanel> targets) {
+        if (source == null || targets == null) return;
+        Boolean rootsFolded = source.viewEditor().rootsFoldedChoice();
+        Boolean showEmpty = source.viewEditor().emptyFieldsVisibleChoice();
+        targets.forEach(target -> {
+            if (rootsFolded != null) {
+                target.viewEditor().rootsFoldedChoice(rootsFolded);
+            }
+            if (showEmpty != null) {
+                target.viewEditor().emptyFieldsVisibleChoice(showEmpty);
+            }
+        });
     }
 }

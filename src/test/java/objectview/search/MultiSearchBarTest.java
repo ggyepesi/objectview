@@ -56,6 +56,44 @@ class MultiSearchBarTest {
         assertEquals(List.of("PositionWithHolders"), applied);
     }
 
+    @Test void applyToAllUsesEveryTabsOwnConfiguration() {
+        JTabbedPane tabs = new JTabbedPane();
+        tabs.addTab("Position", new JPanel());
+        tabs.addTab("PositionWithHolders", new JPanel());
+        tabs.addTab("OfficeHolding", new JPanel());
+        tabs.setSelectedIndex(1);
+        List<String> applied = new ArrayList<>();
+
+        MultiSearchBar.applySelectedOrAll(
+                tabs,
+                List.of("Position", "PositionWithHolders", "OfficeHolding"),
+                applied::add,
+                true);
+
+        assertEquals(List.of("Position", "PositionWithHolders", "OfficeHolding"),
+                applied);
+    }
+
+    @Test void applyToAllSharesViewWideChoicesWithoutCopyingFieldPaths() {
+        SearchPanel position = new SearchPanel(DynamicGraphRecord.class,
+                new DynamicGraphRecord());
+        SearchPanel office = new SearchPanel(DynamicGraphRecord.class,
+                new DynamicGraphRecord() {
+                    @Override public String typeName() { return "OfficeHolding"; }
+                });
+        position.viewEditor().offerRootsFolded(false);
+        office.viewEditor().offerRootsFolded(false);
+        position.viewEditor().rootsFoldedChoice(true);
+        office.viewEditor().rootsFoldedChoice(false);
+        position.viewEditor().emptyFieldsVisibleChoice(false);
+        office.viewEditor().emptyFieldsVisibleChoice(true);
+
+        MultiSearchBar.shareViewOptions(position, List.of(position, office));
+
+        assertTrue(office.viewEditor().rootsFoldedChoice());
+        assertFalse(office.viewEditor().emptyFieldsVisibleChoice());
+    }
+
     @Test void eachClassOwnsAHitNavigationTab() {
         SearchPanel position = new SearchPanel(DynamicGraphRecord.class,
                 new DynamicGraphRecord());
@@ -71,6 +109,17 @@ class MultiSearchBarTest {
         assertEquals("PositionReplacementExpansion", tabs.getTitleAt(0));
         assertEquals("OfficeHolding", tabs.getTitleAt(1));
         assertFalse(tabs.isVisible(), "hit navigation stays out of the way before a search");
+    }
+
+    @Test void theAllTabsSortAndViewSwitchIsVisibleOnTheSharedToolbar() {
+        MultiSearchBar bar = new MultiSearchBar(List.of(
+                new SearchPanel(DynamicGraphRecord.class, new DynamicGraphRecord())));
+
+        assertTrue(allComponents(bar).stream()
+                .filter(javax.swing.JCheckBox.class::isInstance)
+                .map(javax.swing.JCheckBox.class::cast)
+                .anyMatch(box -> "Apply Sort/View to all tabs".equals(box.getText())
+                        && box.isVisible()));
     }
 
     @Test void aHiddenClassStopsContributingSearchHits() throws Exception {
@@ -194,6 +243,15 @@ class MultiSearchBarTest {
             }
         }
         throw new IllegalStateException("Shared search field not found");
+    }
+
+    private static List<Component> allComponents(Container root) {
+        List<Component> found = new ArrayList<>();
+        for (Component child : root.getComponents()) {
+            found.add(child);
+            if (child instanceof Container nested) found.addAll(allComponents(nested));
+        }
+        return found;
     }
 
     private static JTextField findTextField(Container root) {
