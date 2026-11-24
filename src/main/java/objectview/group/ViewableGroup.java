@@ -61,6 +61,10 @@ public interface ViewableGroup<T extends Viewable> extends Viewable {
      */
     default String groupKey() { return getDisplayName(); }
 
+    /** Whether a structural node should reveal its children when first shown. Ordinary
+     * authored/facet groups stay folded; hierarchy projections can expose their shape. */
+    default boolean initiallyExpanded() { return false; }
+
     // ---- derived reads (pure functions of getChildren()/getMembers()) -------------------
     // Defaults so every implementation shares one definition; a concrete group only supplies
     // its children/members/parent and these fall out. MutableViewableGroup re-declares the

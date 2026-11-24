@@ -9,6 +9,8 @@ import javax.swing.JLabel;
 import javax.swing.JButton;
 import javax.swing.JPanel;
 import javax.swing.JSplitPane;
+import javax.swing.JTextField;
+import javax.swing.JToggleButton;
 import java.awt.Component;
 import java.awt.Container;
 import java.util.concurrent.atomic.AtomicReference;
@@ -57,6 +59,17 @@ class GroupMembersViewTest {
         assertTrue(card.getComponentCount() > 0,
                 "the details disclosure must contain rendered ObjectView fields");
         assertTrue(card.getPreferredSize().height > 0);
+    }
+
+    @Test void structuralGroupsCanExposeTheirNestedHierarchyInitially() {
+        ExpandingGroup root = new ExpandingGroup("All characters");
+        ExpandingGroup giant = root.getOrCreateChild("Giants");
+        giant.getOrCreateChild("Jotunn");
+
+        GroupTreeView tree = new GroupTreeView(root);
+
+        assertEquals(3, tree.getTree().getRowCount());
+        assertTrue(tree.isGroupExpanded(giant));
     }
 
     @Test void enabledGroupFieldsFollowTheSelectedTreeNode() {
@@ -250,6 +263,73 @@ class GroupMembersViewTest {
         assertEquals(child, shown.get());
     }
 
+    @Test void groupNameSearchNavigatesTheOutlineWithoutInspectingMemberFields() {
+        Group root = new Group("All");
+        root.getOrCreateChild("Aesir");
+        Group ravens = root.getOrCreateChild("Hugin and Munin");
+        GroupTreeView tree = new GroupTreeView(root);
+
+        find(tree, JTextField.class).setText("munin");
+
+        assertEquals(ravens, tree.selectedGroup());
+        assertEquals("1 of 1", labels(tree).stream()
+                .map(JLabel::getText).filter("1 of 1"::equals).findFirst().orElseThrow());
+    }
+
+    @Test void sortingGroupNamesIsAReversibleOutlineChoice() {
+        OrderedGroup root = new OrderedGroup("All");
+        OrderedGroup vanir = root.child("Vanir");
+        OrderedGroup aesir = root.child("Aesir");
+        GroupTreeView tree = new GroupTreeView(root);
+
+        assertEquals(vanir, groupAt(tree, 1));
+        findToggle(tree, "Sort groups by name").doClick();
+        assertEquals(aesir, groupAt(tree, 1));
+        findToggle(tree, "Sort groups by name").doClick();
+        assertEquals(vanir, groupAt(tree, 1));
+    }
+
+    @Test void aFieldValueGroupAppearsBelowItsUniqueStrictMemberSuperset() {
+        Group root = new Group("All characters");
+        Group giants = root.getOrCreateChild("Giants");
+        Group jotunn = root.getOrCreateChild("Jotunn");
+        Item ymir = new Item("Q214081");
+        Item thrym = new Item("Q132587");
+        giants.addMember(ymir, false);
+        giants.addMember(thrym, false);
+        jotunn.addMember(thrym, false);
+
+        GroupTreeView tree = new GroupTreeView(root);
+        assertTrue(tree.setGroupExpanded(giants, true));
+        javax.swing.tree.TreePath jotunnPath = tree.getTree().getPathForRow(2);
+
+        assertEquals(giants, groupAt(tree, 1));
+        assertEquals(jotunn, tree.getViewableGroup(
+                (javax.swing.tree.DefaultMutableTreeNode)
+                        jotunnPath.getLastPathComponent()));
+        assertEquals(giants, tree.getViewableGroup(
+                (javax.swing.tree.DefaultMutableTreeNode)
+                        jotunnPath.getParentPath().getLastPathComponent()));
+    }
+
+    @Test void competingEqualSizeSupersetsDoNotInventAParent() {
+        Group root = new Group("All characters");
+        Group giants = root.getOrCreateChild("Giants");
+        Group frost = root.getOrCreateChild("Frost beings");
+        Group jotunn = root.getOrCreateChild("Jotunn");
+        Item thrym = new Item("Q132587");
+        giants.addMember(thrym, false);
+        giants.addMember(new Item("Q214081"), false);
+        frost.addMember(thrym, false);
+        frost.addMember(new Item("Q1"), false);
+        jotunn.addMember(thrym, false);
+
+        GroupTreeView tree = new GroupTreeView(root);
+
+        assertEquals(4, tree.getTree().getRowCount());
+        assertEquals(jotunn, groupAt(tree, 3));
+    }
+
     private static java.util.List<JButton> buttons(Component component, String text) {
         java.util.List<JButton> found = new java.util.ArrayList<>();
         if (component instanceof JButton button && text.equals(button.getText())) {
@@ -263,9 +343,94 @@ class GroupMembersViewTest {
         return found;
     }
 
+    private static objectview.group.ViewableGroup<?> groupAt(
+            GroupTreeView tree, int row) {
+        javax.swing.tree.DefaultMutableTreeNode node =
+                (javax.swing.tree.DefaultMutableTreeNode) tree.getTree()
+                        .getPathForRow(row).getLastPathComponent();
+        return tree.getViewableGroup(node);
+    }
+
+    private static JToggleButton findToggle(Container root, String text) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof JToggleButton button && text.equals(button.getText())) {
+                return button;
+            }
+            if (child instanceof Container nested) {
+                JToggleButton found = findToggleOrNull(nested, text);
+                if (found != null) return found;
+            }
+        }
+        throw new AssertionError("No toggle: " + text);
+    }
+
+    private static JToggleButton findToggleOrNull(Container root, String text) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof JToggleButton button && text.equals(button.getText())) {
+                return button;
+            }
+            if (child instanceof Container nested) {
+                JToggleButton found = findToggleOrNull(nested, text);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static java.util.List<JLabel> labels(Container root) {
+        java.util.List<JLabel> result = new java.util.ArrayList<>();
+        for (Component child : root.getComponents()) {
+            if (child instanceof JLabel label) result.add(label);
+            if (child instanceof Container nested) result.addAll(labels(nested));
+        }
+        return result;
+    }
+
+    private static <T extends Component> T find(Container root, Class<T> type) {
+        for (Component child : root.getComponents()) {
+            if (type.isInstance(child)) return type.cast(child);
+            if (child instanceof Container nested) {
+                T found = findOrNull(nested, type);
+                if (found != null) return found;
+            }
+        }
+        throw new AssertionError("No " + type.getSimpleName());
+    }
+
+    private static <T extends Component> T findOrNull(Container root, Class<T> type) {
+        for (Component child : root.getComponents()) {
+            if (type.isInstance(child)) return type.cast(child);
+            if (child instanceof Container nested) {
+                T found = findOrNull(nested, type);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
     private static final class Group extends DefaultViewableGroup<Item, Group> {
         private Group(String name) { super(name); }
         @Override protected Group newChild(String name) { return new Group(name); }
+    }
+
+    private static final class ExpandingGroup
+            extends DefaultViewableGroup<Item, ExpandingGroup> {
+        private ExpandingGroup(String name) { super(name); }
+        @Override protected ExpandingGroup newChild(String name) {
+            return new ExpandingGroup(name);
+        }
+        @Override public boolean initiallyExpanded() { return true; }
+    }
+
+    private static final class OrderedGroup
+            extends objectview.group.ViewableGroupAdapter {
+        private OrderedGroup(String name) { super(name, name); }
+        private OrderedGroup child(String name) {
+            OrderedGroup child = new OrderedGroup(name);
+            child.parent(this);
+            putChild(child);
+            return child;
+        }
     }
 
     private static final class Item extends ViewableAdapter {

@@ -66,7 +66,7 @@ public class MultiView extends JPanel {
         return java.util.Collections.unmodifiableList(sectionViews);
     }
 
-    /** The names whose panels are currently projected. The underlying objects remain. */
+    /** The stable section keys whose panels are currently projected. Objects remain. */
     public Set<String> visibleSectionTitles() {
         return visibleSections;
     }
@@ -77,7 +77,7 @@ public class MultiView extends JPanel {
         sectionNoun = value == null || value.isBlank() ? "Sections" : value;
     }
 
-    /** Retains an owning window's presentation choice when it rebuilds this view. */
+    /** Retains stable section keys when an owning window rebuilds this view. */
     public void visibleSections(Collection<String> titles) {
         requestedVisibleSections = titles == null ? null : new LinkedHashSet<>(titles);
         if (built) applyVisibleSections(requestedVisibleSections, true);
@@ -92,7 +92,18 @@ public class MultiView extends JPanel {
             Class<? extends Viewable> type,
             List<? extends Viewable> objects) {
 
-        addSection(title, type, objects, null, null, null);
+        addSection(title, title, type, objects, null, null, null,
+                null, null);
+    }
+
+    /** Adds a section whose stable visibility key differs from its decorated title. */
+    public void addSection(
+            String key,
+            String title,
+            Class<? extends Viewable> type,
+            List<? extends Viewable> objects) {
+        addSection(key, title, type, objects, null, null, null,
+                null, null);
     }
 
     /** Adds a non-card ObjectView section (for example a group outline) while keeping
@@ -101,8 +112,17 @@ public class MultiView extends JPanel {
             String title,
             JComponent body,
             List<? extends Viewable> topLevelObjects) {
+        addSection(title, title, body, topLevelObjects);
+    }
+
+    /** Adds a custom section whose stable visibility key differs from its title. */
+    public void addSection(
+            String key,
+            String title,
+            JComponent body,
+            List<? extends Viewable> topLevelObjects) {
         if (built) throw new IllegalStateException("addSection() after build()");
-        sections.add(new Section(title, null,
+        sections.add(new Section(key, title, null,
                 topLevelObjects == null ? new ArrayList<>()
                         : new ArrayList<>(topLevelObjects),
                 null, null, null, null, null,
@@ -138,7 +158,25 @@ public class MultiView extends JPanel {
         if (built) {
             throw new IllegalStateException("addSection() after build()");
         }
+        addSection(title, title, type, objects, sample, hiddenFields, fieldTypes,
+                configState, configListener);
+    }
+
+    private void addSection(
+            String key,
+            String title,
+            Class<? extends Viewable> type,
+            List<? extends Viewable> objects,
+            Viewable sample,
+            java.util.Set<String> hiddenFields,
+            FieldTypeSource fieldTypes,
+            SearchPanel.ConfigState configState,
+            Consumer<SearchPanel.ConfigState> configListener) {
+        if (built) {
+            throw new IllegalStateException("addSection() after build()");
+        }
         sections.add(new Section(
+                key,
                 title,
                 type,
                 new ArrayList<>(objects),
@@ -158,7 +196,7 @@ public class MultiView extends JPanel {
 
         Set<String> initial = initialVisibleSections();
         for (Section section : sections) {
-            if (initial.contains(section.title())) context.addTopLevels(section.objects());
+            if (initial.contains(section.key())) context.addTopLevels(section.objects());
         }
         List<SearchPanel> engines = new ArrayList<>();
         for (Section s : sections) {
@@ -174,7 +212,7 @@ public class MultiView extends JPanel {
         if (sections.size() > 1) {
             visibilityControl = new SectionVisibilityControl(sectionNoun,
                     sections.stream().map(section -> new SectionVisibilityControl.Option(
-                            section.title(), section.title() + " ("
+                            section.key(), section.title() + " ("
                                     + section.objects().size() + ")")).toList(),
                     initial,
                     selected -> applyVisibleSections(selected, true));
@@ -191,7 +229,7 @@ public class MultiView extends JPanel {
     }
 
     private Set<String> initialVisibleSections() {
-        Set<String> available = sections.stream().map(Section::title)
+        Set<String> available = sections.stream().map(Section::key)
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
         if (requestedVisibleSections == null) return available;
         available.retainAll(requestedVisibleSections);
@@ -199,7 +237,7 @@ public class MultiView extends JPanel {
     }
 
     private void applyVisibleSections(Collection<String> selected, boolean notify) {
-        Set<String> available = sections.stream().map(Section::title)
+        Set<String> available = sections.stream().map(Section::key)
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
         Set<String> next = new LinkedHashSet<>();
         if (selected != null) selected.stream().filter(available::contains).forEach(next::add);
@@ -212,7 +250,7 @@ public class MultiView extends JPanel {
         List<SearchPanel> visibleEngines = new ArrayList<>();
         for (int index = 0; index < sections.size(); index++) {
             Section section = sections.get(index);
-            if (next.contains(section.title())) {
+            if (next.contains(section.key())) {
                 visibleObjects.addAll(section.objects());
                 visibleBodies.add(sectionBodies.get(index));
                 SearchPanel engine = sectionEngines.get(index);
@@ -227,7 +265,7 @@ public class MultiView extends JPanel {
         context.setSelectionOrder(visibleObjects);
         for (int index = 0; index < sections.size(); index++) {
             SearchableView view = sectionViews.get(index);
-            if (view != null && next.contains(sections.get(index).title())) {
+            if (view != null && next.contains(sections.get(index).key())) {
                 view.refreshViewables(sections.get(index).objects());
             }
         }
@@ -250,6 +288,9 @@ public class MultiView extends JPanel {
             sectionViews.add(null);
             JPanel body = new JPanel(new BorderLayout(4, 4));
             body.setBorder(BorderFactory.createTitledBorder(s.title()));
+            if (sections.size() > 1) {
+                body.add(closeSectionControl(s.key(), s.title()), BorderLayout.NORTH);
+            }
             body.add(s.customBody(), BorderLayout.CENTER);
             return body;
         }
@@ -271,6 +312,9 @@ public class MultiView extends JPanel {
         // its own total in place instead of only in the window caption.
         body.setBorder(BorderFactory.createTitledBorder(
                 s.title() + "  (" + s.objects().size() + ")"));
+        if (sections.size() > 1) {
+            body.add(closeSectionControl(s.key(), s.title()), BorderLayout.NORTH);
+        }
 
         if (!s.objects().isEmpty()) {
             // A per-section search engine in coordinated mode: its own input +
@@ -284,11 +328,29 @@ public class MultiView extends JPanel {
         return body;
     }
 
+    private JComponent closeSectionControl(String key, String title) {
+        JButton close = new JButton("\u00d7");
+        close.setToolTipText("Hide " + title);
+        close.getAccessibleContext().setAccessibleName("Hide " + title);
+        close.setMargin(new Insets(0, 6, 0, 6));
+        close.addActionListener(ignored -> hideSection(key));
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
+        row.add(close);
+        return row;
+    }
+
+    private void hideSection(String key) {
+        if (key == null || !visibleSections.contains(key)) return;
+        Set<String> next = new LinkedHashSet<>(visibleSections);
+        next.remove(key);
+        applyVisibleSections(next, true);
+    }
+
     public void appendViewables(java.util.Collection<? extends Viewable> values) {
         if (values == null) return;
         for (Viewable value : values) {
             for (int i = 0; i < sections.size(); i++) {
-                if (java.util.Objects.equals(sections.get(i).title(), value.typeName())) {
+                if (java.util.Objects.equals(sections.get(i).key(), value.typeName())) {
                     SearchableView view = sectionViews.get(i);
                     if (view != null) view.appendViewables(java.util.List.of(value));
                     break;
@@ -336,6 +398,7 @@ public class MultiView extends JPanel {
     }
 
     private record Section(
+            String key,
             String title,
             Class<? extends Viewable> type,
             List<Viewable> objects,

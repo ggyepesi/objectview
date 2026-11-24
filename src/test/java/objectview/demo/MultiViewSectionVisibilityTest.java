@@ -49,11 +49,48 @@ class MultiViewSectionVisibilityTest {
         });
     }
 
+    @Test void closingASectionUpdatesTheSameClassesShownSelection() {
+        EdtTests.onEdt(() -> {
+            Item star = new Item("Star", "Sirius");
+            Item galaxy = new Item("Galaxy", "Andromeda");
+            AtomicReference<Set<String>> reported = new AtomicReference<>();
+            MultiView multi = new MultiView();
+            multi.sectionNoun("Classes");
+            multi.addSection("Star", Item.class, List.of(star));
+            multi.addSection("Galaxy", "Galaxy (showing 1 of 2)",
+                    Item.class, List.of(galaxy));
+            multi.onVisibleSectionsChanged(reported::set);
+            multi.build(1);
+
+            JButton closeGalaxy = findButtonByTooltip(
+                    multi, "Hide Galaxy (showing 1 of 2)");
+            assertNotNull(closeGalaxy);
+            closeGalaxy.doClick();
+
+            assertEquals(Set.of("Star"), multi.visibleSectionTitles());
+            assertEquals(Set.of("Star"), reported.get());
+            assertNotNull(findButton(multi, "Classes shown: 1 of 2…"));
+            assertFalse(multi.context().isTopLevel(galaxy));
+        });
+    }
+
     private static JButton findButton(Container root, String text) {
         for (Component child : root.getComponents()) {
             if (child instanceof JButton button && text.equals(button.getText())) return button;
             if (child instanceof Container nested) {
                 JButton found = findButton(nested, text);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private static JButton findButtonByTooltip(Container root, String text) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof JButton button
+                    && text.equals(button.getToolTipText())) return button;
+            if (child instanceof Container nested) {
+                JButton found = findButtonByTooltip(nested, text);
                 if (found != null) return found;
             }
         }

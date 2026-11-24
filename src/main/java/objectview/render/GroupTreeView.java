@@ -1,6 +1,7 @@
 package objectview.render;
 
 import objectview.group.GroupNode;
+import objectview.group.StrictMemberHierarchy;
 import objectview.group.ViewableGroup;
 
 import javax.swing.AbstractAction;
@@ -11,20 +12,27 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
+import javax.swing.JTextField;
 import javax.swing.JToggleButton;
 import javax.swing.JTree;
 import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import javax.swing.tree.TreeSelectionModel;
 import java.awt.BorderLayout;
+import java.awt.FlowLayout;
 import java.awt.GridLayout;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 
@@ -47,6 +55,11 @@ public class GroupTreeView extends JPanel {
     private final JPanel controls;
     private final JButton showButton;
     private final JToggleButton detailsButton;
+    private final JTextField groupSearch = new JTextField(16);
+    private final JButton previousMatch = new JButton("\u25c0");
+    private final JButton nextMatch = new JButton("\u25b6");
+    private final JLabel matchStatus = new JLabel(" ");
+    private final JToggleButton sortByName = new JToggleButton("Sort groups by name");
     private final JLabel status;
     private Consumer<ViewableGroup<?>> showGroupHandler;
     private Consumer<ViewableGroup<?>> selectionHandler;
@@ -54,6 +67,8 @@ public class GroupTreeView extends JPanel {
     private ViewableGroup<?> detailsGroup;
     private Card detailsCard;
     private boolean detailsExpanded;
+    private List<ViewableGroup<?>> searchMatches = List.of();
+    private int searchMatchIndex = -1;
 
     public GroupTreeView(ViewableGroup<?> rootGroup) {
         this(rootGroup, new RenderContext());
@@ -84,8 +99,25 @@ public class GroupTreeView extends JPanel {
             }
         });
         tree.expandRow(0);
+        expandInitiallyVisibleNodes();
         tree.setSelectionRow(0);
         treeScrollPane = new JScrollPane(tree);
+
+        groupSearch.setBorder(BorderFactory.createTitledBorder("Search group names"));
+        groupSearch.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent event) { updateGroupSearch(); }
+            @Override public void removeUpdate(DocumentEvent event) { updateGroupSearch(); }
+            @Override public void changedUpdate(DocumentEvent event) { updateGroupSearch(); }
+        });
+        previousMatch.setToolTipText("Previous matching group");
+        nextMatch.setToolTipText("Next matching group");
+        previousMatch.addActionListener(event -> moveSearchMatch(-1));
+        nextMatch.addActionListener(event -> moveSearchMatch(1));
+        sortByName.setToolTipText(
+                "Sort sibling groups by name; turn off to restore their declared order");
+        sortByName.addActionListener(event -> rebuildTree());
+        previousMatch.setEnabled(false);
+        nextMatch.setEnabled(false);
 
         outlineAndDetails = new JSplitPane(
                 JSplitPane.VERTICAL_SPLIT, treeScrollPane, null);
@@ -107,27 +139,158 @@ public class GroupTreeView extends JPanel {
 
         status = new JLabel(" ");
         status.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
-        add(status, BorderLayout.NORTH);
+        JPanel searchRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        searchRow.add(groupSearch);
+        searchRow.add(previousMatch);
+        searchRow.add(nextMatch);
+        searchRow.add(matchStatus);
+        searchRow.add(sortByName);
+        JPanel header = new JPanel(new BorderLayout());
+        header.add(searchRow, BorderLayout.CENTER);
+        header.add(status, BorderLayout.SOUTH);
+        add(header, BorderLayout.NORTH);
         add(outlineAndDetails, BorderLayout.CENTER);
         add(controls, BorderLayout.SOUTH);
     }
 
     private static DefaultMutableTreeNode buildNode(ViewableGroup<?> group) {
+        return buildNode(group, false);
+    }
+
+    private static DefaultMutableTreeNode buildNode(
+            ViewableGroup<?> group, boolean sortByName) {
         return buildNode(group, java.util.Collections.newSetFromMap(
-                new java.util.IdentityHashMap<>()));
+                new java.util.IdentityHashMap<>()), sortByName);
     }
 
     // A persisted/adapted group graph may carry a back-edge. Show a revisited node as a
     // leaf rather than recursing forever.
     private static DefaultMutableTreeNode buildNode(
-            ViewableGroup<?> group, java.util.Set<ViewableGroup<?>> visited) {
+            ViewableGroup<?> group, java.util.Set<ViewableGroup<?>> visited,
+            boolean sortByName) {
         DefaultMutableTreeNode node = new DefaultMutableTreeNode(new GroupNode(group));
         if (visited.add(group)) {
-            for (ViewableGroup<?> child : group.getChildren()) {
-                node.add(buildNode(child, visited));
-            }
+            addChildForest(node, group.getChildren(), visited, sortByName);
         }
         return node;
+    }
+
+    /**
+     * Preserve authored nesting, then refine only the current sibling set by effective
+     * membership. Leaf groups are the semantic buckets; structural nodes with their own
+     * authored children stay where their producer put them.
+     */
+    private static void addChildForest(
+            DefaultMutableTreeNode parentNode,
+            Collection<? extends ViewableGroup<?>> source,
+            Set<ViewableGroup<?>> visited,
+            boolean sortByName) {
+        List<ViewableGroup<?>> children = source == null ? new ArrayList<>()
+                : new ArrayList<>(source);
+        Map<ViewableGroup<?>, ViewableGroup<?>> semanticParents =
+                StrictMemberHierarchy.parents(children, ViewableGroup::getMembers,
+                        child -> child.getChildren().isEmpty());
+        Map<ViewableGroup<?>, List<ViewableGroup<?>>> semanticChildren =
+                new IdentityHashMap<>();
+        semanticParents.forEach((child, parent) ->
+                semanticChildren.computeIfAbsent(parent, ignored -> new ArrayList<>())
+                        .add(child));
+        List<ViewableGroup<?>> roots = children.stream()
+                .filter(child -> !semanticParents.containsKey(child))
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        order(roots, sortByName);
+        for (ViewableGroup<?> root : roots) {
+            parentNode.add(buildSemanticNode(root,
+                    semanticChildren, visited, sortByName));
+        }
+    }
+
+    private static DefaultMutableTreeNode buildSemanticNode(
+            ViewableGroup<?> group,
+            Map<ViewableGroup<?>, List<ViewableGroup<?>>> semanticChildren,
+            Set<ViewableGroup<?>> visited,
+            boolean sortByName) {
+        DefaultMutableTreeNode node = new DefaultMutableTreeNode(new GroupNode(group));
+        if (!visited.add(group)) return node;
+        addChildForest(node, group.getChildren(), visited, sortByName);
+        List<ViewableGroup<?>> inferred = new ArrayList<>(
+                semanticChildren.getOrDefault(group, List.of()));
+        order(inferred, sortByName);
+        for (ViewableGroup<?> child : inferred) {
+            node.add(buildSemanticNode(child, semanticChildren, visited, sortByName));
+        }
+        return node;
+    }
+
+    private static void order(
+            List<? extends ViewableGroup<?>> groups, boolean sortByName) {
+        if (!sortByName) return;
+        groups.sort(Comparator.comparing(
+                child -> String.valueOf(child.getDisplayName()),
+                String.CASE_INSENSITIVE_ORDER));
+    }
+
+    private void rebuildTree() {
+        ViewableGroup<?> selected = selectedGroup();
+        tree.setModel(new DefaultTreeModel(buildNode(rootGroup, sortByName.isSelected())));
+        tree.expandRow(0);
+        expandInitiallyVisibleNodes();
+        if (selected == null || !selectGroup(selected, false)) tree.setSelectionRow(0);
+        updateGroupSearch();
+    }
+
+    private void updateGroupSearch() {
+        String query = groupSearch.getText() == null
+                ? "" : groupSearch.getText().trim().toLowerCase(java.util.Locale.ROOT);
+        if (query.isEmpty()) {
+            searchMatches = List.of();
+            searchMatchIndex = -1;
+            matchStatus.setText(" ");
+            previousMatch.setEnabled(false);
+            nextMatch.setEnabled(false);
+            return;
+        }
+        List<ViewableGroup<?>> matches = new ArrayList<>();
+        java.util.Enumeration<?> nodes = ((DefaultMutableTreeNode) tree.getModel().getRoot())
+                .breadthFirstEnumeration();
+        while (nodes.hasMoreElements()) {
+            DefaultMutableTreeNode node = (DefaultMutableTreeNode) nodes.nextElement();
+            ViewableGroup<?> group = getViewableGroup(node);
+            String name = group == null ? "" : String.valueOf(group.getDisplayName());
+            if (name.toLowerCase(java.util.Locale.ROOT).contains(query)) matches.add(group);
+        }
+        searchMatches = List.copyOf(matches);
+        int selected = searchMatches.indexOf(selectedGroup());
+        searchMatchIndex = selected >= 0 ? selected : searchMatches.isEmpty() ? -1 : 0;
+        updateSearchSelection();
+    }
+
+    private void moveSearchMatch(int delta) {
+        if (searchMatches.isEmpty()) return;
+        searchMatchIndex = Math.floorMod(searchMatchIndex + delta, searchMatches.size());
+        updateSearchSelection();
+    }
+
+    private void updateSearchSelection() {
+        boolean found = searchMatchIndex >= 0 && searchMatchIndex < searchMatches.size();
+        previousMatch.setEnabled(searchMatches.size() > 1);
+        nextMatch.setEnabled(searchMatches.size() > 1);
+        matchStatus.setText(found
+                ? (searchMatchIndex + 1) + " of " + searchMatches.size()
+                : "No matching groups");
+        if (found) selectGroup(searchMatches.get(searchMatchIndex), false);
+    }
+
+    private void expandInitiallyVisibleNodes() {
+        java.util.Enumeration<?> nodes = ((DefaultMutableTreeNode) tree.getModel().getRoot())
+                .breadthFirstEnumeration();
+        while (nodes.hasMoreElements()) {
+            DefaultMutableTreeNode node = (DefaultMutableTreeNode) nodes.nextElement();
+            ViewableGroup<?> group = getViewableGroup(node);
+            if (group != null && group.initiallyExpanded()) {
+                tree.expandPath(new TreePath(node.getPath()));
+            }
+        }
     }
 
     private void showSelectedGroup() {
