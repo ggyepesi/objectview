@@ -25,7 +25,7 @@ import java.util.function.Function;
  */
 public class MultiSearchBar extends JPanel {
 
-    private final List<SearchPanel> engines;
+    private final List<SearchPanel> engines = new ArrayList<>();
     private final JTextField field = new JTextField(30);
     private final JCheckBox fieldHighlight = new JCheckBox("Highlight fields");
     private final javax.swing.Timer debounce;
@@ -33,11 +33,6 @@ public class MultiSearchBar extends JPanel {
 
     public MultiSearchBar(List<SearchPanel> engines) {
         super(new BorderLayout(0, 4));
-        this.engines = new ArrayList<>(engines);
-        for (SearchPanel e : this.engines) {
-            e.setCoordinated(true);
-            e.setNavigationVisibilityOwnedByContainer(true);
-        }
 
         field.setBorder(BorderFactory.createTitledBorder("Search"));
         debounce = new javax.swing.Timer(150, e -> runSearch());
@@ -75,20 +70,41 @@ public class MultiSearchBar extends JPanel {
         toolbar.add(viewCfg);
         add(toolbar, BorderLayout.NORTH);
 
-        // Hit rows are one result of the global query, just like the global input
-        // and configuration. Keeping their class-owned engines here prevents every
-        // instance section from growing a misleading second Search/Sort/View pane.
-        for (SearchPanel engine : this.engines) {
-            hitNavigationTabs.addTab(engine.sectionTypeName(), engine);
-        }
         hitNavigationTabs.setPreferredSize(new Dimension(640, 210));
         hitNavigationTabs.setVisible(false);
         add(hitNavigationTabs, BorderLayout.CENTER);
+        showEngines(engines);
+    }
+
+    /**
+     * Replaces the class sections coordinated by this bar without replacing the bar.
+     * MultiView uses this when the reader hides or shows a section: the query text and
+     * highlight choice stay put, while hidden sections stop producing invisible hits
+     * and configuration tabs.
+     */
+    public void showEngines(List<SearchPanel> visible) {
+        List<SearchPanel> next = visible == null ? List.of() : List.copyOf(visible);
+        for (SearchPanel engine : engines) {
+            if (!next.contains(engine)) engine.runCoordinatedSearch("");
+        }
+        engines.clear();
+        engines.addAll(next);
+        hitNavigationTabs.removeAll();
+        for (SearchPanel engine : engines) {
+            engine.setCoordinated(true);
+            engine.setNavigationVisibilityOwnedByContainer(true);
+            engine.setFieldHighlight(fieldHighlight.isSelected());
+            hitNavigationTabs.addTab(engine.sectionTypeName(), engine);
+        }
+        runSearch();
+        revalidate();
+        repaint();
     }
 
     private void runSearch() {
         String query = field.getText();
-        hitNavigationTabs.setVisible(query != null && !query.isBlank());
+        hitNavigationTabs.setVisible(!engines.isEmpty()
+                && query != null && !query.isBlank());
         for (SearchPanel e : engines) {
             e.runCoordinatedSearch(query);
         }

@@ -84,6 +84,7 @@ public class ViewConfigJsonIO {
         cfg.setThumb(j.thumb);
         cfg.setBlurImages(j.blurImages);
         cfg.rootsFolded(j.rootsFolded);
+        cfg.emptyFieldsVisible(j.emptyFieldsVisible);
         cfg.setFinitePaths(Boolean.TRUE.equals(j.finitePaths));
         if (j.answerType != null) {
             try {
@@ -105,11 +106,12 @@ public class ViewConfigJsonIO {
     }
 
     private static JsonConfig toJson(ViewConfig cfg) {
-        return toJson(cfg, new java.util.ArrayList<>());
+        return toJson(cfg, new java.util.ArrayList<>(), true);
     }
 
     /** {@code ancestors} holds the configs above {@code cfg}, outermost first. */
-    private static JsonConfig toJson(ViewConfig cfg, java.util.List<ViewConfig> ancestors) {
+    private static JsonConfig toJson(ViewConfig cfg, java.util.List<ViewConfig> ancestors,
+                                     boolean root) {
         JsonConfig j = new JsonConfig();
         if (cfg.inheritedFrom() != null) {
             for (int i = ancestors.size() - 1; i >= 0; i--) {
@@ -128,15 +130,16 @@ public class ViewConfigJsonIO {
         j.thumb = cfg.isThumb();
         j.blurImages = cfg.isBlurImages();
         j.rootsFolded = cfg.rootsFolded();
+        j.emptyFieldsVisible = root ? cfg.emptyFieldsVisible() : null;
         j.finitePaths = cfg.isFinitePaths() ? Boolean.TRUE : null;
         j.answerType = cfg.getAnswerType() == null ? null : cfg.getAnswerType().name();
 
         ancestors.add(cfg);
         for (Map.Entry<String, ViewConfig> e : cfg.getFields().entrySet()) {
-            j.fields.put(e.getKey(), toJson(e.getValue(), ancestors));
+            j.fields.put(e.getKey(), toJson(e.getValue(), ancestors, false));
         }
         for (Map.Entry<String, ViewConfig> e : cfg.getRememberedFields().entrySet()) {
-            j.rememberedFields.put(e.getKey(), toJson(e.getValue(), ancestors));
+            j.rememberedFields.put(e.getKey(), toJson(e.getValue(), ancestors, false));
         }
         ancestors.remove(ancestors.size() - 1);
 
@@ -154,6 +157,10 @@ public class ViewConfigJsonIO {
         // Only the root of a view carries it; nested configs leave it out (#407).
         @JsonInclude(JsonInclude.Include.NON_NULL)
         public Boolean rootsFolded;
+        // Only the root of a view authors it; ViewConfig propagates it through the
+        // in-memory nested projections so every renderer receives one answer.
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        public Boolean emptyFieldsVisible;
         /** Present only for a finite field selection; old/saved View configs omit it. */
         @JsonInclude(JsonInclude.Include.NON_NULL)
         public Boolean finitePaths;

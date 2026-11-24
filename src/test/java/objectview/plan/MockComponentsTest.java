@@ -167,6 +167,28 @@ class MockComponentsTest {
         assertEquals(RenderSink.SkipReason.OFF, cleared.reason());
     }
 
+    @Test void theViewChoiceAloneControlsEmptyComponents() {
+        Parent parent = new Parent(new Child("Ada"));
+        ViewConfig visible = ticks("emptyText", "emptyMembers");
+        visible.addField("leader", ticks("name"));
+
+        MockSink.MockObject shown = render(parent, visible, Disclosure.INITIAL);
+        assertInstanceOf(MockSink.MockText.class, child(shown, "emptyText"));
+        assertInstanceOf(MockSink.MockCollection.class, child(shown, "emptyMembers"));
+
+        ViewConfig hidden = visible.copy().emptyFieldsVisible(false);
+        MockSink.MockObject suppressed = render(parent, hidden, Disclosure.INITIAL);
+        assertEquals(RenderSink.SkipReason.ABSENT,
+                assertInstanceOf(MockSink.MockSkip.class,
+                        child(suppressed, "emptyText")).reason());
+        assertEquals(RenderSink.SkipReason.ABSENT,
+                assertInstanceOf(MockSink.MockSkip.class,
+                        child(suppressed, "emptyMembers")).reason());
+        assertInstanceOf(MockSink.MockNavigation.class,
+                child(suppressed, "leader"),
+                "a non-null reference is a value even when its projected body is small");
+    }
+
     private static MockSink.MockCollection collection(MockSink.MockObject root) {
         return assertInstanceOf(MockSink.MockCollection.class, child(root, "members"));
     }
@@ -208,6 +230,8 @@ class MockComponentsTest {
         @Reference private final Child leader;
         @Reference private final List<Child> members;
         @SuppressWarnings("unused") private final String missing = null;
+        @SuppressWarnings("unused") private final String emptyText = "";
+        @SuppressWarnings("unused") private final List<String> emptyMembers = List.of();
         @SuppressWarnings("unused") private final String unticked = "must not be read";
 
         private Parent(Child leader) {

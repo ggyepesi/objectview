@@ -73,6 +73,38 @@ class MultiSearchBarTest {
         assertFalse(tabs.isVisible(), "hit navigation stays out of the way before a search");
     }
 
+    @Test void aHiddenClassStopsContributingSearchHits() throws Exception {
+        AtomicReference<MultiSearchBar> shared = new AtomicReference<>();
+        AtomicReference<SearchPanel> shown = new AtomicReference<>();
+        AtomicReference<SearchPanel> hidden = new AtomicReference<>();
+        EdtTests.onEdt(() -> {
+            DynamicGraphRecord first = new DynamicGraphRecord();
+            DynamicGraphRecord second = new DynamicGraphRecord() {
+                @Override public String typeName() { return "OfficeHolding"; }
+            };
+            SearchPanel firstSearch = SearchableView.builder(List.of(first))
+                    .sample(first).build().search();
+            SearchPanel secondSearch = SearchableView.builder(List.of(second))
+                    .sample(second).build().search();
+            MultiSearchBar bar = new MultiSearchBar(List.of(firstSearch, secondSearch));
+            shared.set(bar);
+            shown.set(firstSearch);
+            hidden.set(secondSearch);
+            textField(bar).setText("accepted");
+        });
+        EdtTests.awaitOnEdt(() -> shown.get().virtualHitTotal() == 1
+                        && hidden.get().virtualHitTotal() == 1,
+                SETTLE, "both visible classes have answered the query");
+
+        EdtTests.onEdt(() -> {
+            shared.get().showEngines(List.of(shown.get()));
+            assertEquals(1, shared.get().hitNavigationTabs().getTabCount());
+            assertEquals(1, shown.get().virtualHitTotal());
+            assertEquals(0, hidden.get().virtualHitTotal(),
+                    "a hidden class must not leave an invisible active result");
+        });
+    }
+
     @Test void typingInTheSharedFieldShowsTheSelectedClassNavigationRows()
             throws Exception {
         assumeFalse(GraphicsEnvironment.isHeadless());

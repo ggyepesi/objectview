@@ -176,6 +176,19 @@ class RenderTraceTest {
                   SKIP epithet OFF""");
     }
 
+    @Test void hidingEmptyFieldsRemovesBlankTextAndZeroMemberCollections() {
+        h.wigmund.put("offices", new ArrayList<>());
+        h.wigmund.put("epithet", "   ");
+        ViewConfig config = person(offices(ticks("label")));
+        config.addField("epithet", ViewConfig.leaf());
+        config.emptyFieldsVisible(false);
+
+        assertTrace(render(config, opened(), notTopLevel()), """
+                OBJECT <root> caption="Wigmund of Mercia" open
+                  SKIP offices ABSENT
+                  SKIP epithet ABSENT""");
+    }
+
     @Test void foldingAndReopeningReRunsTheSamePlan() {
         ViewConfig config = person(offices(field("position", ticks("@view:display"))));
         Object offices = h.wigmund.dynamicFieldValues().get("offices");

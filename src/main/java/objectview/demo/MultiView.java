@@ -5,12 +5,16 @@ import objectview.render.RenderContext;
 import objectview.search.MultiSearchBar;
 import objectview.search.SearchPanel;
 import objectview.view.SearchableView;
+import objectview.view.SectionVisibilityControl;
 import objectview.viewconfig.FieldTypeSource;
 
 import javax.swing.*;
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /**
@@ -36,6 +40,15 @@ public class MultiView extends JPanel {
     private final RenderContext context = new RenderContext();
     private final List<Section> sections = new ArrayList<>();
     private final List<SearchableView> sectionViews = new ArrayList<>();
+    private final List<JComponent> sectionBodies = new ArrayList<>();
+    private final List<SearchPanel> sectionEngines = new ArrayList<>();
+    private final JPanel center = new JPanel(new BorderLayout());
+    private Set<String> requestedVisibleSections;
+    private Set<String> visibleSections = Set.of();
+    private Consumer<Set<String>> visibilityListener = ignored -> { };
+    private String sectionNoun = "Sections";
+    private SectionVisibilityControl visibilityControl;
+    private MultiSearchBar searchBar;
     private boolean built;
 
     public MultiView() {
@@ -51,6 +64,27 @@ public class MultiView extends JPanel {
     /** The built sections, in order — for tests that drive one section's own config. */
     List<SearchableView> sectionViews() {
         return java.util.Collections.unmodifiableList(sectionViews);
+    }
+
+    /** The names whose panels are currently projected. The underlying objects remain. */
+    public Set<String> visibleSectionTitles() {
+        return visibleSections;
+    }
+
+    /** How the shared chooser names these sections, for example "Classes". */
+    public void sectionNoun(String value) {
+        if (built) throw new IllegalStateException("sectionNoun() after build()");
+        sectionNoun = value == null || value.isBlank() ? "Sections" : value;
+    }
+
+    /** Retains an owning window's presentation choice when it rebuilds this view. */
+    public void visibleSections(Collection<String> titles) {
+        requestedVisibleSections = titles == null ? null : new LinkedHashSet<>(titles);
+        if (built) applyVisibleSections(requestedVisibleSections, true);
+    }
+
+    public void onVisibleSectionsChanged(Consumer<Set<String>> listener) {
+        visibilityListener = listener == null ? ignored -> { } : listener;
     }
 
     public void addSection(
@@ -122,30 +156,92 @@ public class MultiView extends JPanel {
         }
         built = true;
 
-        // Pre-register every object so cross-references render as chips.
+        Set<String> initial = initialVisibleSections();
+        for (Section section : sections) {
+            if (initial.contains(section.title())) context.addTopLevels(section.objects());
+        }
+        List<SearchPanel> engines = new ArrayList<>();
         for (Section s : sections) {
-            for (Viewable q : s.objects()) {
-                context.addTopLevel(q);
+            JComponent body = buildSection(s, columnsPerView, engines);
+            sectionBodies.add(body);
+            SearchableView view = sectionViews.get(sectionViews.size() - 1);
+            sectionEngines.add(view == null ? null : view.search());
+        }
+
+        JPanel root = new JPanel(new BorderLayout(0, 4));
+        JPanel header = new JPanel();
+        header.setLayout(new BoxLayout(header, BoxLayout.Y_AXIS));
+        if (sections.size() > 1) {
+            visibilityControl = new SectionVisibilityControl(sectionNoun,
+                    sections.stream().map(section -> new SectionVisibilityControl.Option(
+                            section.title(), section.title() + " ("
+                                    + section.objects().size() + ")")).toList(),
+                    initial,
+                    selected -> applyVisibleSections(selected, true));
+            header.add(visibilityControl);
+        }
+        searchBar = new MultiSearchBar(engines);
+        header.add(searchBar);
+        root.add(header, BorderLayout.NORTH);
+        root.add(center, BorderLayout.CENTER);
+
+        add(root, BorderLayout.CENTER);
+        applyVisibleSections(initial, false);
+        revalidate();
+    }
+
+    private Set<String> initialVisibleSections() {
+        Set<String> available = sections.stream().map(Section::title)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        if (requestedVisibleSections == null) return available;
+        available.retainAll(requestedVisibleSections);
+        return available;
+    }
+
+    private void applyVisibleSections(Collection<String> selected, boolean notify) {
+        Set<String> available = sections.stream().map(Section::title)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        Set<String> next = new LinkedHashSet<>();
+        if (selected != null) selected.stream().filter(available::contains).forEach(next::add);
+        requestedVisibleSections = new LinkedHashSet<>(next);
+        visibleSections = java.util.Collections.unmodifiableSet(new LinkedHashSet<>(next));
+
+        List<Viewable> visibleObjects = new ArrayList<>();
+        List<Viewable> hiddenObjects = new ArrayList<>();
+        List<JComponent> visibleBodies = new ArrayList<>();
+        List<SearchPanel> visibleEngines = new ArrayList<>();
+        for (int index = 0; index < sections.size(); index++) {
+            Section section = sections.get(index);
+            if (next.contains(section.title())) {
+                visibleObjects.addAll(section.objects());
+                visibleBodies.add(sectionBodies.get(index));
+                SearchPanel engine = sectionEngines.get(index);
+                if (engine != null) visibleEngines.add(engine);
+            } else {
+                hiddenObjects.addAll(section.objects());
             }
         }
 
-        List<JComponent> bodies = new ArrayList<>();
-        List<SearchPanel> engines = new ArrayList<>();
-        for (Section s : sections) {
-            bodies.add(buildSection(s, columnsPerView, engines));
+        context.deselect(hiddenObjects);
+        context.setTopLevels(visibleObjects);
+        context.setSelectionOrder(visibleObjects);
+        for (int index = 0; index < sections.size(); index++) {
+            SearchableView view = sectionViews.get(index);
+            if (view != null && next.contains(sections.get(index).title())) {
+                view.refreshViewables(sections.get(index).objects());
+            }
+        }
+        searchBar.showEngines(visibleEngines);
+        searchBar.setVisible(!visibleEngines.isEmpty());
+        if (visibilityControl != null) {
+            visibilityControl.selectWithoutNotification(next);
         }
 
-        // One search bar across all sections (each section keeps its own class
-        // config); the bar fans the query out, every section highlights its own
-        // matches, and navigation is unified.
-        JPanel root = new JPanel(new BorderLayout(0, 4));
-        if (!engines.isEmpty()) {
-            root.add(new MultiSearchBar(engines), BorderLayout.NORTH);
-        }
-        root.add(layout(bodies), BorderLayout.CENTER);
-
-        add(root, BorderLayout.CENTER);
-        revalidate();
+        center.removeAll();
+        center.add(layout(visibleBodies), BorderLayout.CENTER);
+        center.revalidate();
+        center.repaint();
+        if (notify) visibilityListener.accept(visibleSections);
     }
 
     private JComponent buildSection(

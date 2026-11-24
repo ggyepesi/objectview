@@ -32,6 +32,11 @@ public class ViewConfig {
     // until the view that shows this config fills in its own default where the config
     // enters it; every reader after that sees an explicit value.
     private Boolean rootsFolded;
+    // Whether selected blank values and zero-member collections are painted. This is
+    // one view-wide presentation choice like rootsFolded; null means the historical
+    // default (show them). The setter carries it into every nested projection so a
+    // nested Card, table cell and web walk receive the same answer.
+    private Boolean emptyFieldsVisible;
     // A field selection (quiz key / finite field picker) follows only the paths the
     // user ticked. A View, search or sort config instead inherits recursive fields.
     // This belongs to the config: a renderer cannot infer the distinction from an
@@ -102,10 +107,10 @@ public class ViewConfig {
                 : copies.getOrDefault(inheritedFrom, inheritedFrom);
 
         for (Map.Entry<String, ViewConfig> e : fields.entrySet()) {
-            c.fields.put(e.getKey(), e.getValue().copy(copies));
+            c.addField(e.getKey(), e.getValue().copy(copies));
         }
         for (Map.Entry<String, ViewConfig> e : rememberedFields.entrySet()) {
-            c.rememberedFields.put(e.getKey(), e.getValue().copy(copies));
+            c.rememberField(e.getKey(), e.getValue().copy(copies));
         }
 
         return c;
@@ -119,7 +124,7 @@ public class ViewConfig {
         if (additional == null) return merged;
         copies.put(additional, merged);
         for (Map.Entry<String, ViewConfig> entry : additional.fields.entrySet()) {
-            merged.fields.put(entry.getKey(), entry.getValue().copy(copies));
+            merged.addField(entry.getKey(), entry.getValue().copy(copies));
         }
         return merged;
     }
@@ -133,6 +138,9 @@ public class ViewConfig {
     }
 
     public void addField(String name, ViewConfig config) {
+        if (config != null && emptyFieldsVisible != null) {
+            config.emptyFieldsVisible(emptyFieldsVisible);
+        }
         fields.put(name, config);
     }
 
@@ -145,7 +153,10 @@ public class ViewConfig {
     }
 
     public void rememberField(String name, ViewConfig config) {
-        if (name != null && config != null) rememberedFields.put(name, config);
+        if (name != null && config != null) {
+            if (emptyFieldsVisible != null) config.emptyFieldsVisible(emptyFieldsVisible);
+            rememberedFields.put(name, config);
+        }
     }
 
     public Map<String, ViewConfig> getRememberedFields() {
@@ -225,6 +236,32 @@ public class ViewConfig {
         return this;
     }
 
+    /** Stored presentation choice, or null for the compatible default (visible). */
+    public Boolean emptyFieldsVisible() {
+        return emptyFieldsVisible;
+    }
+
+    public boolean showsEmptyFields() {
+        return !Boolean.FALSE.equals(emptyFieldsVisible);
+    }
+
+    public ViewConfig emptyFieldsVisible(Boolean visible) {
+        propagateEmptyFieldsVisible(visible,
+                Collections.newSetFromMap(new IdentityHashMap<>()));
+        return this;
+    }
+
+    private void propagateEmptyFieldsVisible(Boolean visible, Set<ViewConfig> seen) {
+        if (!seen.add(this)) return;
+        emptyFieldsVisible = visible;
+        for (ViewConfig child : fields.values()) {
+            if (child != null) child.propagateEmptyFieldsVisible(visible, seen);
+        }
+        for (ViewConfig child : rememberedFields.values()) {
+            if (child != null) child.propagateEmptyFieldsVisible(visible, seen);
+        }
+    }
+
     /**
      * Takes {@code source}'s presentation settings — how this config is shown, never what
      * it selects. Every path that rebuilds a config from another (a copy, the literal
@@ -238,6 +275,7 @@ public class ViewConfig {
         blurImages = source.blurImages;
         answerType = source.answerType;
         rootsFolded = source.rootsFolded;
+        emptyFieldsVisible(source.emptyFieldsVisible);
         return this;
     }
 
@@ -265,7 +303,8 @@ public class ViewConfig {
         return "Config{" + "cls=" + (cls == null ? "?" : cls.getSimpleName()) +
                 ", allFields=" + allFields + ", allMinorFields=" + allMinorFields +
                 ", addListener=" + addListener + ", thumb=" + thumb + ", type=" +
-                answerType + ", fields=" + fields.keySet()
+                answerType + ", showEmpty=" + showsEmptyFields()
+                + ", fields=" + fields.keySet()
                 + (finitePaths ? ", finitePaths" : "")
                 + (inheritedFrom == null ? "" : ", inherited") + '}';
     }

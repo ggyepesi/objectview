@@ -63,19 +63,7 @@ public abstract class ViewableAdapter implements Viewable {
      *  value — so an all-blank collection (e.g. {@code [""]}) renders as nothing rather
      *  than a phantom one-item field. */
     public static boolean isValidQuizValue(Object value) {
-        if (value == null) {
-            return false;
-        }
-        if (value instanceof String s) {
-            return !s.isBlank();
-        }
-        if (value instanceof Collection<?> c) {
-            return c.stream().anyMatch(ViewableAdapter::isValidQuizValue);
-        }
-        if (value instanceof Map<?, ?> m) {
-            return m.values().stream().anyMatch(ViewableAdapter::isValidQuizValue);
-        }
-        return true;
+        return objectview.field.ValuePresence.isPresent(value);
     }
 
     public static List<Field> getAllFields(Class<?> cls) {

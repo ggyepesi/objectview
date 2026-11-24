@@ -429,6 +429,27 @@ public class RenderContext {
         }
     }
 
+    /**
+     * Replaces the objects that currently have their own cards in this coordinated
+     * view. This is presentation state: hiding a section changes whether references
+     * navigate to a top-level card, but it neither removes nor changes the objects.
+     *
+     * <p>Card components belong to the previous top-level projection, so they cannot
+     * survive the replacement. Revealers and virtual-list resolvers belong to the
+     * stable section hosts and remain attached; {@link #focusTopLevel(Object)} uses
+     * them only while their object is in this projection. Render plans are discarded
+     * because top-level status is one of their inputs.</p>
+     */
+    public void setTopLevels(Collection<? extends Viewable> viewables) {
+        topLevel.clear();
+        topLevelByIdentity.clear();
+        topLevelComponents.clear();
+        backStack.clear();
+        addTopLevels(viewables);
+        executor = null;
+        navChangeListener.run();
+    }
+
     public boolean isTopLevel(Object object) {
         return canonicalTopLevel(object) != null;
     }
@@ -462,7 +483,7 @@ public class RenderContext {
 
     public boolean focusTopLevel(Object object) {
         Object target = canonicalTopLevel(object);
-        if (target == null) target = object;
+        if (target == null) return false;
         Runnable revealer = topLevelRevealers.get(target);
         if (revealer != null) revealer.run();
         JComponent fromMap = topLevelComponents.get(target);

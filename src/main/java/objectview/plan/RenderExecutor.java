@@ -6,6 +6,7 @@ import objectview.field.FieldSchema;
 import objectview.field.FieldSet;
 import objectview.field.LinkedText;
 import objectview.field.LinkedTextSequence;
+import objectview.field.ValuePresence;
 import objectview.viewconfig.ViewConfig;
 
 import java.util.ArrayList;
@@ -81,18 +82,15 @@ public final class RenderExecutor {
     public record Level(Viewable target, ViewConfig config, FieldSet fields,
                         ObjectPlan plan, String caption, String captionUrl,
                         LinkedTextSequence linkedCaption) {
-        /** Whether a ticked field other than the caption has something to show. A blank
-         * or absent value renders nothing, so it cannot justify an expander; a collection
-         * always shows its size. Reads ticked fields only, stopping at the first present
-         * one, and only when a renderer asks. */
+        /** Whether a ticked field other than the caption has something to show. Null is
+         * always absent; blank text and zero-member containers follow the view's explicit
+         * empty-field choice. Reads ticked fields only, stopping at the first visible one,
+         * and only when a renderer asks. */
         public boolean hasBody() {
             for (ObjectPlan.FieldPlan field : plan.body()) {
                 Object value = fields.read(field.name());
-                if (value instanceof Collection<?> || value instanceof java.util.Map<?, ?>) {
-                    return true;
-                }
-                if (value instanceof CharSequence text ? !text.toString().isBlank()
-                        : value != null) {
+                if (value != null && (config.showsEmptyFields()
+                        || !emptyFieldValue(value))) {
                     return true;
                 }
             }
@@ -175,7 +173,8 @@ public final class RenderExecutor {
         for (ObjectPlan.FieldPlan field : level.plan().body()) {
             RenderSink.Occurrence at = owner.field(field.name(), field.label());
             Object value = level.fields().read(field.name());
-            if (value == null) {
+            if (value == null || !level.config().showsEmptyFields()
+                    && emptyFieldValue(value)) {
                 out.add(skip(at, field, RenderSink.SkipReason.ABSENT));
             } else {
                 out.add(decide(field, field.representation(), value, at, false, ancestors));
@@ -191,9 +190,16 @@ public final class RenderExecutor {
     /** The decision for one ticked field whose value the caller already holds (a
      * table cell renders one field of a row). */
     public Decision field(ObjectPlan.FieldPlan field, Object value,
-                          RenderSink.Occurrence at, Set<?> ancestors) {
-        if (value == null) return skip(at, field, RenderSink.SkipReason.ABSENT);
+                          RenderSink.Occurrence at, Set<?> ancestors,
+                          boolean showEmptyFields) {
+        if (value == null || !showEmptyFields && emptyFieldValue(value)) {
+            return skip(at, field, RenderSink.SkipReason.ABSENT);
+        }
         return decide(field, field.representation(), value, at, false, ancestors);
+    }
+
+    private static boolean emptyFieldValue(Object value) {
+        return !ValuePresence.isPresent(value);
     }
 
     /** The decision for one member of an open collection. */

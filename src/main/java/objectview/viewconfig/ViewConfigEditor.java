@@ -97,6 +97,8 @@ public class ViewConfigEditor extends JPanel {
     // the editor of a view's own View config; a presentation setting, never a tick.
     private final JCheckBox rootsFoldedBox =
             new JCheckBox("Top-level cards: captions only");
+    private final JCheckBox emptyFieldsBox =
+            new JCheckBox("Show empty fields", true);
     private final JPanel rootsFoldedBar =
             new JPanel(new FlowLayout(FlowLayout.LEFT));
     private boolean offersRootsFolded;
@@ -228,6 +230,12 @@ public class ViewConfigEditor extends JPanel {
                 + "click a caption to open that card.");
         rootsFoldedBox.addActionListener(e -> fireConfigChanged());
         rootsFoldedBar.add(rootsFoldedBox);
+        emptyFieldsBox.setToolTipText(
+                "Show selected blank values and collections with zero members.");
+        emptyFieldsBox.setSelected(enteredConfig.emptyFieldsVisible() == null
+                || enteredConfig.showsEmptyFields());
+        emptyFieldsBox.addActionListener(e -> fireConfigChanged());
+        rootsFoldedBar.add(emptyFieldsBox);
         rootsFoldedBar.setVisible(false);
         JPanel north = new JPanel(new BorderLayout());
         north.add(rootsFoldedBar, BorderLayout.NORTH);
@@ -468,6 +476,8 @@ public class ViewConfigEditor extends JPanel {
         if (enteredConfig.rootsFolded() != null) {
             rootsFoldedBox.setSelected(enteredConfig.rootsFolded());
         }
+        emptyFieldsBox.setSelected(enteredConfig.emptyFieldsVisible() == null
+                || enteredConfig.showsEmptyFields());
         this.hiddenFields = hidden == null ? Set.of() : Set.copyOf(hidden);
         this.rowSource = ConfigFieldRowSource.INSTANCE;
         this.expandedPaths.clear();
@@ -1284,6 +1294,9 @@ public class ViewConfigEditor extends JPanel {
     public void offerRootsFolded(boolean viewDefault) {
         Boolean stored = enteredConfig == null ? null : enteredConfig.rootsFolded();
         rootsFoldedBox.setSelected(stored != null ? stored : viewDefault);
+        emptyFieldsBox.setSelected(enteredConfig == null
+                || enteredConfig.emptyFieldsVisible() == null
+                || enteredConfig.showsEmptyFields());
         offersRootsFolded = true;
         rootsFoldedBar.setVisible(true);
     }
@@ -1291,6 +1304,11 @@ public class ViewConfigEditor extends JPanel {
     /** The view's "captions only" choice, or null when this editor does not offer it. */
     public Boolean rootsFoldedChoice() {
         return offersRootsFolded ? rootsFoldedBox.isSelected() : null;
+    }
+
+    /** The view-wide empty-field choice, offered beside the root-card choice. */
+    public Boolean emptyFieldsVisibleChoice() {
+        return offersRootsFolded ? emptyFieldsBox.isSelected() : null;
     }
 
     public ViewConfig getConfig() {
@@ -1301,6 +1319,9 @@ public class ViewConfigEditor extends JPanel {
         }
         ViewConfig result = copyHeader(sourceConfig);
         if (rootsFoldedChoice() != null) result.rootsFolded(rootsFoldedChoice());
+        if (emptyFieldsVisibleChoice() != null) {
+            result.emptyFieldsVisible(emptyFieldsVisibleChoice());
+        }
         result.minorFieldsVisible(!minorOnly && allMinorFieldsBox.isSelected());
         result.getFields().clear();
 
@@ -1363,6 +1384,9 @@ public class ViewConfigEditor extends JPanel {
     private ViewConfig buildTreeConfig() {
         ViewConfig result = copyHeader(sourceConfig);
         if (rootsFoldedChoice() != null) result.rootsFolded(rootsFoldedChoice());
+        if (emptyFieldsVisibleChoice() != null) {
+            result.emptyFieldsVisible(emptyFieldsVisibleChoice());
+        }
         // In the inline tree, the Minor fields switch is a visibility/admission
         // gate. Each minor field remains an ordinary explicit selection, so turning
         // the gate off can hide the set without erasing those remembered choices.

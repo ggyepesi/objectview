@@ -189,6 +189,64 @@ class NestedCardRefreshTest {
         list.dispose();
     }
 
+    @Test void expandingOneMemberCollectionWithEmptyFieldsHiddenMovesNextCardExactlyOnce()
+            throws Exception {
+        LogLike first = new LogLike("first", "");
+        first.steps.add(new LogLike("only member", ""));
+        LogLike second = new LogLike("second", "visible detail");
+        RenderContext context = new RenderContext();
+        CardListView list = new CardListView();
+        list.setRenderContext(context);
+        list.addViewable(first);
+        list.addViewable(second);
+        list.createCardsPanel(1);
+        ViewConfig config = logConfig(2).emptyFieldsVisible(false);
+        list.getVirtualList().setViewConfigResolver(ignored -> config);
+
+        int[] layout = new int[10];
+        SwingUtilities.invokeAndWait(() -> {
+            JComponent firstCard = list.getVirtualList().buildIfNeeded(first);
+            JComponent secondCard = list.getVirtualList().buildIfNeeded(second);
+            layout[0] = firstCard.getHeight();
+            layout[1] = secondCard.getY();
+
+            CollectionHeader header = find(firstCard, CollectionHeader.class);
+            assertNotNull(header);
+            assertFalse(header.isExpanded());
+            header.dispatchEvent(click(header));
+
+            CollectionHeader expanded = find(firstCard, CollectionHeader.class);
+            assertNotNull(expanded);
+            Container collection = expanded.getParent();
+            assertEquals(2, collection.getComponentCount(),
+                    "the expanded collection has its header and one members body");
+            Component body = collection.getComponent(1);
+
+            layout[2] = firstCard.getHeight();
+            layout[3] = secondCard.getY();
+            layout[4] = list.getVirtualList().getPreferredSize().height;
+            layout[5] = secondCard.getY() + secondCard.getHeight();
+            layout[6] = expanded.getY() + expanded.getHeight();
+            layout[7] = body.getY();
+            layout[8] = body.getY() + body.getHeight();
+            layout[9] = collection.getHeight();
+        });
+
+        assertEquals(layout[0], layout[1],
+                "the second card initially starts after the collapsed first card");
+        assertTrue(layout[2] > layout[0],
+                "opening the member must increase the first card's measured row height");
+        assertEquals(layout[2], layout[3],
+                "the following card must move by exactly the expanded height");
+        assertEquals(layout[5], layout[4],
+                "the virtual content height must end at the last visible card");
+        assertTrue(layout[7] >= layout[6],
+                "the members body must begin below the collection header");
+        assertTrue(layout[8] <= layout[9],
+                "the collection panel must contain the expanded members body");
+        list.dispose();
+    }
+
     @Test void collapsingAnExpandedCollectionMemberReleasesItsNestedHeight()
             throws Exception {
         LogLike root = new LogLike("root", "root detail");

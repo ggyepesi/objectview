@@ -355,7 +355,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
         ancestors.add(owner);
         RenderExecutor.Decision decision = renderer.renderContext.executor().field(
                 plan, value, new RenderSink.Occurrence(at, field.label(), at.dotted()),
-                ancestors);
+                ancestors, renderer.config.showsEmptyFields());
         return renderer.paint(decision, showFieldName ? field.name() : "", ancestors);
     }
 
