@@ -33,6 +33,16 @@ class MultiSearchBarTest {
         @Override public String typeName() { return "PositionReplacementExpansion"; }
     }
 
+    private static final class RecordingSearchPanel extends SearchPanel {
+        private int sortApplications;
+
+        private RecordingSearchPanel(ViewableAdapter sample) {
+            super(sample.getClass(), sample);
+        }
+
+        @Override public void applySort() { sortApplications++; }
+    }
+
     @Test void aDynamicSectionIsNamedByItsSemanticClassNotItsJavaCarrier() {
         DynamicGraphRecord sample = new DynamicGraphRecord();
         SearchPanel panel = new SearchPanel(DynamicGraphRecord.class, sample);
@@ -56,44 +66,6 @@ class MultiSearchBarTest {
         assertEquals(List.of("PositionWithHolders"), applied);
     }
 
-    @Test void applyToAllUsesEveryTabsOwnConfiguration() {
-        JTabbedPane tabs = new JTabbedPane();
-        tabs.addTab("Position", new JPanel());
-        tabs.addTab("PositionWithHolders", new JPanel());
-        tabs.addTab("OfficeHolding", new JPanel());
-        tabs.setSelectedIndex(1);
-        List<String> applied = new ArrayList<>();
-
-        MultiSearchBar.applySelectedOrAll(
-                tabs,
-                List.of("Position", "PositionWithHolders", "OfficeHolding"),
-                applied::add,
-                true);
-
-        assertEquals(List.of("Position", "PositionWithHolders", "OfficeHolding"),
-                applied);
-    }
-
-    @Test void applyToAllSharesViewWideChoicesWithoutCopyingFieldPaths() {
-        SearchPanel position = new SearchPanel(DynamicGraphRecord.class,
-                new DynamicGraphRecord());
-        SearchPanel office = new SearchPanel(DynamicGraphRecord.class,
-                new DynamicGraphRecord() {
-                    @Override public String typeName() { return "OfficeHolding"; }
-                });
-        position.viewEditor().offerRootsFolded(false);
-        office.viewEditor().offerRootsFolded(false);
-        position.viewEditor().rootsFoldedChoice(true);
-        office.viewEditor().rootsFoldedChoice(false);
-        position.viewEditor().emptyFieldsVisibleChoice(false);
-        office.viewEditor().emptyFieldsVisibleChoice(true);
-
-        MultiSearchBar.shareViewOptions(position, List.of(position, office));
-
-        assertTrue(office.viewEditor().rootsFoldedChoice());
-        assertFalse(office.viewEditor().emptyFieldsVisibleChoice());
-    }
-
     @Test void eachClassOwnsAHitNavigationTab() {
         SearchPanel position = new SearchPanel(DynamicGraphRecord.class,
                 new DynamicGraphRecord());
@@ -111,15 +83,54 @@ class MultiSearchBarTest {
         assertFalse(tabs.isVisible(), "hit navigation stays out of the way before a search");
     }
 
-    @Test void theAllTabsSortAndViewSwitchIsVisibleOnTheSharedToolbar() {
+    @Test void everyAllTabsControlIsVisibleOnItsOwnSharedToolbarRow() {
         MultiSearchBar bar = new MultiSearchBar(List.of(
                 new SearchPanel(DynamicGraphRecord.class, new DynamicGraphRecord())));
 
-        assertTrue(allComponents(bar).stream()
-                .filter(javax.swing.JCheckBox.class::isInstance)
+        List<Component> components = allComponents(bar);
+        assertTrue(components.stream().filter(javax.swing.JButton.class::isInstance)
+                .map(javax.swing.JButton.class::cast)
+                .anyMatch(button -> "Sort all tabs".equals(button.getText())
+                        && button.isVisible()));
+        assertTrue(components.stream().filter(javax.swing.JCheckBox.class::isInstance)
                 .map(javax.swing.JCheckBox.class::cast)
-                .anyMatch(box -> "Apply Sort/View to all tabs".equals(box.getText())
+                .anyMatch(box -> "Show empty fields".equals(box.getText())
                         && box.isVisible()));
+        assertTrue(components.stream().filter(javax.swing.JCheckBox.class::isInstance)
+                .map(javax.swing.JCheckBox.class::cast)
+                .anyMatch(box -> "Top-level captions only".equals(box.getText())
+                        && box.isVisible()));
+    }
+
+    @Test void sharedViewControlsImmediatelyApplyToEveryTab() {
+        SearchPanel first = new SearchPanel(DynamicGraphRecord.class,
+                new DynamicGraphRecord());
+        SearchPanel second = new SearchPanel(DynamicGraphRecord.class,
+                new DynamicGraphRecord() {
+                    @Override public String typeName() { return "OfficeHolding"; }
+                });
+        first.viewEditor().offerRootsFolded(false);
+        second.viewEditor().offerRootsFolded(false);
+        MultiSearchBar bar = new MultiSearchBar(List.of(first, second));
+
+        checkbox(bar, "Show empty fields").doClick();
+        checkbox(bar, "Top-level captions only").doClick();
+
+        assertFalse(first.viewEditor().emptyFieldsVisibleChoice());
+        assertFalse(second.viewEditor().emptyFieldsVisibleChoice());
+        assertTrue(first.viewEditor().rootsFoldedChoice());
+        assertTrue(second.viewEditor().rootsFoldedChoice());
+    }
+
+    @Test void sortAllTabsRunsEveryTabsOwnSortAction() throws Exception {
+        RecordingSearchPanel first = new RecordingSearchPanel(new DynamicGraphRecord());
+        RecordingSearchPanel second = new RecordingSearchPanel(new DynamicGraphRecord());
+        MultiSearchBar bar = new MultiSearchBar(List.of(first, second));
+
+        EdtTests.onEdt(() -> button(bar, "Sort all tabs").doClick());
+        EdtTests.awaitOnEdt(() -> first.sortApplications == 1
+                        && second.sortApplications == 1,
+                SETTLE, "the shared sort action has reached every visible tab");
     }
 
     @Test void aHiddenClassStopsContributingSearchHits() throws Exception {
@@ -252,6 +263,22 @@ class MultiSearchBarTest {
             if (child instanceof Container nested) found.addAll(allComponents(nested));
         }
         return found;
+    }
+
+    private static javax.swing.JCheckBox checkbox(Container root, String text) {
+        return allComponents(root).stream()
+                .filter(javax.swing.JCheckBox.class::isInstance)
+                .map(javax.swing.JCheckBox.class::cast)
+                .filter(box -> text.equals(box.getText()))
+                .findFirst().orElseThrow();
+    }
+
+    private static javax.swing.JButton button(Container root, String text) {
+        return allComponents(root).stream()
+                .filter(javax.swing.JButton.class::isInstance)
+                .map(javax.swing.JButton.class::cast)
+                .filter(button -> text.equals(button.getText()))
+                .findFirst().orElseThrow();
     }
 
     private static JTextField findTextField(Container root) {
