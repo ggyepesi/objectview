@@ -675,7 +675,7 @@ public final class ViewableColumnsView
 
     /** Mouse events do not bubble in Swing, so the listener is registered on every
      *  component in the row — but it is ONE instance for the whole view, resolving
-     *  the clicked instance from its row (the {@link TextCopyMouseHandler} idiom),
+     *  the clicked instance from its row (the {@link objectview.render.TextCopyMouseHandler} idiom),
      *  not a fresh adapter closing over an owner per row. It never consumes the
      *  event, so links, reference toggles and image double-clicks keep working. */
     private final MouseAdapter selectionListener = new MouseAdapter() {

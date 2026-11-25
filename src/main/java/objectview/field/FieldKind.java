@@ -9,7 +9,7 @@ import java.util.Date;
 import java.time.temporal.Temporal;
 
 /**
- * The value shape of a {@link DomainField} — used to offer only the operators that
+ * The value shape of a field ({@link FieldRef#kind()}) — used to offer only the operators that
  * make sense for it (e.g. {@code <} / {@code between} for numbers and dates, {@code
  * contains} for text and collections) and to pick a facet/sort strategy. Populated
  * by the {@code DomainModel} that knows the field's type; {@link #UNKNOWN} allows

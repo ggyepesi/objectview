@@ -18,7 +18,7 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 /**
- * Hosts several {@link CardListView}s side by side that share one
+ * Hosts several {@link objectview.render.CardListView}s side by side that share one
  * {@link RenderContext}, so a reference field in one view (e.g. a
  * constellation's {@code stars}) renders as a chip that, on click, scrolls
  * to and flashes the target's card in its own view — and vice versa.
