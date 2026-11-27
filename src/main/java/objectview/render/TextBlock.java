@@ -96,7 +96,7 @@ public class TextBlock extends JComponent implements TextSelectable {
                 + (menuShortcutMask()
                         == java.awt.event.InputEvent.META_DOWN_MASK
                         ? "Cmd+C" : "Ctrl+C")
-                + "/right-click to copy");
+                + "/right-click to read or copy");
 
         registerCopyShortcut();
     }
@@ -189,9 +189,16 @@ public class TextBlock extends JComponent implements TextSelectable {
 
     public void showCopyPopup(Point p) {
         TextSelectionManager.activate(this);
+        textMenu(p).show(this, p.x, p.y);
+    }
 
+    JPopupMenu textMenu(Point p) {
         Row row = rowAt(p);
         JPopupMenu menu = new JPopupMenu();
+        if (row != null) {
+            var text = row.value() instanceof CharSequence value ? value : rowValueText(row);
+            TextReader.addAction(menu, this, row.fieldName(), text);
+        }
 
         String selectedText = selectedText();
         Set<Integer> blockLines = allLineIndices();
@@ -250,7 +257,7 @@ public class TextBlock extends JComponent implements TextSelectable {
             setPreviewLines(blockLines);
         }
 
-        menu.show(this, p.x, p.y);
+        return menu;
     }
 
     // Adds a copy item that, while hovered (armed), highlights the lines it

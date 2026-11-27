@@ -104,7 +104,7 @@ public class TextRow extends JComponent implements TextSelectable {
         addMouseListener(TextCopyMouseHandler.INSTANCE);
         addMouseMotionListener(TextCopyMouseHandler.INSTANCE);
         if (linkedText == null || linkedText.urls().isEmpty()) {
-            setToolTipText("Drag to select · " + copyKeyName() + "/right-click to copy");
+            setToolTipText("Drag to select · " + copyKeyName() + "/right-click to read or copy");
         } else {
             showLinkDestinationOnHover();
         }
@@ -357,8 +357,13 @@ public class TextRow extends JComponent implements TextSelectable {
     }
 
     public void showCopyPopup(Point p) {
-        JPopupMenu menu = new JPopupMenu();
         TextSelectionManager.activate(this);
+        textMenu().show(this, p.x, p.y);
+    }
+
+    JPopupMenu textMenu() {
+        JPopupMenu menu = new JPopupMenu();
+        TextReader.addAction(menu, this, fieldName, linkedText == null ? valueText() : linkedText);
 
         String selectedText = selectedText();
 
@@ -391,8 +396,7 @@ public class TextRow extends JComponent implements TextSelectable {
         }
 
         addExtraCopyMenuItems(menu);
-
-        menu.show(this, p.x, p.y);
+        return menu;
     }
 
     private String selectedText() {
