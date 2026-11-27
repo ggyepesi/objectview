@@ -15,6 +15,14 @@ public interface RenderedInstanceHost extends RenderRefreshHost {
 
     Viewable renderedInstance();
 
+    default RenderContext renderedInstanceContext() { return null; }
+
+    /** The host's occurrence prefix; text in a nested card keeps the same local field address. */
+    default FieldPath renderedInstancePath() { return FieldPath.ROOT; }
+
+    /** The name the instance is shown under in this host. */
+    default String renderedInstanceCaption() { return renderedInstance().getDisplayName(); }
+
     /** Applies the search-hit tint, or clears it with {@code null}. */
     void setHighlightColor(Color color);
 

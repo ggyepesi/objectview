@@ -31,7 +31,7 @@ public class RenderContext {
     // A reference value need not be the same Java object as the top-level instance
     // produced for it. Resolve only by Viewable's complete identity: the identifier
     // alone is ambiguous when several logical types deliberately share a QID.
-    private record ViewableIdentity(String type, String identifier) { }
+    record ViewableIdentity(String type, String identifier) { }
     private final Map<ViewableIdentity, Object> topLevelByIdentity =
             new LinkedHashMap<>();
 
@@ -267,15 +267,20 @@ public class RenderContext {
         return () -> emptyFieldViews.remove(view);
     }
 
-    private final java.util.Deque<NavMark> backStack = new java.util.ArrayDeque<>();
+    private final java.util.Deque<ReturnPoint> backStack = new java.util.ArrayDeque<>();
     private final Action backAction = new AbstractAction("← Back") {
         @Override public void actionPerformed(java.awt.event.ActionEvent event) { back(); }
     };
 
+    private interface ReturnPoint {
+        boolean restore();
+        String caption();
+    }
+
     private record TabLocation(JTabbedPane tabs, Component page) { }
 
     private record NavMark(Component origin, JViewport viewport, Point position,
-                           List<TabLocation> tabs) {
+                           List<TabLocation> tabs) implements ReturnPoint {
         private static NavMark of(Component origin) {
             if (origin == null) return null;
             JViewport viewport = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, origin);
@@ -302,7 +307,7 @@ public class RenderContext {
                     .filter(tab -> tab.tabs().indexOfComponent(tab.page()) >= 0).toList() : current;
         }
 
-        private boolean restore() {
+        @Override public boolean restore() {
             if (viewport != null && viewport.getView() == null) return false;
             List<TabLocation> location = returnTabs();
             if (viewport == null && location.isEmpty() && !origin.isShowing()) return false;
@@ -312,7 +317,7 @@ public class RenderContext {
             return true;
         }
 
-        private String caption() {
+        @Override public String caption() {
             for (TabLocation tab : returnTabs()) {
                 if (tab.tabs().getSelectedComponent() == tab.page()) continue;
                 int index = tab.tabs().indexOfComponent(tab.page());
@@ -330,8 +335,8 @@ public class RenderContext {
         updateBack();
     }
 
-    private void updateBack() {
-        NavMark mark = backStack.peek();
+    void updateBack() {
+        ReturnPoint mark = backStack.peek();
         backAction.putValue(Action.NAME, mark == null ? "← Back" : mark.caption());
         backAction.setEnabled(mark != null);
     }
@@ -564,7 +569,7 @@ public class RenderContext {
         return identity == null ? null : topLevelByIdentity.get(identity);
     }
 
-    private static ViewableIdentity identityOf(Object object) {
+    static ViewableIdentity identityOf(Object object) {
         if (!(object instanceof Viewable viewable)) return null;
         String type = viewable.identityTypeName();
         String identifier = viewable.getIdentifier();
@@ -581,9 +586,34 @@ public class RenderContext {
 
     /** The link component identifies where the reader can return after navigation. */
     public boolean focusTopLevel(Object object, Component origin) {
+        return focusWithReturn(object, NavMark.of(origin));
+    }
+
+    /** One ordinary Back entry whose preferred origin is a live full-text reader. */
+    boolean focusFromReader(Viewable target, Component reader, Viewable story,
+            java.util.function.BooleanSupplier readerOpen, Runnable raiseReader) {
+        NavMark mark = NavMark.of(reader);
+        return focusWithReturn(target, new ReturnPoint() {
+            @Override public boolean restore() {
+                if (readerOpen.getAsBoolean() && mark != null && mark.restore()) {
+                    raiseReader.run();
+                    return true;
+                }
+                // Resolve the story again by identity: its original card may have been recycled.
+                return focusTopLevel(story);
+            }
+
+            @Override public String caption() {
+                if (readerOpen.getAsBoolean()) return "← Back to full text";
+                String name = story == null ? null : story.getDisplayName();
+                return name == null || name.isBlank() ? "← Back" : "← Back to " + name;
+            }
+        });
+    }
+
+    private boolean focusWithReturn(Object object, ReturnPoint mark) {
         Object target = canonicalTopLevel(object);
         if (target == null) return false;
-        NavMark mark = NavMark.of(origin);
         TopLevelReveal revealer = topLevelRevealers.get(target);
         if (revealer != null) revealer.reveal();
         JComponent fromMap = topLevelComponents.get(target);

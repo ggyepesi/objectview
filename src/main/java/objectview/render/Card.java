@@ -262,6 +262,12 @@ public class Card extends JPanel implements RenderedInstanceHost {
         return viewable;
     }
 
+    @Override public RenderContext renderedInstanceContext() { return renderContext; }
+
+    @Override public FieldPath renderedInstancePath() { return path; }
+
+    @Override public String renderedInstanceCaption() { return getTitle(); }
+
     @Override
     protected void paintComponent(Graphics g) {
         InstancePaint.fillHighlight(
@@ -1640,7 +1646,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
         // strings, so folding it in silently dropped every link; it renders as its own
         // TextRow, which paints, hit-tests and hovers the same runs.
         if (value instanceof objectview.field.LinkedTextSequence linked
-                && !linked.urls().isEmpty()) {
+                && linked.hasLinks()) {
             return false;
         }
 

@@ -1,5 +1,7 @@
 package objectview.field;
 
+import objectview.Viewable;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -9,13 +11,17 @@ import java.util.List;
  * the same {@link #text()} projection.
  */
 public final class LinkedTextSequence implements CharSequence {
-    public record Part(String text, String url) {
+    public record Part(String text, String url, Viewable reference) {
+        public Part(String text, String url) { this(text, url, null); }
         public Part {
             text = text == null ? "" : text;
             url = url == null ? "" : url.trim();
+            if (reference != null && !url.isEmpty()) {
+                throw new IllegalArgumentException("A text link has one destination");
+            }
         }
 
-        public boolean linked() { return !url.isBlank(); }
+        public boolean linked() { return reference != null || !url.isBlank(); }
     }
 
     private final List<Part> parts;
@@ -41,6 +47,20 @@ public final class LinkedTextSequence implements CharSequence {
 
     public static Part link(String text, String url) { return new Part(text, url); }
 
+    public static Part reference(String text, Viewable target) {
+        return new Part(text, "", java.util.Objects.requireNonNull(target));
+    }
+
+    public boolean hasLinks() { return parts.stream().anyMatch(Part::linked); }
+
+    /** Keep the text and its external URLs, but make instance mentions plain. */
+    public LinkedTextSequence withoutInstanceLinks() {
+        if (parts.stream().noneMatch(part -> part.reference() != null)) return this;
+        return new LinkedTextSequence(parts.stream()
+                .map(part -> part.reference() != null ? text(part.text()) : part)
+                .toList());
+    }
+
     public List<Part> parts() { return parts; }
 
     public String text() { return text; }
@@ -58,7 +78,7 @@ public final class LinkedTextSequence implements CharSequence {
     }
 
     public List<String> urls() {
-        return parts.stream().filter(Part::linked).map(Part::url).toList();
+        return parts.stream().map(Part::url).filter(url -> !url.isBlank()).toList();
     }
 
     @Override public int length() { return text.length(); }

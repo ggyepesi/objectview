@@ -131,7 +131,7 @@ public final class RenderExecutor {
         String captionUrl = null;
         LinkedTextSequence linkedCaption = null;
         if (plan.caption() != null) {
-            Object value = fields.read(plan.caption().name());
+            Object value = presentedValue(fields.read(plan.caption().name()), literal);
             if (value != null && !String.valueOf(value).isBlank()) {
                 if (value instanceof LinkedTextSequence sequence) {
                     caption = sequence.text();
@@ -202,6 +202,12 @@ public final class RenderExecutor {
         return !ValuePresence.isPresent(value);
     }
 
+    private static Object presentedValue(Object value, ViewConfig config) {
+        return value instanceof LinkedTextSequence sequence
+                && config != null && !config.showsInstanceTextLinks()
+                ? sequence.withoutInstanceLinks() : value;
+    }
+
     /** The decision for one member of an open collection. */
     public Decision member(ObjectPlan.FieldPlan collection, Object item,
                            RenderSink.Occurrence at, Set<?> ancestors) {
@@ -214,6 +220,7 @@ public final class RenderExecutor {
     private Decision decide(ObjectPlan.FieldPlan field, Representation representation,
                             Object value, RenderSink.Occurrence at, boolean member,
                             Set<?> ancestors) {
+        value = presentedValue(value, field.child());
         if (representation == Representation.VALUE) representation = ValueShape.of(value);
         switch (representation) {
             case COLLECTION -> {

@@ -435,6 +435,10 @@ public final class ViewableColumnsView
             return q;
         }
 
+        @Override public RenderContext renderedInstanceContext() {
+            return context;
+        }
+
         @Override public void setHighlightColor(Color color) {
             this.highlightColor = color;
             repaint();

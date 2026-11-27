@@ -69,7 +69,8 @@ public class TextRow extends JComponent implements TextSelectable {
                    FieldPath fieldPath,
                    Object rawValue) {
         this(fieldName, fieldPath,
-                rawValue == null ? List.of() : List.of(String.valueOf(rawValue)),
+                rawValue instanceof LinkedTextSequence sequence ? List.of(sequence.text().split("\n", -1))
+                        : rawValue == null ? List.of() : List.of(String.valueOf(rawValue)),
                 rawValue instanceof LinkedTextSequence sequence ? sequence : null);
     }
 
@@ -92,7 +93,7 @@ public class TextRow extends JComponent implements TextSelectable {
 
         setOpaque(false);
         setFocusable(true);
-        if (linkedText != null && !linkedText.urls().isEmpty()) {
+        if (linkedText != null && linkedText.hasLinks()) {
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         }
 
@@ -103,7 +104,7 @@ public class TextRow extends JComponent implements TextSelectable {
 
         addMouseListener(TextCopyMouseHandler.INSTANCE);
         addMouseMotionListener(TextCopyMouseHandler.INSTANCE);
-        if (linkedText == null || linkedText.urls().isEmpty()) {
+        if (linkedText == null || !linkedText.hasLinks()) {
             setToolTipText("Drag to select · " + copyKeyName() + "/right-click to read or copy");
         } else {
             showLinkDestinationOnHover();
@@ -265,10 +266,10 @@ public class TextRow extends JComponent implements TextSelectable {
      * ordinary click owns navigation or disclosure call this first so hit-testing and
      * painting keep the same meaning. */
     protected final boolean openLinkedPartAt(Point point) {
-        String url = linkedUrlAt(point);
-        if (url == null) return false;
-        objectview.utils.BrowserLauncher.open(url);
-        return true;
+        var host = RenderedInstanceHost.hostOf(this);
+        var context = host == null ? null : host.renderedInstanceContext();
+        return TextLinkNavigation.open(linkedPartAt(point), context,
+                target -> context != null && context.focusTopLevel(target, this));
     }
 
     /**
@@ -290,12 +291,12 @@ public class TextRow extends JComponent implements TextSelectable {
 
     /** Whether some point of this row opens a URL. */
     protected boolean hasLinkDestination() {
-        return linkedText != null && !linkedText.urls().isEmpty();
+        return linkedText != null && linkedText.hasLinks();
     }
 
     /** The URL a click at {@code point} opens, or null. Must agree with click dispatch. */
     protected String hoverUrlAt(Point point) {
-        return linkedUrlAt(point);
+        return TextLinkNavigation.destination(linkedPartAt(point));
     }
 
     /** Destinations painted inside this row, in reading order. */
@@ -305,6 +306,11 @@ public class TextRow extends JComponent implements TextSelectable {
 
     /** Package-visible seam for rendering tests: null over ordinary text/padding. */
     String linkedUrlAt(Point point) {
+        var part = linkedPartAt(point);
+        return part == null || part.url().isBlank() ? null : part.url();
+    }
+
+    private LinkedTextSequence.Part linkedPartAt(Point point) {
         if (linkedText == null || point == null) return null;
         FontMetrics metrics = getFontMetrics(valueFont());
         for (PaintLine line : computePaintLines(getWidth())) {
@@ -312,9 +318,7 @@ public class TextRow extends JComponent implements TextSelectable {
                     || point.x < line.x()) continue;
             int local = characterAt(metrics, line.text(), point.x - line.x());
             if (local >= 0) {
-                LinkedTextSequence.Part part = linkedText.linkedPartAt(
-                        line.sourceStart() + local);
-                return part == null ? null : part.url();
+                return linkedText.linkedPartAt(line.sourceStart() + local);
             }
         }
         return null;
@@ -363,7 +367,7 @@ public class TextRow extends JComponent implements TextSelectable {
 
     JPopupMenu textMenu() {
         JPopupMenu menu = new JPopupMenu();
-        TextReader.addAction(menu, this, fieldName, linkedText == null ? valueText() : linkedText);
+        TextReader.addAction(menu, this, fieldName, fieldPath, linkedText == null ? valueText() : linkedText);
 
         String selectedText = selectedText();
 
@@ -465,41 +469,30 @@ public class TextRow extends JComponent implements TextSelectable {
             return;
         }
 
-        String[] words = line.split("\\s+");
-        StringBuilder current = new StringBuilder();
-
-        for (String word : words) {
-            // A single word wider than the line has no space to wrap on (e.g. a
-            // long URL or id) — hard-break it at character boundaries so its end
-            // is still visible rather than clipped off the card.
+        // Keep each painted line an exact substring of its source. Link offsets
+        // must still identify the same characters when a passage has repeated whitespace.
+        var words = WORD.matcher(line);
+        int start = -1;
+        int end = 0;
+        while (words.find()) {
+            String word = words.group();
             if (fm.stringWidth(word) > maxWidth) {
-                if (!current.isEmpty()) {
-                    out.add(current.toString());
-                    current.setLength(0);
-                }
+                if (start >= 0) out.add(line.substring(start, end));
+                start = -1;
                 breakLongWord(word, fm, maxWidth, out);
                 continue;
             }
-
-            String next = current.isEmpty() ? word : current + " " + word;
-
-            if (fm.stringWidth(next) <= maxWidth) {
-                current.setLength(0);
-                current.append(next);
-            } else {
-                if (!current.isEmpty()) {
-                    out.add(current.toString());
-                }
-
-                current.setLength(0);
-                current.append(word);
+            if (start >= 0 && fm.stringWidth(line.substring(start, words.end())) > maxWidth) {
+                out.add(line.substring(start, end));
+                start = -1;
             }
+            if (start < 0) start = words.start();
+            end = words.end();
         }
-
-        if (!current.isEmpty()) {
-            out.add(current.toString());
-        }
+        if (start >= 0) out.add(line.substring(start, end));
     }
+
+    private static final java.util.regex.Pattern WORD = java.util.regex.Pattern.compile("\\S+");
 
     private static void breakLongWord(String word, FontMetrics fm,
                                       int maxWidth, List<String> out) {

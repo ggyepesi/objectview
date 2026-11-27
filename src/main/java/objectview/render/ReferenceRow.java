@@ -323,15 +323,17 @@ public class ReferenceRow extends TextRow {
     }
 
     private void openFullObject() {
-        if (target == null) {
-            return;
-        }
+        openFullObject(target, renderContext);
+    }
+
+    static void openFullObject(Viewable target, RenderContext context) {
+        if (target == null) return;
         new CardFrame(
                 target,
                 ViewConfig.allWithMinorFields(target.getClass())
                           .setAddListener(true)
                           .setThumb(true),
-                renderContext.detachedDetailContext());
+                context == null ? new RenderContext() : context.detachedDetailContext());
     }
 
     /** The text a reference to {@code target} shows. Shared with the plain-row form

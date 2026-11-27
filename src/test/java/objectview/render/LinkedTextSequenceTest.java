@@ -84,6 +84,19 @@ class LinkedTextSequenceTest {
         assertEquals(List.of("https://example.test/page"), row.linkedUrls());
     }
 
+    @Test void paintedLinkOffsetsKeepTheSourceParagraphWhitespace() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            String url = "https://example.test/Odin";
+            var row = new TextRow("Supporting text", FieldPath.ROOT, LinkedTextSequence.of(
+                    LinkedTextSequence.text("First paragraph ends here.\n\nLater,  "),
+                    LinkedTextSequence.link("Odin", url), LinkedTextSequence.text(" speaks.")));
+            row.setSize(500, 200);
+            var link = pointWhere(row, true);
+            assertNotNull(link, "a later paragraph still paints a clickable link");
+            assertEquals(url, row.getToolTipText(hover(row, link)));
+        });
+    }
+
     private static final class LinkedSource extends objectview.ViewableAdapter {
         @objectview.annotations.DisplayField private final String name = "Item";
         private final String note = "plain";

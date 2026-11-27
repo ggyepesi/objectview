@@ -197,7 +197,7 @@ public class TextBlock extends JComponent implements TextSelectable {
         JPopupMenu menu = new JPopupMenu();
         if (row != null) {
             var text = row.value() instanceof CharSequence value ? value : rowValueText(row);
-            TextReader.addAction(menu, this, row.fieldName(), text);
+            TextReader.addAction(menu, this, row.fieldName(), row.fieldPath(), text);
         }
 
         String selectedText = selectedText();

@@ -3,6 +3,7 @@ package objectview.viewconfig;
 import objectview.Viewable;
 
 import java.util.*;
+import java.util.function.Consumer;
 
 public class ViewConfig {
 
@@ -37,6 +38,8 @@ public class ViewConfig {
     // default (show them). The setter carries it into every nested projection so a
     // nested Card, table cell and web walk receive the same answer.
     private Boolean emptyFieldsVisible;
+    // A transient presentation choice; never changes the value or the selected paths.
+    private Boolean instanceTextLinksVisible;
     // A field selection (quiz key / finite field picker) follows only the paths the
     // user ticked. A View, search or sort config instead inherits recursive fields.
     // This belongs to the config: a renderer cannot infer the distinction from an
@@ -138,9 +141,7 @@ public class ViewConfig {
     }
 
     public void addField(String name, ViewConfig config) {
-        if (config != null && emptyFieldsVisible != null) {
-            config.emptyFieldsVisible(emptyFieldsVisible);
-        }
+        inheritViewSettings(config);
         fields.put(name, config);
     }
 
@@ -154,7 +155,7 @@ public class ViewConfig {
 
     public void rememberField(String name, ViewConfig config) {
         if (name != null && config != null) {
-            if (emptyFieldsVisible != null) config.emptyFieldsVisible(emptyFieldsVisible);
+            inheritViewSettings(config);
             rememberedFields.put(name, config);
         }
     }
@@ -246,19 +247,37 @@ public class ViewConfig {
     }
 
     public ViewConfig emptyFieldsVisible(Boolean visible) {
-        propagateEmptyFieldsVisible(visible,
+        propagateViewSetting(config -> config.emptyFieldsVisible = visible,
                 Collections.newSetFromMap(new IdentityHashMap<>()));
         return this;
     }
 
-    private void propagateEmptyFieldsVisible(Boolean visible, Set<ViewConfig> seen) {
+    public boolean showsInstanceTextLinks() {
+        return !Boolean.FALSE.equals(instanceTextLinksVisible);
+    }
+
+    public ViewConfig instanceTextLinksVisible(Boolean visible) {
+        propagateViewSetting(config -> config.instanceTextLinksVisible = visible,
+                Collections.newSetFromMap(new IdentityHashMap<>()));
+        return this;
+    }
+
+    private void inheritViewSettings(ViewConfig child) {
+        if (child == null) return;
+        if (emptyFieldsVisible != null) child.emptyFieldsVisible(emptyFieldsVisible);
+        if (instanceTextLinksVisible != null) {
+            child.instanceTextLinksVisible(instanceTextLinksVisible);
+        }
+    }
+
+    private void propagateViewSetting(Consumer<ViewConfig> setting, Set<ViewConfig> seen) {
         if (!seen.add(this)) return;
-        emptyFieldsVisible = visible;
+        setting.accept(this);
         for (ViewConfig child : fields.values()) {
-            if (child != null) child.propagateEmptyFieldsVisible(visible, seen);
+            if (child != null) child.propagateViewSetting(setting, seen);
         }
         for (ViewConfig child : rememberedFields.values()) {
-            if (child != null) child.propagateEmptyFieldsVisible(visible, seen);
+            if (child != null) child.propagateViewSetting(setting, seen);
         }
     }
 
@@ -276,6 +295,7 @@ public class ViewConfig {
         answerType = source.answerType;
         rootsFolded = source.rootsFolded;
         emptyFieldsVisible(source.emptyFieldsVisible);
+        instanceTextLinksVisible(source.instanceTextLinksVisible);
         return this;
     }
 
