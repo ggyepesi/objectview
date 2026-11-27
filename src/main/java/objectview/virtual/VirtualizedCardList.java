@@ -148,7 +148,7 @@ public final class VirtualizedCardList
                 "cardFactory"
                                                  );
 
-        discardBuiltCards();
+        rebuildCards();
     }
 
     /** Lets the owning card view replace the configuration used by its factory. */
@@ -162,11 +162,12 @@ public final class VirtualizedCardList
             java.util.function.Function<Viewable, ViewConfig> resolver) {
         if (cardConfigConsumer != null && resolver != null) {
             cardConfigConsumer.accept(resolver);
-            discardBuiltCards();
+            rebuildCards();
         }
     }
 
-    private void discardBuiltCards() {
+    /** Rebuild visible cards and their measurements without changing items or configuration. */
+    public void rebuildCards() {
         removeAll();
         built.clear();
 

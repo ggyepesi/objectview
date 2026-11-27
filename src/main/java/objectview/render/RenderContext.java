@@ -41,27 +41,47 @@ public class RenderContext {
     // A top-level card may live behind a tab. Reveal its owning container before
     // resolving/scrolling the virtualized card; otherwise navigation succeeds in an
     // invisible component and appears to do nothing.
-    private final Map<Object, Runnable> topLevelRevealers = new IdentityHashMap<>();
-    /** Registers the target's member/card presenter. The first presenter owns it. */
-    public void registerTopLevelRevealer(Object object, Runnable revealer) {
-        registerTopLevelRevealer(object, revealer, false);
+    private static final class TopLevelReveal {
+        private Runnable presenter;
+        private Runnable enclosing;
+
+        void reveal() {
+            if (enclosing != null) enclosing.run();
+            if (presenter != null) presenter.run();
+        }
+    }
+
+    private final Map<Object, TopLevelReveal> topLevelRevealers = new IdentityHashMap<>();
+
+    /** Registers the first presenter and returns the action that detaches it. */
+    public Runnable registerTopLevelRevealer(Object object, Runnable revealer) {
+        if (object == null || revealer == null) return () -> {};
+        Object key = revealKey(object);
+        TopLevelReveal route = topLevelRevealers.computeIfAbsent(key, ignored -> new TopLevelReveal());
+        if (route.presenter != null) return () -> {};
+        route.presenter = revealer;
+        return () -> {
+            if (route.presenter != revealer) return;
+            route.presenter = null;
+            if (route.enclosing == null) topLevelRevealers.remove(key, route);
+        };
     }
 
     /** An enclosing container reveals itself before the target's existing presenter. */
     public void prependTopLevelRevealer(Object object, Runnable revealer) {
-        registerTopLevelRevealer(object, revealer, true);
+        if (object == null || revealer == null) return;
+        TopLevelReveal route = topLevelRevealers.computeIfAbsent(
+                revealKey(object), ignored -> new TopLevelReveal());
+        Runnable inner = route.enclosing;
+        route.enclosing = inner == null ? revealer : () -> {
+            revealer.run();
+            inner.run();
+        };
     }
 
-    private void registerTopLevelRevealer(Object object, Runnable revealer, boolean enclosing) {
-        if (object == null || revealer == null) return;
+    private Object revealKey(Object object) {
         Object target = canonicalTopLevel(object);
-        Object key = target == null ? object : target;
-        if (enclosing) {
-            topLevelRevealers.merge(key, revealer,
-                    (inner, outer) -> () -> { outer.run(); inner.run(); });
-        } else {
-            topLevelRevealers.putIfAbsent(key, revealer);
-        }
+        return target == null ? object : target;
     }
 
     // When the view is virtualized, a top-level target may not have a live card
@@ -564,8 +584,8 @@ public class RenderContext {
         Object target = canonicalTopLevel(object);
         if (target == null) return false;
         NavMark mark = NavMark.of(origin);
-        Runnable revealer = topLevelRevealers.get(target);
-        if (revealer != null) revealer.run();
+        TopLevelReveal revealer = topLevelRevealers.get(target);
+        if (revealer != null) revealer.reveal();
         JComponent fromMap = topLevelComponents.get(target);
         JComponent component = fromMap;
 

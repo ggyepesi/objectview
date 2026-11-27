@@ -11,6 +11,7 @@ import objectview.render.GroupView;
 import objectview.render.GroupTreeView;
 import objectview.render.TextBlock;
 import objectview.view.SearchableView;
+import objectview.viewconfig.ViewConfig;
 import objectview.virtual.VirtualizedCardList;
 import org.junit.jupiter.api.Test;
 
@@ -88,7 +89,12 @@ class EmptyFieldsToggleTest {
             var outline = (GroupTreeView) group.getMainPanel();
             assertTrue(outline.setGroupDetailsExpanded(root, true));
             var members = find(group, VirtualizedCardList.class);
+            ViewConfig projection = ViewConfig.leaf();
+            projection.addField("empty", ViewConfig.leaf());
+            projection.addField("populated", ViewConfig.leaf());
+            members.setViewConfigResolver(member -> projection);
             assertNotNull(field(members.buildIfNeeded(item), "empty"));
+            assertNull(field(members.buildIfNeeded(item), "unselected"));
             assertNotNull(field(find(outline, Card.class), "children"));
 
             JCheckBox showEmpty = find(multi);
@@ -98,6 +104,8 @@ class EmptyFieldsToggleTest {
             assertNull(field(members.buildIfNeeded(item), "empty"));
             assertNull(field(find(outline, Card.class), "children"));
             assertNotNull(field(members.buildIfNeeded(item), "populated"));
+            assertNull(field(members.buildIfNeeded(item), "unselected"),
+                    "refreshing member cards must keep their field selection");
 
             showEmpty.doClick();
             assertNotNull(field(members.buildIfNeeded(item), "empty"));
@@ -182,6 +190,7 @@ class EmptyFieldsToggleTest {
         @SuppressWarnings("unused") private final List<String> values = List.of(" ");
         @SuppressWarnings("unused") private final List<String> empty = List.of();
         @SuppressWarnings("unused") private final List<String> populated = List.of("present");
+        @SuppressWarnings("unused") private final List<String> unselected = List.of("not selected");
         @Override public String getIdentifier() { return "item"; }
         @Override public String getDisplayName() { return "item"; }
     }

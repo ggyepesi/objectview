@@ -48,6 +48,7 @@ import java.util.function.Consumer;
 public class GroupTreeView extends JPanel {
     private final ViewableGroup<?> rootGroup;
     private final RenderContext renderContext;
+    private final Runnable detachEmptyFieldsListener;
     private final JTree tree;
     private final JScrollPane treeScrollPane;
     private final JSplitPane outlineAndDetails;
@@ -81,7 +82,7 @@ public class GroupTreeView extends JPanel {
                 renderContext, "renderContext");
         setLayout(new BorderLayout(4, 4));
 
-        renderContext.onEmptyFieldsChanged(visible -> {
+        detachEmptyFieldsListener = renderContext.onEmptyFieldsChanged(visible -> {
             if (detailsExpanded) {
                 detailsCard = null;
                 showDetails(selectedGroup());
@@ -334,6 +335,17 @@ public class GroupTreeView extends JPanel {
         detailsHost.add(detailsCard, BorderLayout.NORTH);
         detailsHost.revalidate();
         detailsHost.repaint();
+    }
+
+    void dispose() {
+        detachEmptyFieldsListener.run();
+        setShowGroupHandler(null);
+        setSelectionHandler(null);
+        setSelectionSetHandler(null);
+        detailsExpanded = false;
+        detailsGroup = null;
+        detailsCard = null;
+        detailsHost.removeAll();
     }
 
     public ViewableGroup<?> getRootGroup() { return rootGroup; }

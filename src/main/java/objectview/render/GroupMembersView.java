@@ -8,6 +8,7 @@ import javax.swing.JPanel;
 import javax.swing.JSplitPane;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -28,6 +29,8 @@ public final class GroupMembersView extends JPanel {
     private final JPanel members = new JPanel(new BorderLayout());
     private final Function<ViewableGroup<?>, JComponent> memberView;
     private final boolean showOnSelection;
+    private final List<Runnable> detachNavigation = new ArrayList<>();
+    private boolean disposed;
     private Consumer<ViewableGroup<?>> selectionHandler = ignored -> {};
     /** The group whose member component is installed now. This is deliberately
      * separate from tree selection when showing members requires an explicit action. */
@@ -109,8 +112,8 @@ public final class GroupMembersView extends JPanel {
                 Collections.newSetFromMap(new IdentityHashMap<>()));
         renderContext.addTopLevels(ownerByMember.keySet());
         ownerByMember.forEach((member, owner) ->
-                renderContext.registerTopLevelRevealer(
-                        member, () -> revealMemberGroup(member, owner)));
+                detachNavigation.add(renderContext.registerTopLevelRevealer(
+                        member, () -> revealMemberGroup(member, owner))));
     }
 
     /** A modeled group's own instance is presented by its outline's details card.
@@ -123,12 +126,14 @@ public final class GroupMembersView extends JPanel {
         root.getChildren().forEach(group -> addGroupEntity(group, entities));
         if (entities.isEmpty()) return;
         context.addTopLevels(entities.keySet());
-        entities.forEach((entity, group) -> context.registerTopLevelRevealer(entity,
-                () -> groups.setGroupDetailsExpanded(group, true)));
-        context.addTopLevelResolver(target -> {
+        entities.forEach((entity, group) -> detachNavigation.add(context.registerTopLevelRevealer(
+                entity, () -> groups.setGroupDetailsExpanded(group, true))));
+        Function<Object, JComponent> resolver = target -> {
             ViewableGroup<?> group = entities.get(target);
             return group == null ? null : groups.groupDetailsComponent(group);
-        });
+        };
+        context.addTopLevelResolver(resolver);
+        detachNavigation.add(() -> context.removeTopLevelResolver(resolver));
     }
 
     private static void addGroupEntity(ViewableGroup<?> group,
@@ -176,7 +181,7 @@ public final class GroupMembersView extends JPanel {
     }
 
     public void showGroup(ViewableGroup<?> group) {
-        if (group == null) return;
+        if (disposed || group == null) return;
         JComponent content = memberView.apply(group);
         shownGroup = group;
         members.removeAll();
@@ -186,6 +191,18 @@ public final class GroupMembersView extends JPanel {
     }
 
     public boolean selectGroup(ViewableGroup<?> group, boolean show) {
-        return groups.selectGroup(group, show);
+        return !disposed && groups.selectGroup(group, show);
+    }
+
+    /** Detach this outline from its render context. The host owns disposal of member content. */
+    public void dispose() {
+        if (disposed) return;
+        disposed = true;
+        detachNavigation.forEach(Runnable::run);
+        detachNavigation.clear();
+        setSelectionHandler(null);
+        groups.dispose();
+        shownGroup = null;
+        members.removeAll();
     }
 }

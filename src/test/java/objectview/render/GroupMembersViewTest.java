@@ -1,5 +1,6 @@
 package objectview.render;
 
+import objectview.EdtTests;
 import objectview.ViewableAdapter;
 import objectview.group.DefaultViewableGroup;
 import objectview.group.GroupNode;
@@ -17,6 +18,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class GroupMembersViewTest {
     @Test void oneComponentOwnsTreeSelectionAndMemberReplacement() {
@@ -132,6 +134,38 @@ class GroupMembersViewTest {
                 "navigation selects a concrete group that contains the target");
         assertEquals(second, shown.get(),
                 "the target group's member panel exists before card resolution");
+    }
+
+    @Test void disposingAnOutlineDetachesItFromSharedNavigation() {
+        EdtTests.onEdt(() -> {
+            Group root = new Group("All");
+            Group child = root.getOrCreateChild("Child");
+            Item member = new Item("Q1");
+            child.addMember(member, true);
+            RenderContext context = new RenderContext();
+            var oldShows = new java.util.concurrent.atomic.AtomicInteger();
+            var outerShows = new java.util.concurrent.atomic.AtomicInteger();
+            GroupMembersView old = new GroupMembersView(root, group -> {
+                oldShows.incrementAndGet();
+                return new JLabel(group.getDisplayName());
+            }, JSplitPane.HORIZONTAL_SPLIT, false, 0.3, true, context);
+            context.prependTopLevelRevealer(member, outerShows::incrementAndGet);
+            context.focusTopLevel(member);
+            assertEquals(1, oldShows.get());
+
+            old.dispose();
+            assertFalse(old.selectGroup(child, true));
+            var shown = new AtomicReference<objectview.group.ViewableGroup<?>>();
+            GroupMembersView replacement = new GroupMembersView(root, group -> {
+                shown.set(group);
+                return new JLabel(group.getDisplayName());
+            }, JSplitPane.HORIZONTAL_SPLIT, false, 0.3, true, context);
+            context.focusTopLevel(member);
+            assertEquals(child, shown.get(), "the replacement outline owns the member");
+            assertEquals(1, oldShows.get());
+            assertEquals(2, outerShows.get(), "disposing the inner presenter keeps its enclosing tab");
+            replacement.dispose();
+        });
     }
 
     @Test void aReferenceToAMemberAlreadyShownKeepsTheCurrentGroup() {
