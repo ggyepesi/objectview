@@ -162,7 +162,10 @@ public class MultiView extends JPanel {
                 configState, configListener);
     }
 
-    private void addSection(
+    /** Adds a card section whose stable visibility key differs from its title, with the
+     *  per-section schema inputs ({@code sample}, {@code hiddenFields}, {@code fieldTypes})
+     *  that keep a DynamicFields section typed by its model class. */
+    public void addSection(
             String key,
             String title,
             Class<? extends Viewable> type,
