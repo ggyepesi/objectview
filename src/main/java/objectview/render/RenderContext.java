@@ -230,6 +230,23 @@ public class RenderContext {
     private final Map<Object, Boolean> referenceExpanded =
             new IdentityHashMap<>();
 
+    private Boolean defaultEmptyFieldsVisible;
+    private final List<java.util.function.Consumer<Boolean>> emptyFieldViews = new ArrayList<>();
+
+    /** The last shared choice, also used by views created after the click. */
+    public Boolean defaultEmptyFieldsVisible() { return defaultEmptyFieldsVisible; }
+
+    /** Applies the choice to every view in this host, including currently hidden ones. */
+    public void showEmptyFields(boolean visible) {
+        defaultEmptyFieldsVisible = visible;
+        List.copyOf(emptyFieldViews).forEach(view -> view.accept(visible));
+    }
+
+    public Runnable onEmptyFieldsChanged(java.util.function.Consumer<Boolean> view) {
+        emptyFieldViews.add(view);
+        return () -> emptyFieldViews.remove(view);
+    }
+
     private final java.util.Deque<NavMark> backStack = new java.util.ArrayDeque<>();
     private final Action backAction = new AbstractAction("← Back") {
         @Override public void actionPerformed(java.awt.event.ActionEvent event) { back(); }

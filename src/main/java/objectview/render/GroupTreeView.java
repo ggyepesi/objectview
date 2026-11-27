@@ -81,6 +81,13 @@ public class GroupTreeView extends JPanel {
                 renderContext, "renderContext");
         setLayout(new BorderLayout(4, 4));
 
+        renderContext.onEmptyFieldsChanged(visible -> {
+            if (detailsExpanded) {
+                detailsCard = null;
+                showDetails(selectedGroup());
+            }
+        });
+
         tree = new JTree(buildNode(rootGroup));
         tree.setRootVisible(true);
         tree.setShowsRootHandles(true);

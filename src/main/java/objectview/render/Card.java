@@ -610,8 +610,11 @@ public class Card extends JPanel implements RenderedInstanceHost {
         TypeShape shape = viewable == null ? null
                 : context == null ? TypeShape.of(viewable, null, null)
                 : context.shape(viewable);
-        return config == null
-                ? ViewDefaults.newView(shape) : ViewConfigDesugar.preparedView(config, shape);
+        ViewConfig literal = config == null ? ViewDefaults.newView(shape)
+                : ViewConfigDesugar.preparedView(config, shape);
+        Boolean shared = context == null ? null : context.defaultEmptyFieldsVisible();
+        return shared != null && literal.emptyFieldsVisible() == null
+                ? literal.copy().emptyFieldsVisible(shared) : literal;
     }
 
     // This occurrence's decisions come from the render context's one executor.

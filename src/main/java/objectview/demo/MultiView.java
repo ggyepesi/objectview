@@ -303,7 +303,7 @@ public class MultiView extends JPanel {
             }
         }
         header.add(controls);
-        searchBar = new MultiSearchBar(engines);
+        searchBar = new MultiSearchBar(engines, context);
         header.add(searchBar);
         root.add(header, BorderLayout.NORTH);
         root.add(center, BorderLayout.CENTER);
@@ -346,7 +346,7 @@ public class MultiView extends JPanel {
         context.deselect(hiddenObjects);
         context.setSelectionOrder(visibleObjects);
         searchBar.showEngines(visibleEngines);
-        searchBar.setVisible(!visibleEngines.isEmpty());
+        searchBar.setVisible(!next.isEmpty());
         if (visibilityControl != null) {
             visibilityControl.selectWithoutNotification(next);
         }

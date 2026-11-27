@@ -84,6 +84,7 @@ public class SearchPanel extends JPanel
     // Returns to the spot before the last "jump to its card" navigation.
     private final JButton backButton = new JButton("← Back");
     private RenderContext renderContext;
+    private Runnable removeEmptyFieldsListener = () -> { };
     private Runnable onHitNavigation = () -> { };
     // The captions-only choice the cards were last rendered with (#407).
     private Boolean appliedRootsFolded;
@@ -247,6 +248,7 @@ public class SearchPanel extends JPanel
     /** Wires the Back button to the view's navigation context, so jumping to a
      *  referenced card (a top-level reference link) can be undone. */
     public void setRenderContext(RenderContext context) {
+        detachEmptyFieldsListener();
         this.renderContext = context;
         searchAndSort.setFieldSchemaResolver(
                 context == null ? null : context::fieldSchema);
@@ -272,8 +274,23 @@ public class SearchPanel extends JPanel
         // The View editor offers "captions only" (#407): the stored choice, else the
         // view's own start state. It takes effect with the config, in applyViewConfig.
         viewEditor.offerRootsFolded(context.rootsStartFolded());
+        if (context.defaultEmptyFieldsVisible() != null) {
+            viewEditor.emptyFieldsVisibleChoice(context.defaultEmptyFieldsVisible());
+        }
+        removeEmptyFieldsListener = context.onEmptyFieldsChanged(this::showEmptyFields);
         appliedRootsFolded = viewEditor.rootsFoldedChoice();
         context.makeRootsFoldable();
+    }
+
+    public void showEmptyFields(boolean visible) {
+        viewEditor.emptyFieldsVisibleChoice(visible);
+        applyView();
+    }
+
+    /** Detach the host-wide setting when the owning browser is discarded. */
+    public void detachEmptyFieldsListener() {
+        removeEmptyFieldsListener.run();
+        removeEmptyFieldsListener = () -> { };
     }
 
     public void setTargetAndApplyViewConfig(

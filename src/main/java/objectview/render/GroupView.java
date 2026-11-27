@@ -55,6 +55,13 @@ public class GroupView extends JPanel {
         this.fieldTypes = fieldTypes;
         if (fieldSchemas != null) renderContext.setFieldSchemaResolver(fieldSchemas);
         if (typeSchemas != null) renderContext.setTypeSchemaResolver(typeSchemas);
+        renderContext.onEmptyFieldsChanged(visible -> {
+            if (activeMemberView != null) {
+                // Rebuild with the shared default; the same card executor decides
+                // which fields are empty in a member card and in ordinary cards.
+                activeMemberView.getVirtualList().setViewConfigResolver(member -> null);
+            }
+        });
         groupMembersView = new GroupMembersView(
                 rootGroup, group -> memberView(group, renderContext),
                 JSplitPane.HORIZONTAL_SPLIT, false, 0.3, false, renderContext);

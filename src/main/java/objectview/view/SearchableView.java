@@ -167,6 +167,7 @@ public final class SearchableView extends JPanel {
     /** Detach registrations owned by this view before discarding it. */
     public void dispose() {
         removeActivationRegistration.run();
+        if (search != null) search.detachEmptyFieldsListener();
         if (cardList != null) cardList.dispose();
     }
 

@@ -1,6 +1,7 @@
 package objectview.search;
 
 import objectview.demo.MultiView;
+import objectview.render.RenderContext;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -36,9 +37,16 @@ public class MultiSearchBar extends JPanel {
     private final javax.swing.Timer debounce;
     private final JTabbedPane hitNavigationTabs = new JTabbedPane();
     private boolean synchronizingAllTabControls;
+    private final RenderContext viewContext;
+    private final JPanel searchToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
 
     public MultiSearchBar(List<SearchPanel> engines) {
+        this(engines, null);
+    }
+
+    public MultiSearchBar(List<SearchPanel> engines, RenderContext viewContext) {
         super(new BorderLayout(0, 4));
+        this.viewContext = viewContext;
 
         field.setBorder(BorderFactory.createTitledBorder("Search"));
         debounce = new javax.swing.Timer(150, e -> runSearch());
@@ -69,7 +77,6 @@ public class MultiSearchBar extends JPanel {
                                                   SearchPanel::viewEditor, SearchPanel::applyView,
                                                   false));
 
-        JPanel searchToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         searchToolbar.add(field);
         searchToolbar.add(fieldHighlight);
         searchToolbar.add(searchCfg);
@@ -79,10 +86,14 @@ public class MultiSearchBar extends JPanel {
         sortAllTabs.setToolTipText(
                 "Sort every visible tab by that tab's own Sort configuration.");
         sortAllTabs.addActionListener(ignored -> sortAllTabs());
-        showEmptyInAllTabs.addActionListener(ignored ->
-                applyViewChoiceToAllTabs(false, showEmptyInAllTabs.isSelected()));
+        showEmptyInAllTabs.addActionListener(ignored -> {
+            if (synchronizingAllTabControls) return;
+            boolean visible = showEmptyInAllTabs.isSelected();
+            if (viewContext == null) engines.forEach(engine -> engine.showEmptyFields(visible));
+            else viewContext.showEmptyFields(visible);
+        });
         captionsOnlyInAllTabs.addActionListener(ignored ->
-                applyViewChoiceToAllTabs(true, captionsOnlyInAllTabs.isSelected()));
+                applyCaptionsChoice(captionsOnlyInAllTabs.isSelected()));
         JPanel allTabsToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         allTabsToolbar.setBorder(BorderFactory.createTitledBorder("All tabs"));
         allTabsToolbar.add(sortAllTabs);
@@ -114,6 +125,7 @@ public class MultiSearchBar extends JPanel {
         }
         engines.clear();
         engines.addAll(next);
+        searchToolbar.setVisible(!engines.isEmpty());
         synchronizeAllTabControls();
         hitNavigationTabs.removeAll();
         for (SearchPanel engine : engines) {
@@ -132,8 +144,11 @@ public class MultiSearchBar extends JPanel {
         try {
             sortAllTabs.setEnabled(!engines.isEmpty());
             SearchPanel first = engines.isEmpty() ? null : engines.get(0);
-            Boolean showEmpty = first == null ? null
-                    : first.viewEditor().emptyFieldsVisibleChoice();
+            Boolean showEmpty = viewContext == null ? null : viewContext.defaultEmptyFieldsVisible();
+            if (showEmpty == null && first != null) {
+                showEmpty = first.viewEditor().emptyFieldsVisibleChoice();
+            }
+            if (showEmpty == null && viewContext != null) showEmpty = true;
             Boolean captionsOnly = first == null ? null
                     : first.viewEditor().rootsFoldedChoice();
             showEmptyInAllTabs.setEnabled(showEmpty != null);
@@ -145,11 +160,10 @@ public class MultiSearchBar extends JPanel {
         }
     }
 
-    private void applyViewChoiceToAllTabs(boolean captionsOnly, boolean selected) {
+    private void applyCaptionsChoice(boolean selected) {
         if (synchronizingAllTabControls) return;
         for (SearchPanel engine : engines) {
-            if (captionsOnly) engine.viewEditor().rootsFoldedChoice(selected);
-            else engine.viewEditor().emptyFieldsVisibleChoice(selected);
+            engine.viewEditor().rootsFoldedChoice(selected);
             engine.applyView();
         }
     }
