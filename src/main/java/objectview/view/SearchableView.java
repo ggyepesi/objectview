@@ -92,6 +92,7 @@ public final class SearchableView extends JPanel {
 
         search = new SearchPanel(type, b.sample, b.configState, b.subtypeConfigs, b.fieldTypes,
                 context);
+        search.sectionName(b.sectionName);
         // Rendering, table cells, search and sort all read through this one context's
         // schema resolver, including when TABLE is the initial mode.
         search.setRenderContext(context);
@@ -347,6 +348,7 @@ public final class SearchableView extends JPanel {
         private final List<Viewable> members = new ArrayList<>();
         private RenderingMode mode = RenderingMode.CARD;
         private Class<? extends Viewable> type;
+        private String sectionName;
         private Viewable sample;
         private Set<String> hiddenFields = Set.of();
         private FieldTypeSource fieldTypes;
@@ -376,6 +378,8 @@ public final class SearchableView extends JPanel {
             mode = value == null ? RenderingMode.CARD : value; return this;
         }
         public Builder type(Class<? extends Viewable> value) { type = value; return this; }
+        /** The owning section's logical name for search and configuration labels. */
+        public Builder sectionName(String value) { sectionName = value; return this; }
         public Builder sample(Viewable value) { sample = value; return this; }
         public Builder hiddenFields(Set<String> value) {
             hiddenFields = value == null ? Set.of() : value; return this;

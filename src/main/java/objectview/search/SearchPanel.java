@@ -1181,8 +1181,17 @@ public class SearchPanel extends JPanel
         if (getParent() != null) getParent().revalidate();
     }
 
+    /** The owning section's logical name, or {@code null} to infer a name. */
+    private String sectionName;
+
+    /** Sets the logical name used in hit navigation and configuration tabs. */
+    public void sectionName(String name) {
+        sectionName = name == null || name.isBlank() ? null : name;
+    }
+
     /** The class this section searches (for the shared config's per-class tab). */
     public String sectionTypeName() {
+        if (sectionName != null) return sectionName;
         // A dynamic object is a carrier, not the reader's class. Its semantic type
         // names the section (GraphConstraint, PositionReplacementExpansion, ...),
         // just as it names cards and references everywhere else in ObjectView.

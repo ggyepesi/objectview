@@ -299,6 +299,7 @@ public class MultiView extends JPanel {
         }
         SearchableView view = SearchableView.builder(s.objects())
                 .type(s.type())
+                .sectionName(s.key())
                 .sample(s.sample())
                 .hiddenFields(s.hiddenFields())
                 .fieldTypes(s.fieldTypes())
