@@ -1733,7 +1733,7 @@ public class Card extends JPanel implements RenderedInstanceHost {
 
                 e.consume();
 
-                if (!renderContext.focusTopLevel(q)) {
+                if (!renderContext.focusTopLevel(q, c)) {
                     openInFrame(q);
                 }
             }

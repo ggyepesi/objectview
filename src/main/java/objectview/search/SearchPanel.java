@@ -84,6 +84,7 @@ public class SearchPanel extends JPanel
     // Returns to the spot before the last "jump to its card" navigation.
     private final JButton backButton = new JButton("← Back");
     private RenderContext renderContext;
+    private Runnable onHitNavigation = () -> { };
     // The captions-only choice the cards were last rendered with (#407).
     private Boolean appliedRootsFolded;
 
@@ -262,11 +263,12 @@ public class SearchPanel extends JPanel
         }
         invalidateSearchIndex();
         if (context == null) {
+            backButton.setAction(null);
+            backButton.setText("← Back");
             backButton.setEnabled(false);
             return;
         }
-        context.setNavChangeListener(() -> backButton.setEnabled(context.canGoBack()));
-        backButton.setEnabled(context.canGoBack());
+        backButton.setAction(context.backAction());
         // The View editor offers "captions only" (#407): the stored choice, else the
         // view's own start state. It takes effect with the config, in applyViewConfig.
         viewEditor.offerRootsFolded(context.rootsStartFolded());
@@ -639,12 +641,6 @@ public class SearchPanel extends JPanel
         JButton searchConfigButton = new JButton("Search Config...");
 
         backButton.setEnabled(false);
-        backButton.setToolTipText("Back to where you jumped from");
-        backButton.addActionListener(e -> {
-            if (renderContext != null) {
-                renderContext.back();
-            }
-        });
 
         JPanel top =
                 new SearchToolBar(
@@ -2475,11 +2471,17 @@ public class SearchPanel extends JPanel
         resultsPanel.add(row);
     }
 
+    /** Reveals this engine's owner only when the reader explicitly navigates a hit. */
+    public void onHitNavigation(Runnable reveal) {
+        onHitNavigation = reveal;
+    }
+
     private void navigate(HitGroup g, int delta) {
         if (g.hits.isEmpty()) {
             return;
         }
 
+        onHitNavigation.run();
         g.index =
                 Math.floorMod(g.index + delta, g.hits.size());
 
@@ -2645,6 +2647,7 @@ public class SearchPanel extends JPanel
         }
         // One step is one MATCH, not one card: stepping inside a card walks its own
         // matches before moving on, so 26 values in one collection are 26 stops.
+        onHitNavigation.run();
         g.step(delta);
         g.updateLabel();
         navigateToCurrentVirtual(g);

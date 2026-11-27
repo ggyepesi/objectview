@@ -18,6 +18,8 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.ArrayList;
+import java.util.List;
 
 public class RenderContext {
 
@@ -40,11 +42,25 @@ public class RenderContext {
     // resolving/scrolling the virtualized card; otherwise navigation succeeds in an
     // invisible component and appears to do nothing.
     private final Map<Object, Runnable> topLevelRevealers = new IdentityHashMap<>();
-
+    /** Registers the target's member/card presenter. The first presenter owns it. */
     public void registerTopLevelRevealer(Object object, Runnable revealer) {
-        if (object != null && revealer != null) {
-            Object target = canonicalTopLevel(object);
-            topLevelRevealers.putIfAbsent(target == null ? object : target, revealer);
+        registerTopLevelRevealer(object, revealer, false);
+    }
+
+    /** An enclosing container reveals itself before the target's existing presenter. */
+    public void prependTopLevelRevealer(Object object, Runnable revealer) {
+        registerTopLevelRevealer(object, revealer, true);
+    }
+
+    private void registerTopLevelRevealer(Object object, Runnable revealer, boolean enclosing) {
+        if (object == null || revealer == null) return;
+        Object target = canonicalTopLevel(object);
+        Object key = target == null ? object : target;
+        if (enclosing) {
+            topLevelRevealers.merge(key, revealer,
+                    (inner, outer) -> () -> { outer.run(); inner.run(); });
+        } else {
+            topLevelRevealers.putIfAbsent(key, revealer);
         }
     }
 
@@ -214,34 +230,84 @@ public class RenderContext {
     private final Map<Object, Boolean> referenceExpanded =
             new IdentityHashMap<>();
 
-    // Back-stack of viewport positions: each focusTopLevel() jump records where
-    // the view was before scrolling, so the user can return (see back()).
     private final java.util.Deque<NavMark> backStack = new java.util.ArrayDeque<>();
-    private Runnable navChangeListener = () -> {};
+    private final Action backAction = new AbstractAction("← Back") {
+        @Override public void actionPerformed(java.awt.event.ActionEvent event) { back(); }
+    };
 
-    private record NavMark(JViewport viewport, Point position) {}
+    private record TabLocation(JTabbedPane tabs, Component page) { }
 
-    public boolean canGoBack() {
-        return !backStack.isEmpty();
+    private record NavMark(Component origin, JViewport viewport, Point position,
+                           List<TabLocation> tabs) {
+        private static NavMark of(Component origin) {
+            if (origin == null) return null;
+            JViewport viewport = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, origin);
+            return new NavMark(origin, viewport, viewport == null ? null : viewport.getViewPosition(),
+                    enclosingTabs(origin));
+        }
+
+        private static List<TabLocation> enclosingTabs(Component component) {
+            List<TabLocation> tabs = new ArrayList<>();
+            for (Component child = component; child.getParent() != null; child = child.getParent()) {
+                if (child.getParent() instanceof JTabbedPane pane && pane.indexOfComponent(child) >= 0) {
+                    tabs.add(new TabLocation(pane, child));
+                }
+            }
+            Collections.reverse(tabs);
+            return tabs;
+        }
+
+        // Revealing a previously hidden class can regroup the tabs. The source
+        // viewport travels with its section, so use its current enclosing tabs.
+        private List<TabLocation> returnTabs() {
+            List<TabLocation> current = enclosingTabs(viewport == null ? origin : viewport);
+            return current.isEmpty() ? tabs.stream()
+                    .filter(tab -> tab.tabs().indexOfComponent(tab.page()) >= 0).toList() : current;
+        }
+
+        private boolean restore() {
+            if (viewport != null && viewport.getView() == null) return false;
+            List<TabLocation> location = returnTabs();
+            if (viewport == null && location.isEmpty() && !origin.isShowing()) return false;
+            for (TabLocation tab : location) tab.tabs().setSelectedComponent(tab.page());
+            if (viewport != null) viewport.setViewPosition(position);
+            if (origin.isShowing()) origin.requestFocusInWindow();
+            return true;
+        }
+
+        private String caption() {
+            for (TabLocation tab : returnTabs()) {
+                if (tab.tabs().getSelectedComponent() == tab.page()) continue;
+                int index = tab.tabs().indexOfComponent(tab.page());
+                if (index >= 0) return "← Back to " + tab.tabs().getTitleAt(index);
+            }
+            return "← Back";
+        }
     }
 
-    /** Notified (on the EDT) whenever the back-stack changes, so a Back button
-     *  can update its enabled state. */
-    public void setNavChangeListener(Runnable listener) {
-        this.navChangeListener = listener == null ? () -> {} : listener;
+    /** The same action is presented by an ordinary search panel or its coordinated host. */
+    public Action backAction() { return backAction; }
+
+    public void clearBack() {
+        backStack.clear();
+        updateBack();
     }
 
-    /** Scrolls back to the position before the last {@link #focusTopLevel} jump. */
+    private void updateBack() {
+        NavMark mark = backStack.peek();
+        backAction.putValue(Action.NAME, mark == null ? "← Back" : mark.caption());
+        backAction.setEnabled(mark != null);
+    }
+
+    /** Restores the tab and scroll position before the last reference jump. */
     public boolean back() {
         while (!backStack.isEmpty()) {
-            NavMark mark = backStack.pop();
-            if (mark.viewport().isShowing()) {
-                mark.viewport().setViewPosition(mark.position());
-                navChangeListener.run();
+            if (backStack.pop().restore()) {
+                updateBack();
                 return true;
             }
         }
-        navChangeListener.run();
+        updateBack();
         return false;
     }
 
@@ -368,6 +434,7 @@ public class RenderContext {
     }
 
     public RenderContext() {
+        updateBack();
     }
 
     public boolean inPlaceNavigation() {
@@ -412,6 +479,7 @@ public class RenderContext {
     }
 
     public RenderContext(Collection<? extends Viewable> viewables) {
+        this();
         addTopLevels(viewables);
     }
 
@@ -429,25 +497,14 @@ public class RenderContext {
         }
     }
 
-    /**
-     * Replaces the objects that currently have their own cards in this coordinated
-     * view. This is presentation state: hiding a section changes whether references
-     * navigate to a top-level card, but it neither removes nor changes the objects.
-     *
-     * <p>Card components belong to the previous top-level projection, so they cannot
-     * survive the replacement. Revealers and virtual-list resolvers belong to the
-     * stable section hosts and remain attached; {@link #focusTopLevel(Object)} uses
-     * them only while their object is in this projection. Render plans are discarded
-     * because top-level status is one of their inputs.</p>
-     */
+    /** Replaces the loaded targets, not merely the subset currently on screen. */
     public void setTopLevels(Collection<? extends Viewable> viewables) {
         topLevel.clear();
         topLevelByIdentity.clear();
         topLevelComponents.clear();
-        backStack.clear();
+        clearBack();
         addTopLevels(viewables);
         executor = null;
-        navChangeListener.run();
     }
 
     public boolean isTopLevel(Object object) {
@@ -482,8 +539,14 @@ public class RenderContext {
     private static final boolean NAV_DEBUG = Boolean.getBoolean("quiz.nav.debug");
 
     public boolean focusTopLevel(Object object) {
+        return focusTopLevel(object, null);
+    }
+
+    /** The link component identifies where the reader can return after navigation. */
+    public boolean focusTopLevel(Object object, Component origin) {
         Object target = canonicalTopLevel(object);
         if (target == null) return false;
+        NavMark mark = NavMark.of(origin);
         Runnable revealer = topLevelRevealers.get(target);
         if (revealer != null) revealer.run();
         JComponent fromMap = topLevelComponents.get(target);
@@ -520,9 +583,9 @@ public class RenderContext {
         // Remember where we were so the user can come back to this spot.
         JViewport viewport = (JViewport)
                 SwingUtilities.getAncestorOfClass(JViewport.class, component);
-        if (viewport != null) {
-            backStack.push(new NavMark(viewport, viewport.getViewPosition()));
-            navChangeListener.run();
+        if (mark != null) {
+            backStack.push(mark);
+            updateBack();
         }
 
         Container parent = component.getParent();

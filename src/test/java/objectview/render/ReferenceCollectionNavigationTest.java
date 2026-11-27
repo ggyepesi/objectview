@@ -7,10 +7,12 @@ import objectview.field.LinkedTextSequence;
 import objectview.viewconfig.ViewConfig;
 import org.junit.jupiter.api.Test;
 
+import java.awt.Component;
 import java.awt.Point;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 /** A collection reference has independent navigation and disclosure hit targets. */
 class ReferenceCollectionNavigationTest {
@@ -30,6 +32,7 @@ class ReferenceCollectionNavigationTest {
         Point caption = firstValuePoint(row);
         row.valueClickedAt(caption);
         assertEquals(1, context.focuses);
+        assertSame(row, context.origin);
 
         row.valueClickedAt(new Point(1, caption.y));
         assertFalse(context.isExpanded(moon, true),
@@ -105,9 +108,11 @@ class ReferenceCollectionNavigationTest {
 
     private static final class RecordingContext extends RenderContext {
         private int focuses;
+        private Component origin;
 
-        @Override public boolean focusTopLevel(Object object) {
+        @Override public boolean focusTopLevel(Object object, Component source) {
             focuses++;
+            origin = source;
             return true;
         }
     }

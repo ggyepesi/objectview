@@ -12,10 +12,15 @@ import javax.swing.*;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.IntConsumer;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * Hosts several {@link objectview.render.CardListView}s side by side that share one
@@ -33,9 +38,12 @@ import java.util.function.Consumer;
  *
  * All objects across all sections are pre-registered before any card is
  * built, which is what makes a reference resolve to a chip rather than an
- * embedded card.
+ * embedded card. Larger sets of sections are paged without changing this
+ * registry or replacing the existing section components.
  */
 public class MultiView extends JPanel {
+
+    public static final int DEFAULT_SECTIONS_PER_TAB = 4;
 
     private final RenderContext context = new RenderContext();
     private final List<Section> sections = new ArrayList<>();
@@ -43,12 +51,17 @@ public class MultiView extends JPanel {
     private final List<JComponent> sectionBodies = new ArrayList<>();
     private final List<SearchPanel> sectionEngines = new ArrayList<>();
     private final JPanel center = new JPanel(new BorderLayout());
+    private final JTabbedPane tabs = new JTabbedPane(JTabbedPane.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
+    private final SectionPages pages = new SectionPages();
     private Set<String> requestedVisibleSections;
     private Set<String> visibleSections = Set.of();
     private Consumer<Set<String>> visibilityListener = ignored -> { };
     private String sectionNoun = "Sections";
     private SectionVisibilityControl visibilityControl;
     private MultiSearchBar searchBar;
+    private int sectionsPerTab = Integer.MAX_VALUE;
+    private JSpinner tabSize;
+    private IntConsumer tabSizeListener = ignored -> { };
     private boolean built;
 
     public MultiView() {
@@ -87,6 +100,22 @@ public class MultiView extends JPanel {
         visibilityListener = listener == null ? ignored -> { } : listener;
     }
 
+    /** Opts the owner into paging. Unconfigured views remain side by side. */
+    public void sectionsPerTab(int count) {
+        if (count < 1) throw new IllegalArgumentException("At least one section per tab");
+        if (built && sectionsPerTab == Integer.MAX_VALUE) {
+            throw new IllegalStateException("Enable section tabs before build()");
+        }
+        if (sectionsPerTab == count) return;
+        sectionsPerTab = count;
+        if (tabSize != null) tabSize.setValue(count);
+        if (built) pages.rebuild();
+    }
+
+    public void onSectionsPerTabChanged(IntConsumer listener) {
+        tabSizeListener = listener == null ? ignored -> { } : listener;
+    }
+
     public void addSection(
             String title,
             Class<? extends Viewable> type,
@@ -121,12 +150,30 @@ public class MultiView extends JPanel {
             String title,
             JComponent body,
             List<? extends Viewable> topLevelObjects) {
+        java.util.Objects.requireNonNull(body, "section body");
+        addCustomSection(key, title, () -> body, topLevelObjects, 1, false);
+    }
+
+    /** Gives a composite section room for two ordinary columns on its page. */
+    public void addWideSection(String key, String title, Supplier<? extends JComponent> body,
+                               List<? extends Viewable> topLevelObjects) {
+        addCustomSection(key, title, body, topLevelObjects, 2, false);
+    }
+
+    /** Adds a section with its own nested views, built after all top levels are known. */
+    public void addDedicatedTab(String key, String title, Supplier<? extends JComponent> body,
+                                List<? extends Viewable> topLevelObjects) {
+        addCustomSection(key, title, body, topLevelObjects, 1, true);
+    }
+
+    private void addCustomSection(String key, String title, Supplier<? extends JComponent> body,
+                                  List<? extends Viewable> topLevelObjects, int columns, boolean dedicatedTab) {
         if (built) throw new IllegalStateException("addSection() after build()");
         sections.add(new Section(key, title, null,
                 topLevelObjects == null ? new ArrayList<>()
                         : new ArrayList<>(topLevelObjects),
                 null, null, null, null, null,
-                java.util.Objects.requireNonNull(body, "section body")));
+                java.util.Objects.requireNonNull(body, "section body"), columns, dedicatedTab));
     }
 
     /** As {@link #addSection(String, Class, List)}, but with the per-section
@@ -188,7 +235,7 @@ public class MultiView extends JPanel {
                 fieldTypes,
                 configState,
                 configListener,
-                null));
+                null, 1, false));
     }
 
     public void build(int columnsPerView) {
@@ -198,20 +245,34 @@ public class MultiView extends JPanel {
         built = true;
 
         Set<String> initial = initialVisibleSections();
-        for (Section section : sections) {
-            if (initial.contains(section.key())) context.addTopLevels(section.objects());
-        }
+        // Visibility controls layout and search, not whether a loaded reference can
+        // navigate. All class sections supply targets before cards are rendered.
+        sections.forEach(section -> context.addTopLevels(section.objects()));
         List<SearchPanel> engines = new ArrayList<>();
         for (Section s : sections) {
             JComponent body = buildSection(s, columnsPerView, engines);
             sectionBodies.add(body);
             SearchableView view = sectionViews.get(sectionViews.size() - 1);
-            sectionEngines.add(view == null ? null : view.search());
+            SearchPanel engine = view == null ? null : view.search();
+            int index = sectionEngines.size();
+            if (engine != null) engine.onHitNavigation(() -> pages.show(pages.bySection.get(index)));
+            sectionEngines.add(engine);
         }
 
+        for (int index = 0; index < sections.size(); index++) {
+            for (Viewable target : sections.get(index).objects()) {
+                pages.registerRevealer(target, index);
+            }
+        }
         JPanel root = new JPanel(new BorderLayout(0, 4));
         JPanel header = new JPanel();
         header.setLayout(new BoxLayout(header, BoxLayout.Y_AXIS));
+        JPanel controls = new JPanel(new BorderLayout());
+        JButton back = new JButton(context.backAction());
+        back.setName("objectview.navigation.back");
+        JPanel backSlot = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        backSlot.add(back);
+        controls.add(backSlot, BorderLayout.EAST);
         if (sections.size() > 1) {
             visibilityControl = new SectionVisibilityControl(sectionNoun,
                     sections.stream().map(section -> new SectionVisibilityControl.Option(
@@ -219,8 +280,29 @@ public class MultiView extends JPanel {
                                     + section.objects().size() + ")")).toList(),
                     initial,
                     selected -> applyVisibleSections(selected, true));
-            header.add(visibilityControl);
+            controls.add(visibilityControl, BorderLayout.WEST);
+            if (sectionsPerTab != Integer.MAX_VALUE) {
+                JPanel sizeControl = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+                tabSize = new JSpinner(new SpinnerNumberModel(sectionsPerTab, 1, null, 1));
+                boolean hasWideSections = sections.stream().anyMatch(section -> section.columns() > 1);
+                JLabel label = new JLabel(hasWideSections ? "Panel slots per tab:" : sectionNoun + " per tab:");
+                label.setLabelFor(tabSize);
+                if (hasWideSections) {
+                    label.setToolTipText("A wide section uses two panel slots.");
+                    tabSize.setToolTipText(label.getToolTipText());
+                }
+                tabSize.addChangeListener(ignored -> {
+                    int count = (Integer) tabSize.getValue();
+                    if (count == sectionsPerTab) return;
+                    sectionsPerTab(count);
+                    tabSizeListener.accept(count);
+                });
+                sizeControl.add(label);
+                sizeControl.add(tabSize);
+                controls.add(sizeControl, BorderLayout.CENTER);
+            }
         }
+        header.add(controls);
         searchBar = new MultiSearchBar(engines);
         header.add(searchBar);
         root.add(header, BorderLayout.NORTH);
@@ -249,13 +331,11 @@ public class MultiView extends JPanel {
 
         List<Viewable> visibleObjects = new ArrayList<>();
         List<Viewable> hiddenObjects = new ArrayList<>();
-        List<JComponent> visibleBodies = new ArrayList<>();
         List<SearchPanel> visibleEngines = new ArrayList<>();
         for (int index = 0; index < sections.size(); index++) {
             Section section = sections.get(index);
             if (next.contains(section.key())) {
                 visibleObjects.addAll(section.objects());
-                visibleBodies.add(sectionBodies.get(index));
                 SearchPanel engine = sectionEngines.get(index);
                 if (engine != null) visibleEngines.add(engine);
             } else {
@@ -264,24 +344,14 @@ public class MultiView extends JPanel {
         }
 
         context.deselect(hiddenObjects);
-        context.setTopLevels(visibleObjects);
         context.setSelectionOrder(visibleObjects);
-        for (int index = 0; index < sections.size(); index++) {
-            SearchableView view = sectionViews.get(index);
-            if (view != null && next.contains(sections.get(index).key())) {
-                view.refreshViewables(sections.get(index).objects());
-            }
-        }
         searchBar.showEngines(visibleEngines);
         searchBar.setVisible(!visibleEngines.isEmpty());
         if (visibilityControl != null) {
             visibilityControl.selectWithoutNotification(next);
         }
 
-        center.removeAll();
-        center.add(layout(visibleBodies), BorderLayout.CENTER);
-        center.revalidate();
-        center.repaint();
+        pages.rebuild();
         if (notify) visibilityListener.accept(visibleSections);
     }
 
@@ -294,7 +364,7 @@ public class MultiView extends JPanel {
             if (sections.size() > 1) {
                 body.add(closeSectionControl(s.key(), s.title()), BorderLayout.NORTH);
             }
-            body.add(s.customBody(), BorderLayout.CENTER);
+            body.add(s.customBody().get(), BorderLayout.CENTER);
             return body;
         }
         SearchableView view = SearchableView.builder(s.objects())
@@ -356,7 +426,13 @@ public class MultiView extends JPanel {
             for (int i = 0; i < sections.size(); i++) {
                 if (java.util.Objects.equals(sections.get(i).key(), value.typeName())) {
                     SearchableView view = sectionViews.get(i);
-                    if (view != null) view.appendViewables(java.util.List.of(value));
+                    if (view != null
+                            && sections.get(i).objects().stream().noneMatch(existing -> existing == value)) {
+                        sections.get(i).objects().add(value);
+                        view.appendViewables(java.util.List.of(value));
+                        pages.registerRevealer(value, i);
+                        pages.addOwner(value, i);
+                    }
                     break;
                 }
             }
@@ -364,27 +440,54 @@ public class MultiView extends JPanel {
     }
 
     public void removeViewables(java.util.Collection<? extends Viewable> values) {
-        for (SearchableView view : sectionViews) if (view != null) view.removeViewables(values);
+        if (values == null || values.isEmpty()) return;
+        Set<Viewable> removed = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        removed.addAll(values);
+        for (int index = 0; index < sections.size(); index++) {
+            SearchableView view = sectionViews.get(index);
+            if (view == null) continue;
+            sections.get(index).objects().removeIf(removed::contains);
+            view.removeViewables(values);
+        }
+        // Unlike hiding a panel, removing an instance removes its target.
+        context.setTopLevels(sections.stream().flatMap(section -> section.objects().stream()).toList());
+        pages.rebuild();
+        for (int index = 0; index < sections.size(); index++) {
+            SearchableView view = sectionViews.get(index);
+            if (view != null) view.refreshViewables(sections.get(index).objects());
+        }
     }
 
     public void refreshViewables(java.util.Collection<? extends Viewable> values) {
         for (SearchableView view : sectionViews) if (view != null) view.refreshViewables(values);
     }
 
-    /**
-     * Lays the sections out side by side (split for two, grid for more).
-     *
-     * This remains deliberate: ordinary multi-class results benefit from seeing
-     * related cards simultaneously. A tabbed owner is supported now, but it must call
-     * {@link RenderContext#registerTopLevelRevealer(Object, Runnable)} for each hidden
-     * card so {@code focusTopLevel} selects the owning tab before it scrolls.
-     */
-    private JComponent layout(List<JComponent> bodies) {
+    /** Keeps the sections on each tab visible side by side. */
+    private JComponent layout(List<Integer> indices) {
+        List<JComponent> bodies = indices.stream().map(sectionBodies::get).toList();
         if (bodies.isEmpty()) {
             return new JPanel();
         }
         if (bodies.size() == 1) {
             return bodies.get(0);
+        }
+        if (indices.stream().anyMatch(index -> sections.get(index).columns() > 1)) {
+            JPanel grid = new JPanel(new GridBagLayout());
+            for (int i = 0; i < bodies.size(); i++) {
+                GridBagConstraints cell = new GridBagConstraints();
+                cell.gridx = i;
+                cell.weightx = sections.get(indices.get(i)).columns();
+                cell.weighty = 1;
+                cell.fill = GridBagConstraints.BOTH;
+                if (i > 0) cell.insets = new Insets(0, 6, 0, 0);
+                // The declared widths, not a child's preferred width, divide the page.
+                JPanel slot = new JPanel(new BorderLayout());
+                slot.setPreferredSize(new Dimension(0, 0));
+                slot.setMinimumSize(new Dimension(0, 0));
+                slot.add(bodies.get(i), BorderLayout.CENTER);
+                grid.add(slot, cell);
+            }
+            return grid;
         }
         if (bodies.size() == 2) {
             JSplitPane split = new JSplitPane(
@@ -401,6 +504,121 @@ public class MultiView extends JPanel {
         return grid;
     }
 
+    private record Page(List<Integer> sections, String title, JPanel body) { }
+
+    private final class SectionPages {
+        private final Map<Object, SectionRoute> routes = new IdentityHashMap<>();
+        private final Map<Integer, Page> bySection = new java.util.HashMap<>();
+        private final List<Page> ordered = new ArrayList<>();
+
+        private final class SectionRoute implements Runnable {
+            private final int firstSection;
+            private Page visiblePage;
+
+            private SectionRoute(int firstSection) { this.firstSection = firstSection; }
+
+            @Override public void run() {
+                if (visiblePage == null) {
+                    String key = sections.get(firstSection).key();
+                    if (!visibleSections.contains(key)) {
+                        Set<String> next = new LinkedHashSet<>(visibleSections);
+                        next.add(key);
+                        applyVisibleSections(next, true);
+                    }
+                }
+                show(visiblePage);
+            }
+        }
+
+        SectionPages() {
+            tabs.setName("objectview.sections.tabs");
+            tabs.addChangeListener(ignored -> context.clearBack());
+        }
+
+        private void rebuild() {
+            Page selected = selectedPage();
+            List<Integer> previous = selected == null ? List.of() : selected.sections();
+            context.clearBack();
+            center.removeAll();
+            tabs.removeAll();
+            ordered.clear();
+            bySection.clear();
+            routes.values().forEach(route -> route.visiblePage = null);
+            List<Integer> current = new ArrayList<>();
+            int usedColumns = 0;
+            for (int i = 0; i < sections.size(); i++) {
+                String key = sections.get(i).key();
+                if (!visibleSections.contains(key)) continue;
+                if (sections.get(i).dedicatedTab()) {
+                    addPage(current);
+                    current.clear();
+                    usedColumns = 0;
+                    addPage(List.of(i));
+                } else {
+                    int columns = Math.min(sectionsPerTab, sections.get(i).columns());
+                    if (usedColumns + columns > sectionsPerTab) {
+                        addPage(current);
+                        current.clear();
+                        usedColumns = 0;
+                    }
+                    current.add(i);
+                    usedColumns += columns;
+                }
+            }
+            addPage(current);
+            if (ordered.size() > 1) {
+                ordered.forEach(page -> tabs.addTab(page.title(), page.body()));
+                previous.stream().map(bySection::get).filter(java.util.Objects::nonNull)
+                        .findFirst().ifPresent(page -> tabs.setSelectedComponent(page.body()));
+                center.add(tabs, BorderLayout.CENTER);
+            } else if (!ordered.isEmpty()) {
+                center.add(ordered.get(0).body(), BorderLayout.CENTER);
+            }
+            center.revalidate();
+            center.repaint();
+        }
+
+        private void addPage(List<Integer> indices) {
+            if (indices.isEmpty()) return;
+            String title = indices.size() == 1 ? sections.get(indices.get(0)).title()
+                    : indices.stream().map(i -> sections.get(i).key())
+                            .collect(Collectors.joining(" · "));
+            JPanel body = new JPanel(new BorderLayout());
+            body.add(layout(indices), BorderLayout.CENTER);
+            Page page = new Page(List.copyOf(indices), title, body);
+            ordered.add(page);
+            for (int index : indices) {
+                bySection.put(index, page);
+                sections.get(index).objects().forEach(value -> addOwner(value, index));
+            }
+        }
+
+        private void addOwner(Viewable value, int index) {
+            SectionRoute route = routes.get(value);
+            if (route != null && route.visiblePage == null) route.visiblePage = bySection.get(index);
+        }
+
+        private Page selectedPage() {
+            if (ordered.size() == 1) return ordered.get(0);
+            int index = tabs.getSelectedIndex();
+            return index < 0 ? null : ordered.get(index);
+        }
+
+        private void registerRevealer(Object target, int index) {
+            routes.computeIfAbsent(target, value -> {
+                SectionRoute route = new SectionRoute(index);
+                context.prependTopLevelRevealer(value, route);
+                return route;
+            });
+        }
+
+        private void show(Page page) {
+            if (page != null && ordered.size() > 1 && page != selectedPage()) {
+                tabs.setSelectedComponent(page.body());
+            }
+        }
+    }
+
     private record Section(
             String key,
             String title,
@@ -411,6 +629,8 @@ public class MultiView extends JPanel {
             FieldTypeSource fieldTypes,
             SearchPanel.ConfigState configState,
             Consumer<SearchPanel.ConfigState> configListener,
-            JComponent customBody) {
+            Supplier<? extends JComponent> customBody,
+            int columns,
+            boolean dedicatedTab) {
     }
 }

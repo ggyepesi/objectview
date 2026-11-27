@@ -310,7 +310,7 @@ public class ReferenceRow extends TextRow {
         if (target == null) {
             return;
         }
-        boolean focused = renderContext != null && renderContext.focusTopLevel(target);
+        boolean focused = renderContext != null && renderContext.focusTopLevel(target, this);
         if (NAV_DEBUG) {
             log.debug("[nav] openOrFocus target='" + target.getDisplayName()
                     + "' focused=" + focused

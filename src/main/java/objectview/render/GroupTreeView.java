@@ -3,6 +3,8 @@ package objectview.render;
 import objectview.group.GroupNode;
 import objectview.group.StrictMemberHierarchy;
 import objectview.group.ViewableGroup;
+import objectview.utils.swing.ScrollPaneUtils;
+import objectview.utils.swing.WrapLayout;
 
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
@@ -25,7 +27,6 @@ import javax.swing.tree.TreePath;
 import javax.swing.tree.TreeSelectionModel;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
-import java.awt.GridLayout;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -133,7 +134,7 @@ public class GroupTreeView extends JPanel {
 
         showButton = new JButton("Show instances");
         showButton.addActionListener(event -> showSelectedGroup());
-        controls = new JPanel(new GridLayout(0, 3, 4, 4));
+        controls = new JPanel(new WrapLayout(FlowLayout.LEFT, 4, 2));
         controls.add(detailsButton);
         controls.add(showButton);
 
@@ -146,7 +147,7 @@ public class GroupTreeView extends JPanel {
         searchRow.add(matchStatus);
         searchRow.add(sortByName);
         JPanel header = new JPanel(new BorderLayout());
-        header.add(searchRow, BorderLayout.CENTER);
+        header.add(ScrollPaneUtils.horizontalOnly(searchRow), BorderLayout.CENTER);
         header.add(status, BorderLayout.SOUTH);
         add(header, BorderLayout.NORTH);
         add(outlineAndDetails, BorderLayout.CENTER);

@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** A multi-section host projects one chosen set without changing its objects. */
 class MultiViewSectionVisibilityTest {
 
-    @Test void hidingASectionRemovesItsPanelSearchAndTopLevelStatusOnly() {
+    @Test void hidingASectionKeepsItsLoadedTargetButRemovesItsPanelAndSearch() {
         EdtTests.onEdt(() -> {
             Item star = new Item("Star", "Sirius");
             Item galaxy = new Item("Galaxy", "Andromeda");
@@ -40,12 +40,19 @@ class MultiViewSectionVisibilityTest {
             assertEquals(Set.of("Star"), multi.visibleSectionTitles());
             assertEquals(Set.of("Star"), reported.get());
             assertTrue(multi.context().isTopLevel(star));
-            assertFalse(multi.context().isTopLevel(galaxy),
-                    "a hidden class has no card to navigate to");
-            assertFalse(multi.context().focusTopLevel(galaxy),
-                    "a retained section revealer must not reopen a hidden class");
-            JButton chooser = findButton(multi, "Classes shown: 1 of 2…");
-            assertNotNull(chooser);
+            assertTrue(multi.context().isTopLevel(galaxy),
+                    "a loaded target remains navigable while its class is hidden");
+            assertNotNull(findButton(multi, "Classes shown: 1 of 2…"));
+
+            var targetSearch = multi.sectionViews().get(1).search();
+            assertTrue(targetSearch.getParent() == null, "hiding removes the class from shared search");
+            assertTrue(multi.context().focusTopLevel(new Item("Galaxy", "Andromeda")),
+                    "the typed identity resolves even when the reference is a different object");
+            assertEquals(Set.of("Star", "Galaxy"), reported.get());
+            assertNotNull(findButton(multi, "Classes shown: 2 of 2…"));
+            assertNotNull(targetSearch.getParent(), "following the link restores the search tab");
+            assertFalse(multi.context().focusTopLevel(new Item("Star", "Andromeda")),
+                    "a different declared type may not reveal the same identifier");
         });
     }
 
@@ -70,7 +77,7 @@ class MultiViewSectionVisibilityTest {
             assertEquals(Set.of("Star"), multi.visibleSectionTitles());
             assertEquals(Set.of("Star"), reported.get());
             assertNotNull(findButton(multi, "Classes shown: 1 of 2…"));
-            assertFalse(multi.context().isTopLevel(galaxy));
+            assertTrue(multi.context().isTopLevel(galaxy));
         });
     }
 

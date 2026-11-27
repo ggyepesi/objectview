@@ -7,6 +7,7 @@ import javax.swing.JComponent;
 import javax.swing.JPanel;
 import javax.swing.JSplitPane;
 import java.awt.BorderLayout;
+import java.awt.Dimension;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -23,6 +24,7 @@ import java.util.function.Function;
  */
 public final class GroupMembersView extends JPanel {
     private final GroupTreeView groups;
+    private final JSplitPane split;
     private final JPanel members = new JPanel(new BorderLayout());
     private final Function<ViewableGroup<?>, JComponent> memberView;
     private final boolean showOnSelection;
@@ -67,13 +69,29 @@ public final class GroupMembersView extends JPanel {
             if (this.showOnSelection) showGroup(group);
         });
         registerMemberRevealers(root, renderContext);
+        registerGroupRevealers(root, renderContext);
         groups.setShowButtonVisible(!showOnSelection);
         JComponent first = membersFirst ? members : groups;
         JComponent second = membersFirst ? groups : members;
-        JSplitPane split = new JSplitPane(orientation, first, second);
+        // Their natural minimums include toolbars and scrollbars. They must not
+        // force the other pane to zero in a multi-instance section.
+        first.setMinimumSize(new Dimension());
+        second.setMinimumSize(new Dimension());
+        split = new JSplitPane(orientation, first, second);
         split.setResizeWeight(resizeWeight);
         split.setOneTouchExpandable(true);
         add(split, BorderLayout.CENTER);
+    }
+
+    @Override public void doLayout() {
+        super.doLayout();
+        if (split.getDividerLocation() < 0
+                && (split.getOrientation() == JSplitPane.HORIZONTAL_SPLIT
+                        ? split.getWidth() : split.getHeight()) > split.getDividerSize()) {
+            // Apply the initial split once it has real bounds. Resizing later must
+            // preserve a divider the reader dragged or collapsed with the arrows.
+            split.setDividerLocation(split.getResizeWeight());
+        }
     }
 
     /**
@@ -93,6 +111,33 @@ public final class GroupMembersView extends JPanel {
         ownerByMember.forEach((member, owner) ->
                 renderContext.registerTopLevelRevealer(
                         member, () -> revealMemberGroup(member, owner)));
+    }
+
+    /** A modeled group's own instance is presented by its outline's details card.
+     * A facet key is a different instance and keeps its ordinary card owner. */
+    private void registerGroupRevealers(ViewableGroup<?> root, RenderContext context) {
+        Map<Viewable, ViewableGroup<?>> entities = new IdentityHashMap<>();
+        addGroupEntity(root, entities);
+        // These are the group instances represented by this section, not by a
+        // different group's descendant outline also projected into this tree.
+        root.getChildren().forEach(group -> addGroupEntity(group, entities));
+        if (entities.isEmpty()) return;
+        context.addTopLevels(entities.keySet());
+        entities.forEach((entity, group) -> context.registerTopLevelRevealer(entity,
+                () -> groups.setGroupDetailsExpanded(group, true)));
+        context.addTopLevelResolver(target -> {
+            ViewableGroup<?> group = entities.get(target);
+            return group == null ? null : groups.groupDetailsComponent(group);
+        });
+    }
+
+    private static void addGroupEntity(ViewableGroup<?> group,
+            Map<Viewable, ViewableGroup<?>> entities) {
+        Viewable entity = group.getKeyRef();
+        if (entity != null && Objects.equals(group.identityTypeName(), entity.identityTypeName())
+                && Objects.equals(group.getIdentifier(), entity.getIdentifier())) {
+            entities.putIfAbsent(entity, group);
+        }
     }
 
     private void revealMemberGroup(Viewable member, ViewableGroup<?> owner) {
