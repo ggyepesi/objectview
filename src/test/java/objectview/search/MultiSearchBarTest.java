@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
@@ -157,8 +158,13 @@ class MultiSearchBarTest {
                 SETTLE, "both visible classes have answered the query");
 
         EdtTests.onEdt(() -> {
+            int shownListeners = shown.get().getPropertyChangeListeners(SearchPanel.HAS_SEARCH_HITS).length;
+            int hiddenListeners = hidden.get().getPropertyChangeListeners(SearchPanel.HAS_SEARCH_HITS).length;
             shared.get().showEngines(List.of(shown.get()));
             assertEquals(1, shared.get().hitNavigationTabs().getTabCount());
+            assertNotNull(shared.get().hitNavigationTabs().getIconAt(0));
+            assertEquals(shownListeners, shown.get().getPropertyChangeListeners(SearchPanel.HAS_SEARCH_HITS).length);
+            assertEquals(hiddenListeners - 1, hidden.get().getPropertyChangeListeners(SearchPanel.HAS_SEARCH_HITS).length);
             assertEquals(1, shown.get().virtualHitTotal());
             assertEquals(0, hidden.get().virtualHitTotal(),
                     "a hidden class must not leave an invisible active result");

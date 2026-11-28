@@ -171,11 +171,15 @@ class MultiViewTabNavigationTest {
             var moonView = multi.sectionViews().get(1);
             moonView.cardList().getVirtualList().buildIfNeeded(moon);
             var moonSearch = moonView.search();
+            var hitTabs = (JTabbedPane) moonSearch.getParent();
             moonSearch.runCoordinatedSearch("Moon");
-            assertEquals(0, tabs.getSelectedIndex(), "searching does not move the reader");
-            assertNull(tabs.getIconAt(0), "only the tab with a match is marked");
-            assertNotNull(tabs.getIconAt(1));
-            assertEquals("Moon", tabs.getTitleAt(1), "the mark does not change the section label");
+            for (JTabbedPane view : List.of(tabs, hitTabs)) {
+                assertEquals(0, view.getSelectedIndex(), "searching does not move the reader");
+                assertNull(view.getIconAt(0), "only the tab with a match is marked");
+                assertNotNull(view.getIconAt(1));
+                assertEquals("Moon", view.getTitleAt(1), "the mark does not change the section label");
+            }
+            assertEquals(tabs.getIconAt(1), hitTabs.getIconAt(1), "both tab strips use the same mark");
 
             JButton nextHit = findButtonWithCaption(moonSearch, ">");
             assertNotNull(nextHit);
@@ -184,10 +188,13 @@ class MultiViewTabNavigationTest {
             assertFalse(back(multi).isEnabled());
             moonSearch.runCoordinatedSearch("No such moon");
             assertNull(tabs.getIconAt(1), "a later search with no matching cards clears the mark");
+            assertNull(hitTabs.getIconAt(1));
             moonSearch.runCoordinatedSearch("Moon");
             assertNotNull(tabs.getIconAt(1));
+            assertNotNull(hitTabs.getIconAt(1));
             moonSearch.runCoordinatedSearch("");
             assertNull(tabs.getIconAt(1), "clearing search removes its marks");
+            assertNull(hitTabs.getIconAt(1));
         });
     }
 

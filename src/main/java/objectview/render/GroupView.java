@@ -92,6 +92,7 @@ public class GroupView extends JPanel {
     public JTree getTree() { return treeView.getTree(); }
     public JScrollPane getTreeScrollPane() { return treeView.getTreeScrollPane(); }
     public ViewableGroup<?> selectedGroup() { return treeView.selectedGroup(); }
+    public void showSelectedGroup() { groupMembersView.showGroup(selectedGroup()); }
     public ViewableGroup<?> getViewableGroup(DefaultMutableTreeNode node) {
         return treeView.getViewableGroup(node);
     }

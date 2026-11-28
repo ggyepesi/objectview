@@ -36,6 +36,7 @@ public class MultiSearchBar extends JPanel {
             new JCheckBox("Top-level captions only");
     private final javax.swing.Timer debounce;
     private final JTabbedPane hitNavigationTabs = new JTabbedPane();
+    private final List<Runnable> unbindHitMarkers = new ArrayList<>();
     private boolean synchronizingAllTabControls;
     private final RenderContext viewContext;
     private final JPanel searchToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
@@ -120,6 +121,8 @@ public class MultiSearchBar extends JPanel {
      */
     public void showEngines(List<SearchPanel> visible) {
         List<SearchPanel> next = visible == null ? List.of() : List.copyOf(visible);
+        unbindHitMarkers.forEach(Runnable::run);
+        unbindHitMarkers.clear();
         for (SearchPanel engine : engines) {
             if (!next.contains(engine)) engine.runCoordinatedSearch("");
         }
@@ -133,6 +136,7 @@ public class MultiSearchBar extends JPanel {
             engine.setNavigationVisibilityOwnedByContainer(true);
             engine.setFieldHighlight(fieldHighlight.isSelected());
             hitNavigationTabs.addTab(engine.sectionTypeName(), engine);
+            unbindHitMarkers.add(SearchTabMarker.follow(hitNavigationTabs, engine, engine));
         }
         runSearch();
         revalidate();

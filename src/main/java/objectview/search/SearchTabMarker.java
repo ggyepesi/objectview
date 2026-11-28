@@ -4,8 +4,9 @@ import javax.swing.Icon;
 import javax.swing.JTabbedPane;
 import java.awt.Component;
 import java.awt.Graphics;
+import java.beans.PropertyChangeListener;
 
-/** Marks an instance tab without changing its title, selection or contents. */
+/** Marks a tab with search hits without changing its title, selection or contents. */
 public final class SearchTabMarker {
     private SearchTabMarker() { }
 
@@ -30,10 +31,12 @@ public final class SearchTabMarker {
         tabs.setToolTipTextAt(index, hasHits ? "This tab contains search matches" : null);
     }
 
-    /** Bind a tab with one search engine, including asynchronous index publication. */
-    public static void follow(JTabbedPane tabs, Component page, SearchPanel search) {
-        search.addPropertyChangeListener(SearchPanel.HAS_SEARCH_HITS,
-                event -> mark(tabs, page, search.hasSearchHits()));
+    /** Bind a tab to one search engine, including asynchronous index publication.
+     * The returned action unbinds a tab whose owner removes or replaces it. */
+    public static Runnable follow(JTabbedPane tabs, Component page, SearchPanel search) {
+        PropertyChangeListener listener = event -> mark(tabs, page, search.hasSearchHits());
+        search.addPropertyChangeListener(SearchPanel.HAS_SEARCH_HITS, listener);
         mark(tabs, page, search.hasSearchHits());
+        return () -> search.removePropertyChangeListener(SearchPanel.HAS_SEARCH_HITS, listener);
     }
 }
