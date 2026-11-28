@@ -4,6 +4,7 @@ import objectview.Viewable;
 import objectview.render.RenderContext;
 import objectview.search.MultiSearchBar;
 import objectview.search.SearchPanel;
+import objectview.search.SearchTabMarker;
 import objectview.view.SearchableView;
 import objectview.view.SectionVisibilityControl;
 import objectview.viewconfig.FieldTypeSource;
@@ -255,7 +256,11 @@ public class MultiView extends JPanel {
             SearchableView view = sectionViews.get(sectionViews.size() - 1);
             SearchPanel engine = view == null ? null : view.search();
             int index = sectionEngines.size();
-            if (engine != null) engine.onHitNavigation(() -> pages.show(pages.bySection.get(index)));
+            if (engine != null) {
+                engine.onHitNavigation(() -> pages.show(pages.bySection.get(index)));
+                engine.addPropertyChangeListener(SearchPanel.HAS_SEARCH_HITS,
+                        event -> pages.markHits(pages.bySection.get(index)));
+            }
             sectionEngines.add(engine);
         }
 
@@ -567,7 +572,10 @@ public class MultiView extends JPanel {
             }
             addPage(current);
             if (ordered.size() > 1) {
-                ordered.forEach(page -> tabs.addTab(page.title(), page.body()));
+                ordered.forEach(page -> {
+                    tabs.addTab(page.title(), page.body());
+                    markHits(page);
+                });
                 previous.stream().map(bySection::get).filter(java.util.Objects::nonNull)
                         .findFirst().ifPresent(page -> tabs.setSelectedComponent(page.body()));
                 center.add(tabs, BorderLayout.CENTER);
@@ -616,6 +624,13 @@ public class MultiView extends JPanel {
             if (page != null && ordered.size() > 1 && page != selectedPage()) {
                 tabs.setSelectedComponent(page.body());
             }
+        }
+
+        private void markHits(Page page) {
+            if (page == null) return;
+            boolean found = page.sections().stream().map(sectionEngines::get)
+                    .filter(java.util.Objects::nonNull).anyMatch(SearchPanel::hasSearchHits);
+            SearchTabMarker.mark(tabs, page.body(), found);
         }
     }
 

@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -25,6 +26,7 @@ import javax.imageio.ImageIO;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SearchPanelTargetCapabilityTest {
@@ -158,13 +160,18 @@ class SearchPanelTargetCapabilityTest {
         }
 
         SearchPanel[] panel = new SearchPanel[1];
+        JTabbedPane tabs = new JTabbedPane();
         SwingUtilities.invokeAndWait(() -> {
             panel[0] = new SearchPanel(Item.class);
             panel[0].setTargetAndApplyViewConfig(
                     new ConfigurableDataTarget(items.toArray(Viewable[]::new)),
                     new JPanel(), new JScrollPane());
+            var content = new JPanel();
+            tabs.addTab("Positions", content);
+            SearchTabMarker.follow(tabs, content, panel[0]);
             panel[0].runCoordinatedSearch("needle");
             assertTrue(panel[0].indexingSearch());
+            assertNull(tabs.getIconAt(0), "indexing is not a match");
         });
 
         assertTrue(extractionStarted.await(5, TimeUnit.SECONDS));
@@ -182,6 +189,7 @@ class SearchPanelTargetCapabilityTest {
         SwingUtilities.invokeAndWait(() -> {
             assertFalse(panel[0].indexingSearch());
             assertEquals(List.of(blocked), distinct(panel[0].currentHits()));
+            assertNotNull(tabs.getIconAt(0), "the finished background search marks its tab");
         });
     }
 

@@ -1194,6 +1194,18 @@ public class SearchPanel extends JPanel
         if (getParent() != null) getParent().revalidate();
     }
 
+    /** Bound property for hosts that mark the tabs containing search matches. */
+    public static final String HAS_SEARCH_HITS = "hasSearchHits";
+    private boolean hasSearchHits;
+
+    public boolean hasSearchHits() { return hasSearchHits; }
+
+    private void hasSearchHits(boolean found) {
+        boolean previous = hasSearchHits;
+        hasSearchHits = found;
+        firePropertyChange(HAS_SEARCH_HITS, previous, found);
+    }
+
     /** The owning section's logical name, or {@code null} to infer a name. */
     private String sectionName;
 
@@ -1885,6 +1897,7 @@ public class SearchPanel extends JPanel
         resultsPanel.revalidate();
         resultsPanel.repaint();
 
+        hasSearchHits(first != null);
         if (first != null) {
             markCurrentHit(first);
             scrollTo(first);
@@ -2441,6 +2454,7 @@ public class SearchPanel extends JPanel
 
     private void clearResults() {
         beginResultsReplacement();
+        hasSearchHits(false);
         resultsPanel.revalidate();
         resultsPanel.repaint();
     }
@@ -2627,6 +2641,7 @@ public class SearchPanel extends JPanel
         resultsPanel.revalidate();
         resultsPanel.repaint();
 
+        hasSearchHits(first != null);
         if (first != null) {
             first.index = 0;
             first.updateLabel();

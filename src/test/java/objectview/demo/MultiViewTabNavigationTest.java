@@ -173,12 +173,42 @@ class MultiViewTabNavigationTest {
             var moonSearch = moonView.search();
             moonSearch.runCoordinatedSearch("Moon");
             assertEquals(0, tabs.getSelectedIndex(), "searching does not move the reader");
+            assertNull(tabs.getIconAt(0), "only the tab with a match is marked");
+            assertNotNull(tabs.getIconAt(1));
+            assertEquals("Moon", tabs.getTitleAt(1), "the mark does not change the section label");
 
             JButton nextHit = findButtonWithCaption(moonSearch, ">");
             assertNotNull(nextHit);
             nextHit.doClick();
             assertEquals(1, tabs.getSelectedIndex());
             assertFalse(back(multi).isEnabled());
+            moonSearch.runCoordinatedSearch("No such moon");
+            assertNull(tabs.getIconAt(1), "a later search with no matching cards clears the mark");
+            moonSearch.runCoordinatedSearch("Moon");
+            assertNotNull(tabs.getIconAt(1));
+            moonSearch.runCoordinatedSearch("");
+            assertNull(tabs.getIconAt(1), "clearing search removes its marks");
+        });
+    }
+
+    @Test void aPageIsMarkedIfAnyOfItsSectionsHasHitsAndMarksFollowRegrouping() {
+        EdtTests.onEdt(() -> {
+            MultiView multi = new MultiView();
+            multi.sectionsPerTab(2);
+            multi.addSection("Planet", Item.class, List.of(new Item("Earth")));
+            multi.addSection("Moon", Item.class, List.of(new Item("Luna")));
+            multi.addSection("Comet", Item.class, List.of(new Item("Halley")));
+            multi.build(1);
+            var tabs = find(multi, JTabbedPane.class, "objectview.sections.tabs");
+            var lunarSearch = multi.sectionViews().get(1).search();
+            lunarSearch.runCoordinatedSearch("Luna");
+            assertNotNull(tabs.getIconAt(0));
+            assertNull(tabs.getIconAt(1));
+
+            multi.sectionsPerTab(1);
+            assertNull(tabs.getIconAt(0));
+            assertNotNull(tabs.getIconAt(1));
+            assertNull(tabs.getIconAt(2));
         });
     }
 
